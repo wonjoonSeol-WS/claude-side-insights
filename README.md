@@ -50,7 +50,7 @@ Stop hook ──► flow.py / qa.py ──► flows/, qa/ (JSON) ───┘
 
 ## Requirements
 
-macOS, Claude Code, `jq`, `/usr/bin/python3` (3.9+, stdlib only), zsh, and cmux or Orca.
+macOS, Claude Code, `jq`, `curl`, `/usr/bin/python3` (3.9+, stdlib only; `xcode-select --install` provides it), zsh, and cmux or Orca.
 
 ## Install
 
@@ -59,7 +59,7 @@ git clone <this repo> ~/.claude/activity-panel
 ~/.claude/activity-panel/install.sh
 ```
 
-`install.sh` backs up `~/.claude/settings.json`, adds the hooks, appends a marked block to `~/.zshrc` and puts `claude-panel`, `claude-flow`, `claude-qa` in `~/.local/bin`. Running it again changes nothing.
+`install.sh` adds the hooks to `~/.claude/settings.json` (a backup is written next to it, and only when something changes), appends a marked block to `~/.zshrc`, and puts `claude-panel`, `claude-flow`, `claude-qa` and `claude-activity` in `~/.local/bin`. Running it again changes nothing.
 
 ## Commands
 
@@ -80,6 +80,8 @@ Shortcuts inside the panel: `1` `2` `3` switch between Flow, Live and Q&A, `←`
 
 Open **⚙ Settings** at the top right of the panel. Changes are saved to `~/.claude/activity-panel/config.json` and apply from the next analysis; no restart needed.
 
+**Apply to** chooses the scope: **All panels** changes the default, **This panel only** overrides it for this pane (and whichever Claude session runs in it), for example Japanese in one pane and Korean in another. A per-panel value is marked in the dialog and can be reset to follow the global one.
+
 | Setting | Default | Meaning |
 |---|---|---|
 | Analysis model | `opus` | Model for flow and Q&A analysis (`opus`, `sonnet`, `haiku` or a full model id) |
@@ -88,7 +90,7 @@ Open **⚙ Settings** at the top right of the panel. Changes are saved to `~/.cl
 | Check Q&A automatically | on | Off: check Q&A only with the ↻ button |
 | Open panel at session start | on | Off: open it only with `claude-panel` |
 
-An environment variable, if exported, wins over the dialog and shows as locked there: `CLAUDE_FLOW_MODEL`, `CLAUDE_PANEL_LANG`, `CLAUDE_FLOW_AUTO`, `CLAUDE_QA_AUTO`, `CLAUDE_PANEL_AUTO`. Two more exist only as variables: `CLAUDE_QA_MODEL` (a separate model for Q&A) and `CLAUDE_PANEL_PORT` (default `47821`).
+The only environment variable is `CLAUDE_PANEL_PORT` (default `47821`).
 
 ## FAQ
 
@@ -114,20 +116,20 @@ That is what it is for: it lays out the changed feature as runtime steps and sho
 Each turn is judged against its own replies. When a turn ends, open items from earlier turns in the session (up to 20) are re-checked against it and upgraded if answered. For older items press "↻ Check with later answers" on that turn, or set the status yourself.
 
 **How do I hide the panel or turn it off?**
-`claude-panel` hides or shows it. To stop it opening on its own, switch off "Open panel at session start". To remove everything, run `uninstall.sh`.
+`claude-panel` hides or shows it. To stop it opening on its own, switch off "Open panel at session start". To remove it, run `uninstall.sh` (add `--purge` to delete recorded data and settings too).
 
 **Where is everything stored?**
 In `~/.claude/activity-panel/`: `config.json` (settings), `logs/` (tool activity), `flows/` (logic flows), `qa/<pane>/<session>/` (Q&A, kept per session) and `qa/<pane>/overrides.json` (your status changes). None of it is committed to git. The page for a pane is `http://127.0.0.1:47821/p/<pane>`, and all panes are listed at `http://127.0.0.1:47821/`.
 
 ## Data and privacy
 
-Everything stays on your machine. The server listens on 127.0.0.1 only. POST endpoints require an `X-Claude-Panel` header so other web pages cannot trigger paid runs.
+Everything stays on your machine, in files only your user can read. The server listens on 127.0.0.1, accepts only requests addressed to `127.0.0.1` or `localhost` (so a web page cannot reach it through DNS rebinding), and its POST endpoints require an `X-Claude-Panel` header, so other web pages cannot change settings or trigger paid runs.
 
 ## Uninstall
 
 ```sh
-~/.claude/activity-panel/uninstall.sh          # keeps recorded data
-~/.claude/activity-panel/uninstall.sh --purge  # also deletes it
+~/.claude/activity-panel/uninstall.sh          # keeps recorded data and settings
+~/.claude/activity-panel/uninstall.sh --purge  # also deletes them
 ```
 
 ## Not verified

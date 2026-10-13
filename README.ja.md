@@ -50,7 +50,7 @@ Stop hook ──► flow.py / qa.py ──► flows/, qa/ (JSON) ───┘
 
 ## 必要なもの
 
-macOS、Claude Code、`jq`、`/usr/bin/python3` (3.9 以上、標準ライブラリのみ)、zsh、そして cmux または Orca。
+macOS、Claude Code、`jq`、`curl`、`/usr/bin/python3` (3.9 以上、標準ライブラリのみ。`xcode-select --install` で入ります)、zsh、そして cmux または Orca。
 
 ## インストール
 
@@ -59,7 +59,7 @@ git clone <このリポジトリ> ~/.claude/activity-panel
 ~/.claude/activity-panel/install.sh
 ```
 
-`install.sh` は `~/.claude/settings.json` をバックアップしてから hook を追加し、`~/.zshrc` に目印付きのブロックを追記し、`claude-panel`、`claude-flow`、`claude-qa` を `~/.local/bin` に置きます。再実行しても何も変わりません。
+`install.sh` は `~/.claude/settings.json` に hook を追加し (変更がある場合のみ、横にバックアップを残します)、`~/.zshrc` に目印付きのブロックを追記し、`claude-panel`、`claude-flow`、`claude-qa`、`claude-activity` を `~/.local/bin` に置きます。再実行しても何も変わりません。
 
 ## コマンド
 
@@ -80,6 +80,8 @@ git clone <このリポジトリ> ~/.claude/activity-panel
 
 パネル右上の **⚙ 設定** から変更します。`~/.claude/activity-panel/config.json` に保存され、次の分析からすぐに反映されます。再起動は不要です。
 
+**適用範囲** で **すべてのパネル** を選ぶと既定値が変わり、**このパネルのみ** を選ぶとこのパネル (とその中で動く Claude セッション) だけ上書きします。たとえば一つのパネルは日本語、別のパネルは韓国語にできます。パネルごとの値は設定画面に表示され、全体の設定に戻せます。
+
 | 設定 | 既定値 | 意味 |
 |---|---|---|
 | 分析モデル | `opus` | フローと Q&A の分析モデル (`opus`、`sonnet`、`haiku` またはフルのモデル id) |
@@ -88,7 +90,7 @@ git clone <このリポジトリ> ~/.claude/activity-panel
 | Q&A を自動チェック | オン | オフにすると ↻ ボタンでのみチェック |
 | セッション開始時にパネルを開く | オン | オフにすると `claude-panel` でのみ開く |
 
-環境変数を export すると設定画面より優先され、設定画面では固定として表示されます: `CLAUDE_FLOW_MODEL`、`CLAUDE_PANEL_LANG`、`CLAUDE_FLOW_AUTO`、`CLAUDE_QA_AUTO`、`CLAUDE_PANEL_AUTO`。環境変数だけで指定できる設定がさらに二つあります: `CLAUDE_QA_MODEL` (Q&A 専用のモデル)、`CLAUDE_PANEL_PORT` (既定 `47821`)。
+環境変数は `CLAUDE_PANEL_PORT` (既定 `47821`) だけです。
 
 ## よくある質問
 
@@ -114,20 +116,20 @@ git clone <このリポジトリ> ~/.claude/activity-panel
 各ターンはそのターンの回答で判定されます。ターンが終わると、同じセッションの以前のターンで未回答の項目 (最大 20 件) をそのターンと照らし合わせ、答えられていれば更新します。それより古い項目は、そのターンの「↻ 後の回答も含めてチェック」を押すか、状態を手動で変更してください。
 
 **パネルを隠したり、オフにしたりするには?**
-`claude-panel` で表示 / 非表示を切り替えます。自動で開かないようにするには「セッション開始時にパネルを開く」をオフにします。すべて削除するには `uninstall.sh` を実行します。
+`claude-panel` で表示 / 非表示を切り替えます。自動で開かないようにするには「セッション開始時にパネルを開く」をオフにします。削除するには `uninstall.sh` を実行します (`--purge` を付けると記録と設定も消えます)。
 
 **データはどこに保存されますか?**
 `~/.claude/activity-panel/` の下です: `config.json` (設定)、`logs/` (ツールの活動)、`flows/` (ロジックフロー)、`qa/<ペイン>/<セッション>/` (Q&A、セッションごとに保存)、`qa/<ペイン>/overrides.json` (手動で変えた状態)。どれも git にはコミットされません。ペインのページは `http://127.0.0.1:47821/p/<ペイン>`、全ペインの一覧は `http://127.0.0.1:47821/` です。
 
 ## データとプライバシー
 
-すべてのデータは自分のマシン内にだけあります。サーバーは 127.0.0.1 でのみ待ち受けます。POST リクエストには `X-Claude-Panel` ヘッダーが必要なので、他の Web ページから有料の分析を実行させることはできません。
+すべてのデータは自分のマシン内に、自分のユーザーだけが読めるファイルとして保存されます。サーバーは 127.0.0.1 でのみ待ち受け、`127.0.0.1` か `localhost` 宛てのリクエストだけを受け付け (Web ページから DNS rebinding で到達できません)、POST リクエストには `X-Claude-Panel` ヘッダーが必要なので、他の Web ページが設定を変えたり有料の分析を実行させたりはできません。
 
 ## アンインストール
 
 ```sh
-~/.claude/activity-panel/uninstall.sh          # 記録したデータは残す
-~/.claude/activity-panel/uninstall.sh --purge  # データも削除
+~/.claude/activity-panel/uninstall.sh          # 記録したデータと設定は残す
+~/.claude/activity-panel/uninstall.sh --purge  # それも削除
 ```
 
 ## 未確認の点

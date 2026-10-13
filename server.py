@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Local web server for the Claude activity / logic-flow panel. Binds 127.0.0.1 only."""
-import hashlib
+"""Local web server for the panel: app.html plus JSON APIs. Listens on 127.0.0.1 only."""
 import json
 import os
 import re
@@ -8,181 +7,74 @@ import subprocess
 import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import config  # noqa: E402
-from i18n import DEFAULT, current as current_language, messages, t  # noqa: E402
-from language import Language  # noqa: E402
-from viewer import State, tool_label  # noqa: E402
+import config
+import qa_store
+from activity import ActivityTail, log_path
+from claude_run import Pending
+from common import BASE, ID_RE, KEY_RE, PORT, read_json
+from i18n import current, messages, t
+from language import DEFAULT, Language
 
-BASE = os.path.expanduser("~/.claude/activity-panel")
-PORT = int(os.environ.get("CLAUDE_PANEL_PORT", "47821"))
-KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,80}$")
-FLOW_RE = re.compile(r"^[0-9-]{1,40}$")
+MAX_BODY = 64 * 1024
+MAX_INDEX_PANES = 40
+FLOW_ID_RE = re.compile(r"^[0-9a-f-]{1,40}$")
+ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 
-
-class Activity:
-    def __init__(self, key):
-        self.path = os.path.join(BASE, "logs", f"{key}.jsonl")
-        self.state, self.pos, self.inode, self.buf = State(), 0, None, ""
-        self.lock = threading.Lock()
-
-    def snapshot(self):
-        with self.lock:
-            try:
-                st = os.stat(self.path)
-                if st.st_ino != self.inode or st.st_size < self.pos:
-                    self.state, self.pos, self.inode, self.buf = State(), 0, st.st_ino, ""
-                if st.st_size > self.pos:
-                    with open(self.path, encoding="utf-8", errors="replace") as fh:
-                        fh.seek(self.pos)
-                        self.buf += fh.read()
-                        self.pos = fh.tell()
-                    *lines, self.buf = self.buf.split("\n")
-                    for line in lines:
-                        try:
-                            self.state.apply(json.loads(line))
-                        except ValueError:
-                            pass
-            except FileNotFoundError:
-                pass
-            s = self.state
-            tools = list(s.tools.values())[-200:]
-            return {
-                "sid": s.sid, "cwd": s.cwd, "busy": s.busy,
-                "tools": [{
-                    "tool": t["tool"], "label": tool_label(t["tool"]), "summary": t["summary"],
-                    "file": s.rel(t["file"]) if t["file"] else None,
-                    "state": t["state"], "start": t["start"], "end": t["end"],
-                } for t in tools],
-                "files": [{"path": s.rel(p), "count": f["count"], "created": f["created"], "last": f["last"]}
-                          for p, f in sorted(s.files.items(), key=lambda kv: -kv[1]["last"])],
-            }
+_tails = {}
+_tails_lock = threading.Lock()
 
 
-ACTIVITIES = {}
-ACT_LOCK = threading.Lock()
+def tail(pane):
+    """The pane's activity reader, or None when the pane has no log."""
+    with _tails_lock:
+        if pane not in _tails:
+            if not os.path.exists(log_path(pane)):
+                return None
+            _tails[pane] = ActivityTail(pane)
+        return _tails[pane]
 
 
-def activity(key):
-    with ACT_LOCK:
-        if key not in ACTIVITIES:
-            ACTIVITIES[key] = Activity(key)
-        return ACTIVITIES[key]
+def snapshot(pane):
+    reader = tail(pane)
+    return reader.snapshot() if reader else {"sid": None, "cwd": None, "busy": False, "tools": [], "files": []}
 
 
-def flows_meta(key):
-    d = os.path.join(BASE, "flows", key)
-    out, pending = [], None
-    if os.path.isdir(d):
-        for name in sorted(os.listdir(d), reverse=True):
-            if not name.endswith(".json") or name.startswith("."):
-                continue
-            try:
-                with open(os.path.join(d, name), encoding="utf-8") as fh:
-                    r = json.load(fh)
-                out.append({"id": r["id"], "ts": r.get("ts"), "status": r.get("status"),
-                            "title": (r.get("flow") or {}).get("title") or r.get("prompt", "")[:30]})
-            except (OSError, ValueError, KeyError):
-                pass
-        p = os.path.join(d, "pending")
-        if os.path.exists(p):
-            try:
-                with open(p, encoding="utf-8") as fh:
-                    pending = json.load(fh)
-            except (OSError, ValueError):
-                pending = {}
-    return out, pending
+def flows(pane):
+    directory = os.path.join(BASE, "flows", pane)
+    found = []
+    for path in sorted(_json_paths(directory), reverse=True):
+        rec = read_json(path)
+        if isinstance(rec, dict) and rec.get("id"):
+            found.append({"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"),
+                          "title": (rec.get("flow") or {}).get("title") or (rec.get("prompt") or "")[:30]})
+    return found, Pending.active(os.path.join(directory, "pending"))
 
 
-def qa_sessions(key):
-    """Every session that has Q&A in this pane, newest first."""
-    d = os.path.join(BASE, "qa", key)
-    out = []
-    if os.path.isdir(d):
-        for sid in os.listdir(d):
-            sd = os.path.join(d, sid)
-            if not os.path.isdir(sd):
-                continue
-            names = [n for n in os.listdir(sd) if n.endswith(".json") and not n.startswith(".")]
-            if names:
-                out.append({"sid": sid, "turns": len(names), "last": max(os.path.getmtime(os.path.join(sd, n)) for n in names)})
-    return sorted(out, key=lambda x: -x["last"])
-
-
-def qa_records(key, sid=None):
-    """All turns of one session (every session when sid is None), newest first."""
-    d = os.path.join(BASE, "qa", key)
-    out, pending = [], os.path.exists(os.path.join(d, "pending"))
-    dirs = [os.path.join(d, sid)] if sid else [os.path.join(d, x["sid"]) for x in qa_sessions(key)]
-    for sd in dirs:
-        if not os.path.isdir(sd):
-            continue
-        for name in os.listdir(sd):
-            if not name.endswith(".json") or name.startswith("."):
-                continue
-            try:
-                with open(os.path.join(sd, name), encoding="utf-8") as fh:
-                    out.append(json.load(fh))
-            except (OSError, ValueError):
-                pass
-    out.sort(key=lambda r: -(r.get("ts") or 0))
-    return out, pending
-
-
-STATUSES = {"answered", "partial", "unanswered"}
-OVR_LOCK = threading.Lock()
-
-
-def item_key(turn_id, question):
-    return f"{turn_id}::{' '.join(str(question).split())}"
-
-
-def item_id(turn_id, question):
-    return hashlib.sha1(item_key(turn_id, question).encode("utf-8")).hexdigest()[:6]
-
-
-def overrides_path(key):
-    return os.path.join(BASE, "qa", key, "overrides.json")
-
-
-def load_overrides(key):
+def _json_paths(directory):
     try:
-        with open(overrides_path(key), encoding="utf-8") as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return {}
+        return [os.path.join(directory, n) for n in os.listdir(directory) if n.endswith(".json") and not n.startswith(".")]
+    except OSError:
+        return []
 
 
-def apply_overrides(key, records):
-    ovr = load_overrides(key)
-    for r in records:
-        for item in r.get("items", []):
-            item["id"] = item_id(r.get("turn_id"), item.get("question", ""))
-            o = ovr.get(item_key(r.get("turn_id"), item.get("question", "")), {})
-            item["auto_status"] = item.get("status")
-            if o.get("status") in STATUSES:
-                item["status"] = o["status"]
-                item["manual"] = True
-            item["archived"] = bool(o.get("archived"))
-    return records
-
-
-def config_payload(values, locked):
-    return {**values, "locked": locked, "models": list(config.MODELS),
-            "langs": [{"code": lang.code, "label": lang.label} for lang in Language]}
-
-
-def known_keys():
-    keys = {}
-    for sub in ("logs", "flows"):
-        d = os.path.join(BASE, sub)
-        if os.path.isdir(d):
-            for name in os.listdir(d):
-                k = name[:-6] if name.endswith(".jsonl") else name
-                if KEY_RE.match(k):
-                    keys[k] = max(keys.get(k, 0), os.path.getmtime(os.path.join(d, name)))
-    return sorted(keys.items(), key=lambda kv: -kv[1])
+def known_panes():
+    stamps = {}
+    for sub, suffix in (("logs", ".jsonl"), ("flows", "")):
+        directory = os.path.join(BASE, sub)
+        try:
+            names = os.listdir(directory)
+        except OSError:
+            continue
+        for name in names:
+            pane = name[:-len(suffix)] if suffix and name.endswith(suffix) else name
+            if KEY_RE.match(pane):
+                try:
+                    stamps[pane] = max(stamps.get(pane, 0), os.path.getmtime(os.path.join(directory, name)))
+                except OSError:
+                    pass
+    return sorted(stamps.items(), key=lambda kv: -kv[1])[:MAX_INDEX_PANES]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -198,127 +90,153 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def query(self):
-        raw = self.path.split("?", 1)[1] if "?" in self.path else ""
-        return dict(q.split("=", 1) if "=" in q else (q, "") for q in raw.split("&") if q)
-
     def json(self, obj, code=200):
         self.send(code, json.dumps(obj, ensure_ascii=False))
 
-    def page(self, key):
-        with open(os.path.join(BASE, "app.html"), encoding="utf-8") as fh:
-            html = fh.read()
-        lang = Language.from_code(self.query().get("lang"), current_language())
-        i18n_data = {"lang": lang.code, "messages": messages(lang), "fallback": messages(DEFAULT)}
-        html = html.replace("__PANEL_KEY__", json.dumps(key)).replace("__PANEL_I18N__", json.dumps(i18n_data, ensure_ascii=False))
-        self.send(200, html, "text/html; charset=utf-8")
+    def error(self, code, key, *args, pane=None):
+        self.json({"error": t(key, *args, pane=pane)}, code)
+
+    def body(self):
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None
+        if not 0 <= length <= MAX_BODY:
+            return None
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except ValueError:
+            return None
+        return data if isinstance(data, dict) else None
+
+    def route(self, method):
+        if self.headers.get("Host") not in ALLOWED_HOSTS:
+            return self.error(403, "err_forbidden")
+        if method == "POST" and self.headers.get("X-Claude-Panel") != "1":
+            return self.error(403, "err_forbidden")
+        url = urlsplit(self.path)
+        self.params = parse_qs(url.query)
+        parts = [p for p in url.path.split("/") if p]
+        for route_method, pattern, handler in ROUTES:
+            if route_method == method and len(pattern) == len(parts) and all(
+                    p == q if isinstance(p, str) else bool(p.match(q)) for p, q in zip(pattern, parts)):
+                return handler(self, *[q for p, q in zip(pattern, parts) if not isinstance(p, str)])
+        self.error(404, "err_not_found")
 
     def do_GET(self):
-        parts = [p for p in self.path.split("?")[0].split("/") if p]
-        if not parts:
-            return self.page(None)
-        if parts == ["api", "config"]:
-            values, locked = config.load()
-            return self.json(config_payload(values, locked))
-        if parts == ["health"]:
-            return self.json({"ok": True, "pid": os.getpid()})
-        if parts == ["api", "keys"]:
-            out = []
-            for k, mtime in known_keys()[:40]:
-                snap = activity(k).snapshot()
-                flows, pending = flows_meta(k)
-                out.append({"key": k, "mtime": mtime, "cwd": snap["cwd"], "busy": snap["busy"],
-                            "tools": len(snap["tools"]), "files": len(snap["files"]),
-                            "flow": flows[0]["title"] if flows else None, "pending": bool(pending)})
-            return self.json(out)
-        if len(parts) == 2 and parts[0] == "p" and KEY_RE.match(parts[1]):
-            return self.page(parts[1])
-        if len(parts) >= 3 and parts[0] == "api" and KEY_RE.match(parts[1]):
-            key = parts[1]
-            if parts[2] == "state":
-                flows, pending = flows_meta(key)
-                return self.json({"activity": activity(key).snapshot(), "flows": flows, "pending": pending})
-            if parts[2] == "qa":
-                sid = activity(key).snapshot()["sid"]
-                records, pending = qa_records(key, sid) if sid else ([], False)
-                return self.json({"sid": sid, "turns": apply_overrides(key, records), "pending": pending})
-            if parts[2] == "flow" and len(parts) == 4 and FLOW_RE.match(parts[3]):
-                p = os.path.join(BASE, "flows", key, f"{parts[3]}.json")
-                if os.path.exists(p):
-                    with open(p, encoding="utf-8") as fh:
-                        return self.send(200, fh.read())
-        self.json({"error": "not found"}, 404)
+        self.route("GET")
 
     def do_POST(self):
-        parts = [p for p in self.path.split("?")[0].split("/") if p]
-        if self.headers.get("X-Claude-Panel") != "1":
-            return self.json({"error": "forbidden"}, 403)
-        if parts == ["api", "config"]:
-            try:
-                values, locked = config.save(json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}"))
-            except (ValueError, TypeError, AttributeError) as exc:
-                return self.json({"error": str(exc)}, 400)
-            return self.json(config_payload(values, locked))
-        if len(parts) == 4 and parts[0] == "api" and KEY_RE.match(parts[1]) and parts[2:] == ["qa", "override"]:
-            try:
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
-                if body.get("id"):
-                    sid = activity(parts[1]).snapshot()["sid"]
-                    records, _ = qa_records(parts[1], sid) if sid else ([], False)
-                    match = next(((r["turn_id"], i["question"]) for r in records for i in r.get("items", [])
-                                  if item_id(r.get("turn_id"), i.get("question", "")) == body["id"]), None)
-                    if not match:
-                        return self.json({"error": t("err_no_id", body["id"])}, 404)
-                    body["turn_id"], body["question"] = match
-                k = item_key(body["turn_id"], body["question"])
-            except (ValueError, KeyError, TypeError):
-                return self.json({"error": t("err_need_id")}, 400)
-            with OVR_LOCK:
-                ovr = load_overrides(parts[1])
-                o = ovr.get(k, {})
-                if "status" in body:
-                    if body["status"] in STATUSES:
-                        o["status"] = body["status"]
-                    else:
-                        o.pop("status", None)
-                if "archived" in body:
-                    o["archived"] = bool(body["archived"])
-                if o.get("status") or o.get("archived"):
-                    ovr[k] = o
-                else:
-                    ovr.pop(k, None)
-                os.makedirs(os.path.dirname(overrides_path(parts[1])), exist_ok=True)
-                tmp = overrides_path(parts[1]) + ".tmp"
-                with open(tmp, "w", encoding="utf-8") as fh:
-                    json.dump(ovr, fh, ensure_ascii=False, indent=1)
-                os.replace(tmp, overrides_path(parts[1]))
-            return self.json({"ok": True})
-        if len(parts) == 3 and parts[0] == "api" and KEY_RE.match(parts[1]) and parts[2] == "open":
-            subprocess.Popen(["/usr/bin/open", f"http://127.0.0.1:{PORT}/p/{parts[1]}?full=1"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return self.json({"ok": True})
-        if len(parts) == 3 and parts[0] == "api" and KEY_RE.match(parts[1]) and parts[2] == "regen":
-            turn = os.path.join(BASE, "turns", f"{parts[1]}.json")
-            if not os.path.exists(turn):
-                return self.json({"error": t("err_no_turn")}, 409)
-            with open(turn, encoding="utf-8") as fh:
-                t = json.load(fh)
-            query = self.path.split("?", 1)[-1] if "?" in self.path else ""
-            turn_id = next((v for k, v in (q.split("=", 1) for q in query.split("&") if "=" in q) if k == "turn"), None)
-            if turn_id:
-                if not re.match(r"^[A-Za-z0-9-]{1,64}$", turn_id):
-                    return self.json({"error": "bad turn id"}, 400)
-                records, _ = qa_records(parts[1])
-                rec = next((r for r in records if r.get("turn_id") == turn_id), {})
-                script = ["qa.py", parts[1], rec.get("transcript") or t["transcript"], turn_id]
-            elif "qa" in query:
-                script = ["qa.py", parts[1], t["transcript"]]
-            else:
-                script = ["flow.py", parts[1], t["transcript"], t["cwd"]]
-            subprocess.Popen([sys.executable, os.path.join(BASE, script[0]), *script[1:], "--force"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
-            return self.json({"ok": True})
-        self.json({"error": "not found"}, 404)
+        self.route("POST")
+
+    def param(self, name):
+        return (self.params.get(name) or [None])[0]
+
+    def get_page(self, pane=None):
+        with open(os.path.join(BASE, "app.html"), encoding="utf-8") as fh:
+            html = fh.read()
+        lang = Language.from_code(self.param("lang"), current(pane))
+        i18n_data = {"lang": lang.code, "messages": messages(lang), "fallback": messages(DEFAULT)}
+        inject = {"__PANEL_KEY__": pane, "__PANEL_I18N__": i18n_data}
+        for marker, value in inject.items():
+            html = html.replace(marker, json.dumps(value, ensure_ascii=False).replace("</", "<\\/"))
+        self.send(200, html, "text/html; charset=utf-8")
+
+    def get_health(self):
+        self.json({"ok": True, "pid": os.getpid(), "app": "claude-panel"})
+
+    def get_config(self):
+        self.json(config.payload(self.param("pane") if KEY_RE.match(self.param("pane") or "") else None))
+
+    def post_config(self):
+        update = self.body()
+        pane = self.param("pane")
+        if update is None or (pane is not None and not KEY_RE.match(pane)):
+            return self.error(400, "err_bad_request")
+        try:
+            config.save(update, pane)
+        except ValueError as exc:
+            return self.json({"error": str(exc)}, 400)
+        self.json(config.payload(pane))
+
+    def get_panes(self):
+        out = []
+        for pane, mtime in known_panes():
+            snap = snapshot(pane)
+            pane_flows, pending = flows(pane)
+            out.append({"key": pane, "mtime": mtime, "cwd": snap["cwd"], "busy": snap["busy"], "tools": len(snap["tools"]),
+                        "files": len(snap["files"]), "flow": pane_flows[0]["title"] if pane_flows else None, "pending": bool(pending)})
+        self.json(out)
+
+    def get_state(self, pane):
+        pane_flows, pending = flows(pane)
+        snap = snapshot(pane)
+        records = qa_store.with_overrides(pane, qa_store.records(pane, snap["sid"])) if snap["sid"] else []
+        qa_pending = Pending.active(qa_store.pending_path(pane))
+        self.json({"activity": snap, "flows": pane_flows, "pending": pending,
+                   "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending)}})
+
+    def get_flow(self, pane, flow_id):
+        rec = read_json(os.path.join(BASE, "flows", pane, f"{flow_id}.json"))
+        if not isinstance(rec, dict):
+            return self.error(404, "err_not_found", pane=pane)
+        self.json(rec)
+
+    def post_override(self, pane):
+        body = self.body()
+        if body is None or not isinstance(body.get("id"), str):
+            return self.error(400, "err_need_id", pane=pane)
+        sid = snapshot(pane)["sid"]
+        found = qa_store.find_item(pane, sid, body["id"]) if sid else None
+        if not found:
+            return self.error(404, "err_no_id", body["id"], pane=pane)
+        status = ...
+        if "status" in body:
+            status = qa_store.Status.parse(body["status"])
+            if body["status"] is not None and status is None:
+                return self.error(400, "err_bad_request", pane=pane)
+        archived = body.get("archived") if isinstance(body.get("archived"), bool) else None
+        qa_store.set_override(pane, *found, status=status, archived=archived)
+        self.json({"ok": True})
+
+    def post_open(self, pane):
+        subprocess.Popen(["/usr/bin/open", f"http://127.0.0.1:{PORT}/p/{pane}?full=1"],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.json({"ok": True})
+
+    def post_regen(self, pane):
+        last = read_json(os.path.join(BASE, "turns", f"{pane}.json"))
+        if not isinstance(last, dict) or not last.get("transcript"):
+            return self.error(409, "err_no_turn", pane=pane)
+        target = self.param("target")
+        turn_id = self.param("turn")
+        if target not in ("flow", "qa") or (turn_id is not None and not ID_RE.match(turn_id)):
+            return self.error(400, "err_bad_request", pane=pane)
+        marker = qa_store.pending_path(pane) if target == "qa" else os.path.join(BASE, "flows", pane, "pending")
+        if Pending.active(marker):
+            return self.error(409, "err_running", pane=pane)
+        if target == "flow":
+            args = ["flow.py", pane, last["transcript"], last.get("cwd") or ""]
+        else:
+            args = ["qa.py", pane, last["transcript"]] + ([turn_id] if turn_id else [])
+        subprocess.Popen([sys.executable, os.path.join(BASE, args[0]), *args[1:], "--force"],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        self.json({"ok": True})
+
+
+ROUTES = [
+    ("GET", [], Handler.get_page),
+    ("GET", ["p", KEY_RE], Handler.get_page),
+    ("GET", ["health"], Handler.get_health),
+    ("GET", ["api", "config"], Handler.get_config),
+    ("GET", ["api", "panes"], Handler.get_panes),
+    ("GET", ["api", KEY_RE, "state"], Handler.get_state),
+    ("GET", ["api", KEY_RE, "flow", FLOW_ID_RE], Handler.get_flow),
+    ("POST", ["api", "config"], Handler.post_config),
+    ("POST", ["api", KEY_RE, "qa", "override"], Handler.post_override),
+    ("POST", ["api", KEY_RE, "open"], Handler.post_open),
+    ("POST", ["api", KEY_RE, "regen"], Handler.post_regen),
+]
 
 
 def main():

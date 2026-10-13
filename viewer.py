@@ -1,273 +1,149 @@
 #!/usr/bin/env python3
-"""Live side panel: tools Claude used and files it changed, for one cmux panel (or session)."""
-import json
+"""Live activity of one pane as a terminal UI.
+
+usage: viewer.py [pane]   (default: this cmux/Orca pane)
+"""
 import os
 import signal
 import sys
 import time
 import unicodedata
-from collections import OrderedDict
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from i18n import t  # noqa: E402
+from activity import ERR, OK, RUN, ActivityTail, tool_label
+from common import EDIT_TOOLS, pane_key
+from i18n import t
 
-BASE = os.path.expanduser("~/.claude/activity-panel")
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-MAX_TOOLS = 500
+POLL_SECONDS = 0.1
+ANIMATE_SECONDS = 0.2
+IDLE_REDRAW_SECONDS = 5
+FILES_SHARE = 0.4
+MIN_FILE_ROWS = 3
+NAME_MIN, NAME_MAX = 6, 14
+CLOCK_WIDTH = 9
 
 DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
 RED, GREEN, YELLOW, BLUE, CYAN, MAGENTA = (f"\033[3{n}m" for n in (1, 2, 3, 4, 6, 5))
 
 
-def width(s):
-    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 0 if unicodedata.combining(c) else 1 for c in s)
+def width(text):
+    return sum(2 if unicodedata.east_asian_width(c) in "WF" else 0 if unicodedata.combining(c) else 1 for c in text)
 
 
-def fit(s, w):
-    if w <= 0:
-        return ""
-    if width(s) <= w:
-        return s + " " * (w - width(s))
+def _cut(chars, limit):
     out, used = [], 0
-    for c in s:
-        cw = width(c)
-        if used + cw > w - 1:
+    for c in chars:
+        if used + width(c) > limit:
             break
         out.append(c)
-        used += cw
-    return "".join(out) + "…" + " " * (w - used - 1)
+        used += width(c)
+    return out, used
 
 
-def fit_left(s, w):
-    """Truncate from the left, keeping the end (file names)."""
-    if width(s) <= w:
-        return s + " " * (w - width(s))
-    out, used = [], 0
-    for c in reversed(s):
-        cw = width(c)
-        if used + cw > w - 1:
-            break
-        out.append(c)
-        used += cw
-    return "…" + "".join(reversed(out)) + " " * (w - used - 1)
-
-
-def tool_label(name):
-    if name and name.startswith("mcp__"):
-        parts = name.split("__")
-        server = parts[1].replace("claude_ai_", "").replace("plugin_", "")
-        return f"{server}:{parts[-1]}"
-    return name or "?"
-
-
-def fmt_secs(s):
-    if s is None:
+def fit(text, cols):
+    if cols <= 0:
         return ""
-    if s < 1:
-        return f"{int(s * 1000)}ms"
-    if s < 60:
-        return f"{s:.1f}s"
-    return f"{int(s // 60)}m{int(s % 60):02d}s"
+    if width(text) <= cols:
+        return text + " " * (cols - width(text))
+    out, used = _cut(text, cols - 1)
+    return "".join(out) + "…" + " " * (cols - used - 1)
 
 
-class State:
-    def __init__(self):
-        self.reset(None)
-
-    def reset(self, sid):
-        self.sid = sid
-        self.cwd = None
-        self.tools = OrderedDict()
-        self.files = {}
-        self.busy = False
-        self.seq = 0
-
-    def apply(self, e):
-        sid = e.get("sid")
-        if sid and sid != self.sid and e.get("ev") in ("SessionStart", "UserPromptSubmit", "PreToolUse"):
-            self.reset(sid)
-        if e.get("cwd"):
-            self.cwd = e["cwd"]
-        ev = e.get("ev")
-        if ev == "UserPromptSubmit":
-            self.busy = True
-        elif ev in ("Stop", "SessionEnd"):
-            self.busy = False
-            for t in self.tools.values():
-                if t["state"] == "run":
-                    t["state"] = "lost"
-        elif ev == "PreToolUse":
-            self.busy = True
-            self.seq += 1
-            key = e.get("id") or f"anon-{self.seq}"
-            self.tools[key] = {
-                "tool": e.get("tool"), "summary": e.get("summary") or "", "file": e.get("file"),
-                "start": e.get("ts"), "end": None, "state": "run",
-            }
-            while len(self.tools) > MAX_TOOLS:
-                self.tools.popitem(last=False)
-        elif ev in ("PostToolUse", "PostToolUseFailure"):
-            key = e.get("id")
-            t = self.tools.get(key) if key else None
-            if t is None:
-                t = next((v for v in reversed(self.tools.values())
-                          if v["state"] == "run" and v["tool"] == e.get("tool")), None)
-            if t is None:
-                self.seq += 1
-                t = self.tools[key or f"anon-{self.seq}"] = {
-                    "tool": e.get("tool"), "summary": e.get("summary") or "", "file": e.get("file"),
-                    "start": e.get("ts"), "end": None, "state": "run",
-                }
-            t["end"] = e.get("ts")
-            t["state"] = "err" if e.get("error") else "ok"
-            if e.get("tool") in EDIT_TOOLS and e.get("file") and not e.get("error"):
-                f = self.files.setdefault(e["file"], {"count": 0, "created": False, "last": 0})
-                f["count"] += 1
-                f["last"] = e.get("ts") or time.time()
-                if e.get("kind") == "create":
-                    f["created"] = True
-
-    def rel(self, path):
-        if self.cwd and path.startswith(self.cwd.rstrip("/") + "/"):
-            return path[len(self.cwd.rstrip("/")) + 1:]
-        home = os.path.expanduser("~")
-        return "~" + path[len(home):] if path.startswith(home) else path
+def fit_left(text, cols):
+    if width(text) <= cols:
+        return text + " " * (cols - width(text))
+    out, used = _cut(reversed(text), cols - 1)
+    return "…" + "".join(reversed(out)) + " " * (cols - used - 1)
 
 
-def render(st, key, tick):
+def fmt_secs(seconds):
+    if seconds < 1:
+        return f"{int(seconds * 1000)}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    return f"{int(seconds // 60)}m{int(seconds % 60):02d}s"
+
+
+def _tool_line(tool, st, tick, now, cols):
+    state = tool["state"]
+    icon = {RUN: f"{YELLOW}{SPINNER[tick % len(SPINNER)]}{RESET}", OK: f"{GREEN}✓{RESET}", ERR: f"{RED}✗{RESET}"}.get(state, f"{DIM}-{RESET}")
+    end = now if state == RUN else tool["end"]
+    dur = fmt_secs(end - tool["start"]) if tool["start"] and end else ""
+    clock = time.strftime("%H:%M:%S", time.localtime(tool["start"])) if tool["start"] else "--:--:--"
+    name = tool_label(tool["tool"])
+    color = MAGENTA if tool["tool"] in EDIT_TOOLS else CYAN if (tool["tool"] or "").startswith("mcp__") else BLUE
+    name_w = min(NAME_MAX, max(NAME_MIN, width(name)))
+    rest = cols - 2 - CLOCK_WIDTH - name_w - 1 - width(dur) - 1
+    summary = fit_left(st.rel(tool["file"]), rest) if tool["file"] else fit(tool["summary"], rest)
+    return f"{icon} {DIM}{clock}{RESET} {color}{fit(name, name_w)}{RESET} {summary}{DIM}{dur}{RESET}"
+
+
+def render(st, tick):
     cols, rows = os.get_terminal_size()
-    now = time.time()
-    lines = []
-
     status = f"{YELLOW}{SPINNER[tick % len(SPINNER)]} {t('busy')}{RESET}" if st.busy else f"{DIM}○ {t('idle')}{RESET}"
-    title = f"{BOLD}Claude activity{RESET}  {status}"
-    lines.append(title)
     where = os.path.basename((st.cwd or "").rstrip("/")) or "-"
-    sid = (st.sid or "-")[:8]
-    lines.append(f"{DIM}{fit(f'{where}  /  {sid}', cols)}{RESET}")
-
-    files = sorted(st.files.items(), key=lambda kv: -kv[1]["last"])
-    tools = list(st.tools.values())
-    body = rows - len(lines) - 2
-    file_rows = min(len(files), max(3, body * 2 // 5)) if files else 1
-    tool_rows = max(1, body - file_rows)
+    session = (st.sid or "-")[:8]
+    lines = [f"{BOLD}{t('title_index')}{RESET}  {status}", f"{DIM}{fit(where + '  /  ' + session, cols)}{RESET}"]
 
     def rule(label):
         return f"{DIM}── {RESET}{BOLD}{label}{RESET} {DIM}{'─' * max(0, cols - width(label) - 4)}{RESET}"
 
+    files = sorted(st.files.items(), key=lambda kv: -kv[1]["last"])
+    tools = list(st.tools.values())
+    body = rows - len(lines) - 2
+    file_rows = min(len(files), max(MIN_FILE_ROWS, int(body * FILES_SHARE))) if files else 1
+    shown = files if len(files) <= file_rows else files[:file_rows - 1]
     lines.append(rule(t("term_files", len(files))))
     if not files:
         lines.append(f"{DIM}  {t('term_none')}{RESET}")
-    shown = files[:file_rows] if len(files) <= file_rows else files[:file_rows - 1]
-    for path, f in shown:
-        mark = f"{GREEN}A{RESET}" if f["created"] else f"{YELLOW}M{RESET}"
-        count = f"×{f['count']}" if f["count"] > 1 else ""
-        name_w = cols - 4 - width(count)
-        lines.append(f" {mark} {fit_left(st.rel(path), name_w)}{DIM}{count}{RESET}")
+    for path, changed in shown:
+        mark = f"{GREEN}A{RESET}" if changed["created"] else f"{YELLOW}M{RESET}"
+        count = f"×{changed['count']}" if changed["count"] > 1 else ""
+        lines.append(f" {mark} {fit_left(st.rel(path), cols - 4 - width(count))}{DIM}{count}{RESET}")
     if len(files) > len(shown):
         lines.append(f"{DIM}   {t('term_more', len(files) - len(shown))}{RESET}")
-
     lines.append(rule(t("term_tools", len(tools))))
-    visible = tools[-tool_rows:] if tools else []
     if not tools:
         lines.append(f"{DIM}  {t('term_not_yet')}{RESET}")
-    for t in visible:
-        state = t["state"]
-        if state == "run":
-            icon = f"{YELLOW}{SPINNER[tick % len(SPINNER)]}{RESET}"
-            dur = fmt_secs(now - t["start"]) if t["start"] else ""
-        elif state == "ok":
-            icon = f"{GREEN}✓{RESET}"
-            dur = fmt_secs(t["end"] - t["start"]) if t["start"] and t["end"] else ""
-        elif state == "err":
-            icon = f"{RED}✗{RESET}"
-            dur = fmt_secs(t["end"] - t["start"]) if t["start"] and t["end"] else ""
-        else:
-            icon = f"{DIM}-{RESET}"
-            dur = ""
-        clock = time.strftime("%H:%M:%S", time.localtime(t["start"])) if t["start"] else "--:--:--"
-        name = tool_label(t["tool"])
-        name_color = MAGENTA if t["tool"] in EDIT_TOOLS else CYAN if (t["tool"] or "").startswith("mcp__") else BLUE
-        name_w = min(14, max(6, width(name)))
-        summary = st.rel(t["file"]) if t["file"] else t["summary"]
-        rest = cols - 2 - 9 - name_w - 1 - width(dur) - 1
-        summary_txt = fit_left(summary, rest) if t["file"] else fit(summary, rest)
-        lines.append(f"{icon} {DIM}{clock}{RESET} {name_color}{fit(name, name_w)}{RESET} {summary_txt}{DIM}{dur}{RESET}")
+    now = time.time()
+    lines += [_tool_line(tool, st, tick, now, cols) for tool in tools[-max(1, body - file_rows):]]
 
-    out = ["\033[H"]
-    for i, line in enumerate(lines[:rows]):
-        out.append(line + "\033[K" + ("\r\n" if i < min(len(lines), rows) - 1 else ""))
-    out.append("\033[J")
-    sys.stdout.write("".join(out))
+    visible = lines[:rows]
+    sys.stdout.write("\033[H" + "\r\n".join(line + "\033[K" for line in visible) + "\033[J")
     sys.stdout.flush()
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("usage: viewer.py <cmux-panel-id|session-id>", file=sys.stderr)
-        sys.exit(2)
-    key = sys.argv[1]
-    log = os.path.join(BASE, "logs", f"{key}.jsonl")
-    pid_dir = os.path.join(BASE, "viewers")
-    os.makedirs(pid_dir, exist_ok=True)
-    pid_file = os.path.join(pid_dir, f"{key}.pid")
-    with open(pid_file, "w") as fh:
-        fh.write(str(os.getpid()))
+    pane = sys.argv[1] if len(sys.argv) > 1 else pane_key()
+    if not pane:
+        sys.exit(__doc__)
+    tail = ActivityTail(pane)
 
-    def cleanup(*_):
+    def restore_terminal(*_):
         sys.stdout.write("\033[?25h\033[0m\r\n")
         sys.stdout.flush()
-        try:
-            if open(pid_file).read().strip() == str(os.getpid()):
-                os.remove(pid_file)
-        except OSError:
-            pass
         sys.exit(0)
 
-    signal.signal(signal.SIGINT, cleanup)
-    signal.signal(signal.SIGTERM, cleanup)
-    signal.signal(signal.SIGHUP, cleanup)
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, restore_terminal)
     resized = [True]
     signal.signal(signal.SIGWINCH, lambda *_: resized.__setitem__(0, True))
-
     sys.stdout.write("\033[?25l\033[2J")
-    if os.environ.get("CMUX_SURFACE_ID"):
-        sys.stdout.write("\033]0;Claude activity\007")
-    st = State()
-    pos, inode, buf, tick, last_draw = 0, None, "", 0, 0.0
+    tick, last_draw = 0, 0.0
     while True:
-        changed = False
-        try:
-            stat = os.stat(log)
-            if stat.st_ino != inode or stat.st_size < pos:
-                inode, pos, buf = stat.st_ino, 0, ""
-                st.reset(None)
-                changed = True
-            if stat.st_size > pos:
-                with open(log, "r", encoding="utf-8", errors="replace") as fh:
-                    fh.seek(pos)
-                    buf += fh.read()
-                    pos = fh.tell()
-                *complete, buf = buf.split("\n")
-                for line in complete:
-                    try:
-                        st.apply(json.loads(line))
-                        changed = True
-                    except ValueError:
-                        pass
-        except FileNotFoundError:
-            pass
-        animating = st.busy or any(t["state"] == "run" for t in st.tools.values())
-        if changed or resized[0] or (animating and time.time() - last_draw > 0.2) or time.time() - last_draw > 5:
+        changed = tail.refresh()
+        st = tail.state
+        animating = st.busy or any(tool["state"] == RUN for tool in st.tools.values())
+        since = time.time() - last_draw
+        if changed or resized[0] or (animating and since > ANIMATE_SECONDS) or since > IDLE_REDRAW_SECONDS:
             resized[0] = False
             tick += 1
             try:
-                render(st, key, tick)
+                render(st, tick)
             except OSError:
                 pass
             last_draw = time.time()
-        time.sleep(0.1)
+        time.sleep(POLL_SECONDS)
 
 
 if __name__ == "__main__":

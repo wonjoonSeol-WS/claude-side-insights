@@ -1,7 +1,7 @@
 def cut(n): if type == "string" and length > n then .[0:n] + "…" else . end;
 (.tool_input // {}) as $in
 | {
-    ts: ($ts | tonumber),
+    ts: now,
     ev: .hook_event_name,
     sid: .session_id,
     cwd: .cwd,
@@ -16,4 +16,6 @@ def cut(n): if type == "string" and length > n then .[0:n] + "…" else . end;
             elif .hook_event_name == "PostToolUse"
             then ([.tool_response | objects | (.is_error // .error // false)] | any(. != false and . != null))
             else null end)
-  }
+  } as $event
+| ($event | tojson),
+  (if .hook_event_name == "Stop" and (.transcript_path // "") != "" then ["STOP", .transcript_path, (.cwd // "")] | @tsv else empty end)

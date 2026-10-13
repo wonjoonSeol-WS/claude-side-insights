@@ -1,79 +1,99 @@
-"""Panel settings: config.json (edited from the panel's settings dialog), overridden by environment variables when set.
+"""Panel settings, stored in config.json and edited from the panel's settings dialog.
 
-usage: config.py get <name>   prints the value (booleans as 1/0), for shell scripts
+usage: config.py get <name> [pane]   prints the value (booleans as 1/0), for shell scripts
 """
-import json
 import os
 import re
 import sys
+import threading
+from enum import Enum
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from language import DEFAULT as DEFAULT_LANGUAGE, Language  # noqa: E402
+from common import BASE, atomic_write_json, read_json
+from language import DEFAULT as DEFAULT_LANGUAGE, Language
 
-PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json")
-DEFAULTS = {"model": "opus", "lang": DEFAULT_LANGUAGE.code, "flow_auto": True, "qa_auto": True, "panel_auto": True}
-ENV = {"model": "CLAUDE_FLOW_MODEL", "lang": "CLAUDE_PANEL_LANG", "flow_auto": "CLAUDE_FLOW_AUTO",
-       "qa_auto": "CLAUDE_QA_AUTO", "panel_auto": "CLAUDE_PANEL_AUTO"}
+PATH = os.path.join(BASE, "config.json")
 MODELS = ("opus", "sonnet", "haiku")
-MODEL_RE = re.compile(r"^(opus|sonnet|haiku|claude-[a-z0-9.-]+)$")
+_MODEL_RE = re.compile(r"^(%s|claude-[a-z0-9.-]+)$" % "|".join(MODELS))
+_SAVE_LOCK = threading.Lock()
 
 
-def _valid(name, value):
-    if name == "model":
-        return isinstance(value, str) and bool(MODEL_RE.match(value))
-    if name == "lang":
-        return Language.from_code(value) is not None and len(value) == 2
-    return isinstance(value, bool)
+class Setting(Enum):
+    MODEL = ("model", "opus")
+    LANG = ("lang", DEFAULT_LANGUAGE.code)
+    FLOW_AUTO = ("flow_auto", True)
+    QA_AUTO = ("qa_auto", True)
+    PANEL_AUTO = ("panel_auto", True)
+
+    def __init__(self, key, default):
+        self.key = key
+        self.default = default
+
+    def valid(self, value):
+        if self is Setting.MODEL:
+            return isinstance(value, str) and bool(_MODEL_RE.match(value))
+        if self is Setting.LANG:
+            return Language.from_code(value) is not None
+        return isinstance(value, bool)
 
 
-def _from_env(name):
-    raw = os.environ.get(ENV[name])
-    if raw is None or raw == "":
-        return None
-    value = raw[:2].lower() if name == "lang" else raw if name == "model" else raw != "0"
-    return value if _valid(name, value) else None
+_BY_KEY = {s.key: s for s in Setting}
+_PANES = "panes"
 
 
 def _saved():
-    try:
-        with open(PATH, encoding="utf-8") as fh:
-            data = json.load(fh)
-        return {k: v for k, v in data.items() if k in DEFAULTS and _valid(k, v)}
-    except (OSError, ValueError, AttributeError):
-        return {}
+    saved = read_json(PATH, {})
+    return saved if isinstance(saved, dict) else {}
 
 
-def load():
-    """Effective settings and the names pinned by environment variables."""
-    values, locked = {**DEFAULTS, **_saved()}, []
-    for name in DEFAULTS:
-        env_value = _from_env(name)
-        if env_value is not None:
-            values[name] = env_value
-            locked.append(name)
-    return values, locked
+def _valid_only(values):
+    return {k: v for k, v in (values or {}).items() if k in _BY_KEY and _BY_KEY[k].valid(v)} if isinstance(values, dict) else {}
 
 
-def get(name):
-    return load()[0][name]
+def overrides(pane):
+    return _valid_only(_saved().get(_PANES, {}).get(pane)) if pane else {}
 
 
-def save(update):
+def load(pane=None):
+    """Effective settings: defaults, then the global values, then this pane's overrides."""
     saved = _saved()
+    return {**{s.key: s.default for s in Setting}, **_valid_only(saved), **overrides(pane)}
+
+
+def get(name, pane=None):
+    return load(pane)[name]
+
+
+def save(update, pane=None):
+    """Save global values, or this pane's overrides when pane is given. A None value removes a pane override."""
+    if not isinstance(update, dict):
+        raise ValueError("settings must be an object")
     for name, value in update.items():
-        if name not in DEFAULTS or not _valid(name, value):
+        if name not in _BY_KEY or not (_BY_KEY[name].valid(value) or (pane and value is None)):
             raise ValueError(f"invalid setting: {name}={value!r}")
-        saved[name] = value
-    tmp = PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(saved, fh, ensure_ascii=False, indent=2)
-    os.replace(tmp, PATH)
-    return load()
+    with _SAVE_LOCK:
+        saved = _saved()
+        data = {**_valid_only(saved), _PANES: dict(saved.get(_PANES) or {})}
+        if pane:
+            pane_values = {**overrides(pane), **update}
+            pane_values = {k: v for k, v in pane_values.items() if v is not None}
+            if pane_values:
+                data[_PANES][pane] = pane_values
+            else:
+                data[_PANES].pop(pane, None)
+        else:
+            data.update(update)
+        atomic_write_json(PATH, data)
+    return load(pane)
+
+
+def payload(pane=None):
+    return {"global": load(), "pane": overrides(pane), "effective": load(pane), "models": list(MODELS),
+            "langs": [{"code": lang.code, "label": lang.label} for lang in Language]}
 
 
 if __name__ == "__main__":
-    if len(sys.argv) == 3 and sys.argv[1] == "get" and sys.argv[2] in DEFAULTS:
-        value = get(sys.argv[2])
+    if len(sys.argv) in (3, 4) and sys.argv[1] == "get" and sys.argv[2] in _BY_KEY:
+        value = get(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
         print(int(value) if isinstance(value, bool) else value)
     else:
         sys.exit(__doc__)

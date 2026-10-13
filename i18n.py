@@ -1,30 +1,35 @@
-"""Translations from locales/<code>.json, shared with the web UI. The active language is the `lang` setting."""
-import json
+"""Translations from locales/<code>.json, shared with the web UI. The language is the `lang` setting of the pane."""
 import os
-import sys
 from functools import lru_cache
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import config  # noqa: E402
-from language import DEFAULT, Language  # noqa: E402
+import config
+from common import BASE, read_json
+from language import DEFAULT, Language
 
 
-def current():
-    return Language.from_code(config.get("lang"), DEFAULT)
+def current(pane=None):
+    return Language.from_code(config.get("lang", pane), DEFAULT)
 
 
 @lru_cache(maxsize=None)
+def _locale_path(language):
+    return os.path.join(BASE, "locales", f"{language.code}.json")
+
+
 def messages(language):
-    with open(language.locale_path, encoding="utf-8") as fh:
-        return json.load(fh)
+    return read_json(_locale_path(language), {})
 
 
-def t(key, *args):
-    text = messages(current()).get(key) or messages(DEFAULT).get(key) or key
+def t(key, *args, pane=None):
+    text = messages(current(pane)).get(key) or messages(DEFAULT).get(key) or key
     return text.format(*args)
 
 
-def output_language_instruction():
-    name = current().prompt_name
-    return (f"\n\n출력 언어: 모든 텍스트 필드(title, summary, explanation, question, answer 등)는 {name} 로 쓴다. "
-            f"Write every text field in {name}. 코드 발췌와 식별자는 원문 그대로 둔다.")
+if __name__ == "__main__":
+    import sys
+
+    from common import pane_key
+
+    if len(sys.argv) < 2:
+        sys.exit("usage: i18n.py <message-key> [args...]")
+    print(t(sys.argv[1], *sys.argv[2:], pane=pane_key() or None))

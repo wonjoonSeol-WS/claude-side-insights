@@ -50,7 +50,7 @@ Stop hook ──► flow.py / qa.py ──► flows/, qa/ (JSON) ───┘
 
 ## 요구 사항
 
-macOS, Claude Code, `jq`, `/usr/bin/python3` (3.9 이상, 표준 라이브러리만), zsh, 그리고 cmux 또는 Orca.
+macOS, Claude Code, `jq`, `curl`, `/usr/bin/python3` (3.9 이상, 표준 라이브러리만. `xcode-select --install` 로 설치됨), zsh, 그리고 cmux 또는 Orca.
 
 ## 설치
 
@@ -59,7 +59,7 @@ git clone <이 저장소> ~/.claude/activity-panel
 ~/.claude/activity-panel/install.sh
 ```
 
-`install.sh` 는 `~/.claude/settings.json` 을 백업한 뒤 hook 을 추가하고, `~/.zshrc` 에 표시된 블록을 붙이고, `claude-panel`, `claude-flow`, `claude-qa` 를 `~/.local/bin` 에 넣습니다. 다시 실행해도 바뀌는 것이 없습니다.
+`install.sh` 는 `~/.claude/settings.json` 에 hook 을 추가하고 (바뀌는 것이 있을 때만, 옆에 백업을 남김), `~/.zshrc` 에 표시된 블록을 붙이고, `claude-panel`, `claude-flow`, `claude-qa`, `claude-activity` 를 `~/.local/bin` 에 넣습니다. 다시 실행해도 바뀌는 것이 없습니다.
 
 ## 명령
 
@@ -80,6 +80,8 @@ git clone <이 저장소> ~/.claude/activity-panel
 
 패널 오른쪽 위 **⚙ 설정** 에서 바꿉니다. `~/.claude/activity-panel/config.json` 에 저장되고 다음 분석부터 바로 적용됩니다. 재시작은 필요 없습니다.
 
+**적용 범위** 에서 **모든 패널** 을 고르면 기본값이 바뀌고, **이 패널만** 을 고르면 이 패널(과 그 안에서 도는 Claude 세션)에만 덮어씁니다. 예를 들어 한 패널은 일본어, 다른 패널은 한국어로 쓸 수 있습니다. 패널별 값은 설정 창에 표시되고 전체 설정을 따르도록 되돌릴 수 있습니다.
+
 | 설정 | 기본값 | 의미 |
 |---|---|---|
 | 분석 모델 | `opus` | 흐름과 Q&A 분석 모델 (`opus`, `sonnet`, `haiku` 또는 전체 모델 id) |
@@ -88,7 +90,7 @@ git clone <이 저장소> ~/.claude/activity-panel
 | Q&A 자동 점검 | 켜짐 | 끄면 ↻ 버튼으로만 점검 |
 | 세션 시작 때 패널 열기 | 켜짐 | 끄면 `claude-panel` 로만 열기 |
 
-환경변수를 export 하면 설정 창보다 우선하고, 설정 창에는 고정됨으로 표시됩니다: `CLAUDE_FLOW_MODEL`, `CLAUDE_PANEL_LANG`, `CLAUDE_FLOW_AUTO`, `CLAUDE_QA_AUTO`, `CLAUDE_PANEL_AUTO`. 환경변수로만 있는 설정이 두 개 더 있습니다: `CLAUDE_QA_MODEL` (Q&A 에만 쓸 모델), `CLAUDE_PANEL_PORT` (기본 `47821`).
+환경변수는 `CLAUDE_PANEL_PORT` (기본 `47821`) 하나뿐입니다.
 
 ## 자주 묻는 질문
 
@@ -114,20 +116,20 @@ git clone <이 저장소> ~/.claude/activity-panel
 각 턴은 그 턴의 답변으로 판정합니다. 턴이 끝날 때 같은 세션의 이전 턴에서 답을 못 받은 항목(최대 20개)을 그 턴과 다시 대조해, 답했으면 올려 줍니다. 더 오래된 항목은 그 턴의 "↻ 이후 답변까지 점검" 을 누르거나 상태를 직접 바꾸세요.
 
 **패널을 숨기거나 끄려면?**
-`claude-panel` 로 숨기거나 보입니다. 저절로 열리지 않게 하려면 "세션 시작 때 패널 열기" 를 끕니다. 전부 지우려면 `uninstall.sh` 를 실행합니다.
+`claude-panel` 로 숨기거나 보입니다. 저절로 열리지 않게 하려면 "세션 시작 때 패널 열기" 를 끕니다. 제거하려면 `uninstall.sh` 를 실행합니다 (`--purge` 를 붙이면 기록과 설정까지 지움).
 
 **데이터는 어디에 저장되나요?**
 `~/.claude/activity-panel/` 아래에 있습니다: `config.json` (설정), `logs/` (도구 활동), `flows/` (로직 흐름), `qa/<패널>/<세션>/` (Q&A, 세션별 보관), `qa/<패널>/overrides.json` (직접 바꾼 상태). 모두 git 에 올라가지 않습니다. 패널 페이지 주소는 `http://127.0.0.1:47821/p/<패널>`, 모든 패널 목록은 `http://127.0.0.1:47821/` 입니다.
 
 ## 데이터와 개인정보
 
-모든 데이터는 내 컴퓨터에만 있습니다. 서버는 127.0.0.1 에서만 열립니다. POST 요청에는 `X-Claude-Panel` 헤더가 필요해서, 다른 웹 페이지가 유료 분석을 실행시킬 수 없습니다.
+모든 데이터는 내 컴퓨터에, 내 계정만 읽을 수 있는 파일로 있습니다. 서버는 127.0.0.1 에서만 열리고, `127.0.0.1` 이나 `localhost` 로 온 요청만 받으며 (그래서 웹 페이지가 DNS rebinding 으로 접근할 수 없음), POST 요청에는 `X-Claude-Panel` 헤더가 필요해서 다른 웹 페이지가 설정을 바꾸거나 유료 분석을 실행시킬 수 없습니다.
 
 ## 제거
 
 ```sh
-~/.claude/activity-panel/uninstall.sh          # 기록한 데이터는 남김
-~/.claude/activity-panel/uninstall.sh --purge  # 데이터까지 삭제
+~/.claude/activity-panel/uninstall.sh          # 기록한 데이터와 설정은 남김
+~/.claude/activity-panel/uninstall.sh --purge  # 그것까지 삭제
 ```
 
 ## 확인하지 못한 것

@@ -5,23 +5,18 @@
   claude-qa set <id> answered|partial|unanswered|auto
   claude-qa archive <id> | restore <id>
 """
+import http.client
 import json
-import os
-import re
 import sys
 import urllib.error
 import urllib.request
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from i18n import t  # noqa: E402
+from common import PORT, pane_key
+from i18n import t
+from qa_store import STATUSES
 
-PORT = os.environ.get("CLAUDE_PANEL_PORT", "47821")
-STATUSES = ("answered", "partial", "unanswered")
-
-
-def pane_key():
-    raw = os.environ.get("CMUX_PANEL_ID") or os.environ.get("ORCA_PANE_KEY") or os.environ.get("CLAUDE_PANEL_KEY") or ""
-    return re.sub(r"[^A-Za-z0-9_.-]", "_", raw)[-80:]
+AUTO = "auto"
+TIMEOUT = 5
 
 
 def call(method, path, body=None):
@@ -29,37 +24,44 @@ def call(method, path, body=None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json", "X-Claude-Panel": "1"})
     try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
-        sys.exit(json.load(exc).get("error") or str(exc))
-    except urllib.error.URLError:
+        try:
+            message = json.load(exc).get("error")
+        except ValueError:
+            message = None
+        sys.exit(message or str(exc))
+    except (urllib.error.URLError, http.client.HTTPException, ConnectionError, ValueError):
         sys.exit(t("server_down"))
 
 
+def list_items(pane, only_open):
+    data = call("GET", f"/api/{pane}/state")
+    for turn in reversed(data.get("qa", {}).get("turns", [])):
+        items = [i for i in turn.get("items", []) if not i.get("archived") and not (only_open and i.get("status") == "answered")]
+        if items:
+            print(f"\n# {(turn.get('prompt') or '')[:70]}")
+        for item in items:
+            status = item.get("status")
+            label = t("st_" + status, pane=pane) if status in STATUSES else status
+            print(f"  {item.get('id')}  {label}{t('manual', pane=pane) if item.get('manual') else ''}  {item.get('question')}")
+
+
 def main():
-    key = pane_key()
-    if not key:
+    pane = pane_key()
+    if not pane:
         sys.exit(t("no_pane"))
-    args = sys.argv[1:] or ["list"]
-    cmd = args[0]
-    if cmd == "list":
-        only_open = "--open" in args
-        data = call("GET", f"/api/{key}/qa")
-        for turn in reversed(data.get("turns", [])):
-            items = [i for i in turn.get("items", []) if not i.get("archived") and (not only_open or i["status"] != "answered")]
-            if not items:
-                continue
-            print(f"\n# {turn.get('prompt', '')[:70]}")
-            for i in items:
-                flag = t("manual") if i.get("manual") else ""
-                print(f"  {i['id']}  {t('st_' + i['status']) if i['status'] in STATUSES else i['status']}{flag}  {i['question']}")
-    elif cmd == "set" and len(args) == 3 and args[2] in (*STATUSES, "auto"):
-        call("POST", f"/api/{key}/qa/override", {"id": args[1], "status": None if args[2] == "auto" else args[2]})
-        print(f"{args[1]} -> {args[2]}")
-    elif cmd in ("archive", "restore") and len(args) == 2:
-        call("POST", f"/api/{key}/qa/override", {"id": args[1], "archived": cmd == "archive"})
-        print(f"{args[1]} {cmd}d")
+    args = sys.argv[1:]
+    command = args[0] if args and not args[0].startswith("--") else "list"
+    if command == "list":
+        list_items(pane, "--open" in args)
+    elif command == "set" and len(args) == 3 and args[2] in (*STATUSES, AUTO):
+        call("POST", f"/api/{pane}/qa/override", {"id": args[1], "status": None if args[2] == AUTO else args[2]})
+        print(t("cli_set", args[1], args[2], pane=pane))
+    elif command in ("archive", "restore") and len(args) == 2:
+        call("POST", f"/api/{pane}/qa/override", {"id": args[1], "archived": command == "archive"})
+        print(t("cli_" + command + "d", args[1], pane=pane))
     else:
         sys.exit(__doc__)
 

@@ -1,12 +1,10 @@
-# runtime data: session logs, generated flows and Q&A contain conversation content
 logs/
 flows/
 qa/
 turns/
-opened/
-viewers/
+config.json
 *.log
 *.tmp
+.tmp-*
 __pycache__/
 .DS_Store
-config.json
