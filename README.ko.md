@@ -60,18 +60,18 @@ Flow 탭은 예시 하나를 모든 단계에 따라가며 보여 줍니다. 값
 | 터미널 | Claude 옆에 열리는 것 | 테스트 |
 |---|---|---|
 | [cmux](https://cmux.dev) | 전체 패널 (브라우저 split) | 함 |
-| Orca | 실시간 화면 (split) | 함 |
-| Ghostty 1.3 이상 | 실시간 화면 (split) | 함 |
-| iTerm2 | 실시간 화면 (split) | 함 |
+| Orca | 터미널 패널 (split) | 함 |
+| Ghostty 1.3 이상 | 터미널 패널 (split) | 함 |
+| iTerm2 | 터미널 패널 (split) | 함 |
 | 그 밖의 터미널 | 없음. 아래 명령을 쓰세요 | 함 |
 
-- Orca, Ghostty, iTerm2에서 Flow와 Q&A는 `! claude-flow`로 엽니다.
+- 터미널 패널에도 Flow, 실시간, Q&A 세 탭이 있습니다. `! claude-flow`는 브라우저 버전을 엽니다.
 - Ghostty, iTerm2는 AppleScript로 조작합니다. 처음 한 번 macOS가 권한을 묻습니다.
 - 터미널 추가는 셸 파일 하나면 됩니다. [terminals/README.md](terminals/README.md) 참고.
 
 ## 요구 사항
 
-- macOS
+- macOS (`osascript`, `open`, 시스템 Python을 씁니다)
 - Claude Code 2.1.275 이상
 - `jq`, `curl`
 - `/usr/bin/python3` 3.9 이상 (`xcode-select --install`)
@@ -109,7 +109,7 @@ Claude Code 안에서 앞에 `!`를 붙여 실행합니다. 예: `! claude-panel
 | 턴이 끝나면 Q&A 점검 | 켜짐 | 끄면 ↻ 버튼으로만 점검 |
 | 세션이 시작되면 패널 열기 | 켜짐 | 끄면 `claude-panel`로만 열림 |
 
-환경변수는 `CLAUDE_PANEL_PORT`(기본 `47821`) 하나뿐입니다.
+환경변수: `SIDE_INSIGHTS_PORT`(기본 `47821`), `SIDE_INSIGHTS_DATA`(기본 `~/.claude/side-insights`).
 
 ## 자주 묻는 질문
 
@@ -141,10 +141,12 @@ Claude Code 안에서 앞에 `!`를 붙여 실행합니다. 예: `! claude-panel
 | `config.json` | 설정 |
 | `token` | 페이지와 `claude-qa`가 쓰는 비밀값 |
 | `logs/` | 도구 활동 |
-| `turns/` | 창별 턴 시작 위치 |
+| `turns/` | 창별로 마지막에 끝난 턴의 transcript와 폴더 |
 | `flows/` | Flow |
 | `qa/<창>/<세션>/` | Q&A, 세션별 |
 | `qa/<창>/overrides.json` | 직접 바꾼 상태 |
+| `terminals/` | 열려 있는 터미널 패널의 핸들 |
+| `server.log`, `analysis.log` | 로컬 서버와 Flow, Q&A 실행 로그 |
 
 ## 동작 방식
 
@@ -165,7 +167,7 @@ flowchart LR
 
 - 모든 데이터는 `~/.claude/side-insights/`에 있고 내 계정만 읽을 수 있습니다.
 - 서버는 127.0.0.1에서만 열리고, 호스트가 `127.0.0.1`이나 `localhost`인 요청만 받습니다 (DNS rebinding 차단).
-- 모든 페이지와 API는 비밀 토큰으로 보호됩니다. 토큰은 자동으로 만들어지고 `claude-panel`, `claude-flow`가 여는 링크에 자동으로 붙으므로 직접 입력할 일은 없습니다. 다른 웹 페이지나 같은 컴퓨터의 다른 사용자는 토큰이 없어서 기록을 읽거나 유료 분석을 실행할 수 없습니다.
+- 모든 페이지와 API는 비밀 토큰으로 보호됩니다. 토큰은 자동으로 만들어지고 `claude-panel`, `claude-flow`가 여는 링크에 자동으로 붙으므로 직접 입력할 일은 없습니다. 다른 웹 페이지나 같은 컴퓨터의 다른 사용자는 토큰이 없어서 기록을 읽거나 유료 분석을 실행할 수 없습니다. `claude-panel`이 출력하는 링크에는 토큰이 들어 있고 세션 기록에도 남으니, 비밀번호처럼 다루세요.
 
 ## 제거
 
@@ -173,7 +175,9 @@ flowchart LR
 /plugin uninstall side-insights@claude-side-insights
 ```
 
-기록한 데이터는 `~/.claude/side-insights/`에 남습니다. 지우려면 그 폴더를 삭제하세요.
+기록한 데이터는 `~/.claude/side-insights/`에 남습니다. 지우려면 그 폴더를 삭제하세요. 로컬 서버는 Mac을 다시 시작하면 꺼지고, 바로 끄려면 `pkill -f 'side_insights server'`를 실행하세요.
+
+**예전 `install.sh` 버전을 쓰셨다면** 남은 것을 한 번 지워 주세요. `~/.claude/settings.json`에서 `~/.claude/activity-panel/record.sh`나 `open-panel.sh`를 가리키는 hook, `~/.zshrc`의 `claude-activity-panel` 블록, `~/.local/bin`의 `claude-panel`, `claude-flow`, `claude-qa`, `claude-activity`입니다.
 
 ## 라이선스
 

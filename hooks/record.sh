@@ -1,7 +1,7 @@
 #!/bin/bash
 # Hook for PreToolUse, PostToolUse, PostToolUseFailure, UserPromptSubmit and Stop.
 set -u
-[ -z "${CLAUDE_ACTIVITY_CHILD:-}" ] || exit 0
+[ -z "${SIDE_INSIGHTS_CHILD:-}" ] || exit 0
 umask 077
 LOG_MAX_BYTES=5000000
 LOG_KEEP_LINES=5000
@@ -26,7 +26,7 @@ if [ -n "$stop_json" ]; then
   printf '%s\n' "$stop_json" > "$turn_file.tmp" && mv "$turn_file.tmp" "$turn_file"
   transcript=$(printf '%s' "$stop_json" | jq -r '.transcript')
   cwd=$(printf '%s' "$stop_json" | jq -r '.cwd')
-  panel_py detach flow "$key" "$transcript" "$cwd" </dev/null >> "$base/flow.log" 2>&1 &
-  panel_py detach qa "$key" "$transcript" </dev/null >> "$base/flow.log" 2>&1 &
+  panel_py detach flow "$key" "$transcript" "$cwd" </dev/null >> "$base/analysis.log" 2>&1 &
+  panel_py detach qa "$key" "$transcript" </dev/null >> "$base/analysis.log" 2>&1 &
 fi
 exit 0

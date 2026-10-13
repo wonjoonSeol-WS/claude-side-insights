@@ -49,7 +49,7 @@ label.btn { display: inline-flex; gap: 6px; align-items: center; }
 @keyframes pulse { 50% { opacity: .25; } }
 
 .grid { display: grid; grid-template-columns: 300px minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
-@media (max-width: 1250px) { .grid { grid-template-columns: 260px minmax(0, 1fr); } .side { grid-column: 1 / -1; } }
+@media (max-width: 1250px) { .grid { grid-template-columns: 260px minmax(0, 1fr); } .grid > :first-child { grid-row: 1 / span 2; } .side { grid-column: 2; } }
 @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } .tab { max-width: 180px; } .grid > .detail { order: -1; } }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
 .card h3 { margin: 0 0 12px; font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
@@ -258,7 +258,7 @@ async function api(method, url, body) {
   try {
     const r = await fetch(url, {
       method,
-      headers: { "Content-Type": "application/json", "X-Claude-Panel": TOKEN },
+      headers: { "Content-Type": "application/json", "X-Side-Insights": TOKEN },
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -363,9 +363,12 @@ function tickTimers() {
   });
 }
 
+const UNSTABLE_DATA = new Set(["tip"]);
+
 function selectorOf(el) {
-  if (!el || !el.dataset || !Object.keys(el.dataset).length) return null;
-  return Object.entries(el.dataset).map(([k, v]) => `[data-${k.replace(/[A-Z]/g, c => "-" + c.toLowerCase())}="${CSS.escape(v)}"]`).join("");
+  const entries = Object.entries(el?.dataset || {}).filter(([k]) => !UNSTABLE_DATA.has(k));
+  if (!entries.length) return null;
+  return entries.map(([k, v]) => `[data-${k.replace(/[A-Z]/g, c => "-" + c.toLowerCase())}="${CSS.escape(v)}"]`).join("");
 }
 
 function render() {
@@ -539,11 +542,10 @@ function findItem(id) {
   return null;
 }
 
-const DEFAULT_ETA_SECONDS = 40;
 
 function waitingCard() {
   const waiting = list(S.qa.waiting);
-  const eta = S.qa.eta || DEFAULT_ETA_SECONDS;
+  const eta = S.qa.eta;
   if (!waiting.length) return `<div class="qa-eta">${t("qa_eta", eta)}</div>`;
   const note = S.qa.pending ? t("qa_wait_checking") : S.qa.auto === false ? t("qa_wait_off") : t("qa_wait_d", eta);
   return `<div class="card qa-wait" role="status"><b>⏳ ${t("qa_wait_t", waiting.length)}</b><p class="qa-note">${note}</p>

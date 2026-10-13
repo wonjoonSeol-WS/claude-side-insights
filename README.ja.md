@@ -60,18 +60,18 @@ English、한국어、日本語に対応しています。
 | ターミナル | Claude の横に開くもの | テスト |
 |---|---|---|
 | [cmux](https://cmux.dev) | パネル全体 (ブラウザ split) | 済み |
-| Orca | リアルタイム画面 (split) | 済み |
-| Ghostty 1.3 以上 | リアルタイム画面 (split) | 済み |
-| iTerm2 | リアルタイム画面 (split) | 済み |
+| Orca | ターミナルパネル (split) | 済み |
+| Ghostty 1.3 以上 | ターミナルパネル (split) | 済み |
+| iTerm2 | ターミナルパネル (split) | 済み |
 | その他 | なし。下のコマンドを使います | 済み |
 
-- Orca、Ghostty、iTerm2 では、フローと Q&A は `! claude-flow` で開きます。
+- ターミナルパネルにもフロー、リアルタイム、Q&A の三つのタブがあります。`! claude-flow` はブラウザ版を開きます。
 - Ghostty と iTerm2 は AppleScript で操作します。最初に一度だけ macOS が許可を求めます。
 - ターミナルの追加はシェルファイル一つです。[terminals/README.md](terminals/README.md) を参照。
 
 ## 必要なもの
 
-- macOS
+- macOS (`osascript`、`open`、システムの Python を使います)
 - Claude Code 2.1.275 以上
 - `jq`、`curl`
 - `/usr/bin/python3` 3.9 以上 (`xcode-select --install`)
@@ -109,7 +109,7 @@ Claude Code の中で先頭に `!` を付けて実行します。例: `! claude-
 | ターン終了時に Q&A をチェック | オン | オフにすると ↻ ボタンでのみチェック |
 | セッション開始時にパネルを開く | オン | オフにすると `claude-panel` でのみ開く |
 
-環境変数は `CLAUDE_PANEL_PORT` (既定 `47821`) だけです。
+環境変数: `SIDE_INSIGHTS_PORT` (既定 `47821`) と `SIDE_INSIGHTS_DATA` (既定 `~/.claude/side-insights`)。
 
 ## よくある質問
 
@@ -141,10 +141,12 @@ Claude Code の中で先頭に `!` を付けて実行します。例: `! claude-
 | `config.json` | 設定 |
 | `token` | ページと `claude-qa` が使う秘密の値 |
 | `logs/` | ツールの活動 |
-| `turns/` | ペインごとのターン開始位置 |
+| `turns/` | ペインごとに最後に終わったターンの transcript とフォルダ |
 | `flows/` | フロー |
 | `qa/<ペイン>/<セッション>/` | Q&A、セッションごと |
 | `qa/<ペイン>/overrides.json` | 手動で変えた状態 |
+| `terminals/` | 開いているターミナルパネルのハンドル |
+| `server.log`、`analysis.log` | ローカルサーバーとフロー、Q&A の実行ログ |
 
 ## 仕組み
 
@@ -165,7 +167,7 @@ flowchart LR
 
 - データはすべて `~/.claude/side-insights/` にあり、自分のユーザーだけが読めます。
 - サーバーは 127.0.0.1 だけで待ち受け、ホストが `127.0.0.1` か `localhost` のリクエストだけを受け付けます (DNS rebinding 対策)。
-- すべてのページと API は秘密のトークンで守られています。トークンは自動で作られ、`claude-panel` と `claude-flow` が開くリンクに自動で付くので、自分で入力することはありません。ほかの Web ページや同じマシンのほかのユーザーはトークンを持たないため、記録を読んだり有料の分析を実行したりできません。
+- すべてのページと API は秘密のトークンで守られています。トークンは自動で作られ、`claude-panel` と `claude-flow` が開くリンクに自動で付くので、自分で入力することはありません。ほかの Web ページや同じマシンのほかのユーザーはトークンを持たないため、記録を読んだり有料の分析を実行したりできません。`claude-panel` が表示するリンクにはトークンが含まれ、セッションの記録にも残るので、パスワードと同じように扱ってください。
 
 ## アンインストール
 
@@ -173,7 +175,9 @@ flowchart LR
 /plugin uninstall side-insights@claude-side-insights
 ```
 
-記録したデータは `~/.claude/side-insights/` に残ります。消すにはそのフォルダを削除してください。
+記録したデータは `~/.claude/side-insights/` に残ります。消すにはそのフォルダを削除してください。ローカルサーバーは Mac を再起動すると止まります。すぐ止めるには `pkill -f 'side_insights server'` を実行してください。
+
+**以前の `install.sh` 版を使っていた場合**は、残ったものを一度だけ消してください。`~/.claude/settings.json` で `~/.claude/activity-panel/record.sh` か `open-panel.sh` を指す hook、`~/.zshrc` の `claude-activity-panel` ブロック、`~/.local/bin` の `claude-panel`、`claude-flow`、`claude-qa`、`claude-activity` です。
 
 ## ライセンス
 

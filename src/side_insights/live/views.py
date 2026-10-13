@@ -2,15 +2,17 @@
 import os
 import time
 
+from side_insights import config
 from side_insights.analysis import flow_store, qa_store
 from side_insights.analysis.runner import Pending
 from side_insights.analysis.waiting import Waiting, eta_seconds
 from side_insights.i18n import t
 from side_insights.live.activity import ERR, OK, RUN, tool_label
-from side_insights.live.term import (BOLD, inner_width, BLUE, CODE_BG, FAINT, GREEN, HIGHLIGHT_BG, LINE, MUTED, ORANGE, PURPLE, RED,
-                                     SELECTED_BG, TEAL, TEXT, YELLOW, badge, bg, box, bullets, fit, fit_left, key_cap,
-                                     paint, pad, rule, styled, tint, visible_width, width)
+from side_insights.live.term import (BLUE, CODE_BG, FAINT, GREEN, HIGHLIGHT_BG, LINE, MUTED, ORANGE, PURPLE, RED, RESET,
+                                     SELECTED_BG, TEAL, TEXT, YELLOW, badge, bg, box, bullets, fit, fit_left, inner_width,
+                                     key_cap, pad, paint, styled, tint, visible_width, width)
 from side_insights.paths import EDIT_TOOLS
+from side_insights.records import RecordStatus, Source, StepKind
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 CAT = "ᓚᘏᗢ"
@@ -22,10 +24,13 @@ MAX_FILES = 30
 WIDE_COLS = 110
 GAP = 2
 NAME_MIN, NAME_MAX = 6, 14
+CLOCK_COLS = 9
+MIN_SUMMARY = 8
 STATUS_COLOR = {qa_store.Status.ANSWERED.value: GREEN, qa_store.Status.PARTIAL.value: ORANGE,
                 qa_store.Status.UNANSWERED.value: RED}
-KIND_COLOR = {"input": MUTED, "logic": BLUE, "external": PURPLE, "storage": GREEN, "output": PURPLE,
-              "config": ORANGE, "test": TEAL}
+KIND_COLOR = {StepKind.INPUT.value: MUTED, StepKind.LOGIC.value: BLUE, StepKind.EXTERNAL.value: ORANGE,
+              StepKind.STORAGE.value: GREEN, StepKind.OUTPUT.value: PURPLE, StepKind.CONFIG.value: MUTED,
+              StepKind.TEST.value: TEAL}
 WAITING = Waiting()
 
 
@@ -53,21 +58,32 @@ def cat(busy, tick):
     return paint(GROUND * spot, FAINT) + paint(CAT, ORANGE, bold=True) + paint(GROUND * (TRACK - spot), FAINT)
 
 
-def header(tab_keys, current, st, tick, cols):
-    pane = st.pane
-    tabs = " ".join(paint(f" {key} {t('mode_' + tab.value, pane=pane)} ", TEXT if tab == current else MUTED,
+def _tabs(tab_keys, current, pane, labels=True):
+    return " ".join(paint(f" {key} {t('mode_' + tab.value, pane=pane)} " if labels else f" {key} ", TEXT if tab == current else MUTED,
                           tint(BLUE, 0.55) if tab == current else tint(LINE, 0.6), bold=tab == current)
                     for key, tab in tab_keys.items())
+
+
+def header(tab_keys, current, st, tick, cols):
+    pane = st.pane
+    tabs = _tabs(tab_keys, current, pane)
+    top = f"{tabs}  {cat(st.busy, tick)}"
+    if visible_width(top) > cols:
+        top = tabs if visible_width(tabs) <= cols else _tabs(tab_keys, current, pane, labels=False)
     where = os.path.basename((st.cwd or "").rstrip("/")) or "-"
     status = paint(f"{SPINNER[tick % len(SPINNER)]} {t('busy', pane=pane)}", ORANGE) if st.busy \
         else paint(f"○ {t('idle', pane=pane)}", FAINT)
-    return [f"{tabs}  {cat(st.busy, tick)}", f"{status}  {paint(fit(where + '  /  ' + (st.sid or '-')[:8], cols - 14).rstrip(), FAINT)}", ""]
+    room = cols - visible_width(status) - 2
+    return [top, f"{status}  {paint(fit(where + '  /  ' + (st.sid or '-')[:8], room).rstrip(), FAINT)}", ""]
 
 
 def footer(pane, cols):
     keys = [("1 2 3", "term_k_tabs"), ("←→", "term_k_steps"), ("↑↓", "term_k_scroll"), ("o", "term_k_open"), ("q", "term_k_quit")]
-    line = paint(t("term_click", pane=pane), FAINT) + " " + " ".join(f"{key_cap(k)} {paint(t(label, pane=pane), MUTED)}" for k, label in keys)
-    return line if visible_width(line) <= cols else " ".join(key_cap(k) for k, _ in keys)
+    labelled = " ".join(f"{key_cap(k)} {paint(t(label, pane=pane), MUTED)}" for k, label in keys)
+    for line in (paint(t("term_click", pane=pane), FAINT) + " " + labelled, labelled, " ".join(key_cap(k) for k, _ in keys)):
+        if visible_width(line) <= cols:
+            return line
+    return ""
 
 
 def _tool_line(tool, st, tick, now, cols):
@@ -78,22 +94,32 @@ def _tool_line(tool, st, tick, now, cols):
     name = tool_label(tool["tool"])
     color = PURPLE if tool["tool"] in EDIT_TOOLS else TEAL if (tool["tool"] or "").startswith("mcp__") else BLUE
     name_w = min(NAME_MAX, max(NAME_MIN, width(name)))
-    rest = cols - 2 - 9 - name_w - 1 - width(dur) - 1
+    stamp = paint(clock(tool["start"], True), FAINT) + " "
+    rest = cols - 2 - CLOCK_COLS - name_w - 1 - width(dur) - 1
+    if rest < MIN_SUMMARY:
+        stamp, rest = "", rest + CLOCK_COLS
+    if rest < MIN_SUMMARY:
+        name_w, rest = NAME_MIN, rest + name_w - NAME_MIN
     summary = fit_left(st.rel(tool["file"]), rest) if tool["file"] else fit(tool["summary"], rest)
-    return f"{icon} {paint(clock(tool['start'], True), FAINT)} {paint(fit(name, name_w), color, bold=True)} {paint(summary, TEXT)}{paint(dur, FAINT)}"
+    return f"{icon} {stamp}{paint(fit(name, name_w), color, bold=True)} {paint(summary, TEXT)} {paint(dur, FAINT)}"
 
 
-def _legend(pane):
+def _legend(pane, cols):
     marks = [(paint("✓", GREEN), "term_ok"), (paint("✗", RED), "term_err"), (paint("–", FAINT), "term_lost"), (paint(SPINNER[0], ORANGE), "term_run")]
-    return "  ".join(f"{mark} {paint(t(key, pane=pane), FAINT)}" for mark, key in marks)
+    line = "  ".join(f"{mark} {paint(t(key, pane=pane), FAINT)}" for mark, key in marks)
+    return line if visible_width(line) <= cols else " ".join(mark for mark, _ in marks)
 
 
-def _side_by_side(left, right, cols, gap=GAP):
-    left_w = (cols - gap) * 2 // 5
+def _split(cols):
+    left = (cols - GAP) * 2 // 5
+    return left, cols - left - GAP
+
+
+def _side_by_side(left, right, left_w):
     rows = max(len(left), len(right))
     left += [""] * (rows - len(left))
     right += [""] * (rows - len(right))
-    return [pad(a, left_w) + " " * gap + b for a, b in zip(left, right)]
+    return [pad(a, left_w) + " " * GAP + b for a, b in zip(left, right)]
 
 
 def live_lines(st, tick, cols, rows):
@@ -103,29 +129,31 @@ def live_lines(st, tick, cols, rows):
     done = sum(1 for tool in tools if tool["state"] in (OK, ERR))
     failed = sum(1 for tool in tools if tool["state"] == ERR)
     lines = [f"{progress(done, len(tools), GREEN if not failed else ORANGE)} {paint(f'{done}/{len(tools)}', MUTED)}"
-             + (f"  {paint(f'✗ {failed}', RED)}" if failed else ""), _legend(pane), ""]
+             + (f"  {paint(f'✗ {failed}', RED)}" if failed else ""), _legend(pane, cols), ""]
     wide = cols >= WIDE_COLS
-    files_w = (cols - GAP) * 2 // 5 if wide else cols
-    tools_w = cols - files_w - GAP if wide else cols
+    files_w, tools_w = _split(cols) if wide else (cols, cols)
     file_lines = [paint(t("term_none", pane=pane), FAINT)] if not files else []
     for path, changed in files[:MAX_FILES]:
         mark = badge("A", GREEN) if changed["created"] else badge("M", ORANGE)
         count = f"×{changed['count']}" if changed["count"] > 1 else ""
-        file_lines.append(f"{mark} {paint(fit_left(st.rel(path), files_w - 9 - width(count)), TEXT)}{paint(count, FAINT)}")
+        file_lines.append(f"{mark} {paint(fit_left(st.rel(path), inner_width(files_w) - 4 - width(count)), TEXT)}{paint(count, FAINT)}")
     if len(files) > MAX_FILES:
         file_lines.append(paint(t("term_more", len(files) - MAX_FILES, pane=pane), FAINT))
     now = time.time()
     tool_lines = [_tool_line(tool, st, tick, now, inner_width(tools_w)) for tool in reversed(tools)] or [paint(t("term_not_yet", pane=pane), FAINT)]
     files_box = box(file_lines, files_w, LINE, paint(t("term_files", len(files), pane=pane), TEXT, bold=True))
     tools_box = box(tool_lines, tools_w, LINE, paint(t("term_tools", len(tools), pane=pane), TEXT, bold=True))
-    return lines + (_side_by_side(files_box, tools_box, cols) if wide else files_box + [""] + tools_box)
+    return lines + (_side_by_side(files_box, tools_box, files_w) if wide else files_box + [""] + tools_box)
 
 
 def _waiting_lines(pane, waiting, eta, checking, cols):
-    note = t("qa_wait_checking", pane=pane) if checking else t("qa_wait_d", eta, pane=pane)
+    note = t("qa_wait_checking", pane=pane) if checking else t("qa_wait_d", eta, pane=pane) if config.load(pane)["qa_auto"] \
+        else t("qa_wait_off", pane=pane)
     inner = [*styled(note, inner_width(cols), MUTED), ""]
     for item in waiting:
-        inner += [paint("• ", ORANGE) + line[2:] for line in styled(item["text"], inner_width(cols), TEXT, indent=2)[:1]]
+        mid = "  " + t("midturn", pane=pane) if item["mid_turn"] else ""
+        text = fit(item["text"].replace("\n", " "), inner_width(cols) - 2 - width(mid)).rstrip()
+        inner.append(paint("• ", ORANGE) + paint(text, TEXT) + paint(mid, FAINT))
     return box(inner, cols, ORANGE, paint(f"⏳ {t('qa_wait_t', len(waiting), pane=pane)}", ORANGE, bold=True))
 
 
@@ -137,10 +165,11 @@ def qa_lines(st, tick, cols):
     pending = Pending.active(qa_store.pending_path(pane))
     items = [i for turn in turns for i in turn.get("items") or [] if not i.get("archived")]
     answered = sum(1 for i in items if i.get("status") == qa_store.Status.ANSWERED.value)
-    lines = [f"{progress(answered, len(items), GREEN)} {paint(f'{answered}/{len(items)}', MUTED)} {paint(t('st_answered', pane=pane), GREEN)}"]
+    bar = f"{progress(answered, len(items), GREEN)} {paint(f'{answered}/{len(items)}', MUTED)}"
+    labelled = f"{bar} {paint(t('st_answered', pane=pane), GREEN)}"
+    lines = [labelled if visible_width(labelled) <= cols else bar]
     if pending:
-        started = os.path.getmtime(qa_store.pending_path(pane)) if os.path.exists(qa_store.pending_path(pane)) else time.time()
-        elapsed = time.time() - started
+        elapsed = time.time() - float(pending.get("since") or time.time())
         lines.append(f"{progress(min(elapsed, eta), eta, ORANGE)} {paint(SPINNER[tick % len(SPINNER)] + ' ' + t('qa_checking', pane=pane), ORANGE)} "
                      f"{paint(f'{int(elapsed)}s / ~{eta}s', FAINT)}")
     lines.append("")
@@ -153,21 +182,24 @@ def qa_lines(st, tick, cols):
     inner = inner_width(cols)
     for turn in turns:
         body = []
-        if turn.get("status") != "ok":
+        if turn.get("status") != RecordStatus.OK.value:
             body.append(badge(t("qa_fail", pane=pane), RED))
         shown = [i for i in turn.get("items") or [] if not i.get("archived")]
-        if turn.get("status") == "ok" and not shown:
+        if turn.get("status") == RecordStatus.OK.value and not shown:
             body.append(paint(t("qa_noq", pane=pane), FAINT))
         for n, item in enumerate(shown):
             status = item.get("status")
             label = t("st_" + status, pane=pane) if status in STATUS_COLOR else status or "-"
-            mid = paint(" " + t("midturn", pane=pane), FAINT) if item.get("from") == "mid-turn" else ""
-            body += ([""] if n else []) + [f"{badge(label, STATUS_COLOR.get(status, FAINT))}{mid}",
-                                            *(BOLD + q for q in styled(item.get("question"), inner, TEXT, indent=2))]
+            chip = badge(label, STATUS_COLOR.get(status, FAINT))
+            mid = t("midturn", pane=pane) if item.get("from") == Source.MID_TURN.value else ""
+            mid = paint(" " + fit(mid, inner - visible_width(chip) - 1).rstrip(), FAINT) if mid else ""
+            body += ([""] if n else []) + [f"{chip}{mid}",
+                                            *styled(item.get("question"), inner, TEXT, indent=2, bold=True)]
             if item.get("answer"):
                 body += styled(item["answer"], inner, MUTED, indent=4)
-        prompt = fit((turn.get("prompt") or "").replace("\n", " "), cols - 13).rstrip()
-        lines += box(body, cols, LINE, f"{paint(clock(turn.get('ts')), FAINT)} {paint(prompt, MUTED)}") + [""]
+        stamp = clock(turn.get("ts"))
+        prompt = fit((turn.get("prompt") or "").replace("\n", " "), cols - width(stamp) - 8).rstrip()
+        lines += box(body, cols, LINE, f"{paint(stamp, FAINT)} {paint(prompt, MUTED)}") + [""]
     return lines
 
 
@@ -181,7 +213,7 @@ def _pipeline(steps, step, cols, pane):
         title_w = cols - 6 - visible_width(changed)
         title = paint(fit(s.get("title") or "", title_w), TEXT, bold=selected)
         row = f"{paint('▍', color)}{number} {title}{changed}"
-        lines.append(bg(SELECTED_BG) + pad(row.replace("\033[0m", "\033[0m" + bg(SELECTED_BG)), cols) + "\033[0m" if selected else row)
+        lines.append(bg(SELECTED_BG) + pad(row.replace(RESET, RESET + bg(SELECTED_BG)), cols) + RESET if selected else row)
     return lines
 
 
@@ -205,7 +237,7 @@ def _state(s, cols, pane):
     if not data:
         return []
     name_w = min(max(width(d.get("name") or "") for d in data), cols // 3)
-    out = [paint(t("state_title", pane=pane), FAINT)]
+    out = [paint(fit(t("state_title", pane=pane), cols).rstrip(), FAINT)]
     for d in data:
         before = d.get("before")
         moved = before not in (None, "", d.get("after"))
@@ -218,12 +250,12 @@ def _state(s, cols, pane):
 def flow_lines(st, step, tick, cols):
     pane = st.pane
     lines = []
-    if Pending.active(os.path.join(flow_store.flow_dir(pane), "pending")):
+    if Pending.active(flow_store.pending_path(pane)):
         lines += [paint(f"{SPINNER[tick % len(SPINNER)]} {t('flow_gen', pane=pane)}", ORANGE), ""]
-    rec = next(iter(flow_store.records(pane)), None)
+    rec = flow_store.latest(pane)
     if not rec:
         return lines + [paint(t("flow_empty_t", pane=pane), TEXT, bold=True), *styled(t("flow_empty_d", pane=pane), cols, MUTED)], 0
-    if rec.get("status") != "ok":
+    if rec.get("status") != RecordStatus.OK.value:
         return lines + [badge(t("flow_fail", pane=pane), RED), *styled(rec.get("error"), cols, MUTED)], 0
     flow = rec.get("flow") or {}
     steps = flow.get("steps") or []
@@ -232,11 +264,11 @@ def flow_lines(st, step, tick, cols):
     if steps:
         lines.append(f"{progress(step + 1, len(steps), BLUE)} {paint(f'{step + 1}/{len(steps)}', MUTED)}")
     if flow.get("example"):
-        example = styled(flow["example"], cols, MUTED, indent=width(t("example_label", pane=pane)) + 3)
-        lines += [badge(t("example_label", pane=pane), BLUE) + example[0][visible_width(badge(t("example_label", pane=pane), BLUE)):], *example[1:]]
+        label = badge(t("example_label", pane=pane), BLUE)
+        example = styled(flow["example"], cols, MUTED, indent=visible_width(label) + 1)
+        lines += [label + " " + example[0].lstrip(" "), *example[1:]]
     wide = cols >= WIDE_COLS
-    pipe_w = (cols - GAP) * 2 // 5 if wide else cols
-    detail_w = cols - pipe_w - GAP if wide else cols
+    pipe_w, detail_w = _split(cols) if wide else (cols, cols)
     pipeline = box(_pipeline(steps, step, inner_width(pipe_w), pane), pipe_w, LINE, paint(t("pipeline", pane=pane), TEXT, bold=True))
     detail = []
     if steps:
@@ -248,7 +280,7 @@ def flow_lines(st, step, tick, cols):
         state = _state(s, inner, pane)
         body += ([""] + code if code else []) + ([""] + state if state else [])
         detail = box(body, detail_w, color, paint(f"{step + 1}. {s.get('title') or ''}", color, bold=True))
-    lines += [""] + (_side_by_side(pipeline, detail, cols) if wide else pipeline + [""] + detail)
+    lines += [""] + (_side_by_side(pipeline, detail, pipe_w) if wide else pipeline + [""] + detail)
     if flow.get("summary"):
         lines += ["", *styled(flow["summary"], cols, MUTED)]
     return lines, step

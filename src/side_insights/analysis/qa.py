@@ -15,6 +15,7 @@ from side_insights import config
 from side_insights.analysis import qa_store
 from side_insights.analysis.runner import Pending, run_claude
 from side_insights.i18n import language_instruction
+from side_insights.records import RecordStatus, Source
 from side_insights.paths import EDIT_TOOLS, atomic_write_json
 from side_insights.transcript import (assistant_blocks, clip, is_prompt, load_entries, prompt_text, queued_prompt, turn_start,
                         wait_until_written)
@@ -33,10 +34,7 @@ USER_LIMIT = 3000
 MARKER_LIMIT = 300
 ACTION_LIMIT = 120
 MAX_ACTIONS = 80
-FROM_PROMPT, FROM_MID_TURN = "prompt", "mid-turn"
-STARTED = time.time()
 SCOPE_TURN, SCOPE_THROUGH_END = "turn", "through-end"
-STATUS_OK = "ok"
 STATUS_SCHEMA = {"type": "string", "enum": qa_store.STATUSES}
 
 SCHEMA = {
@@ -53,7 +51,7 @@ SCHEMA = {
                     "kind": {"type": "string", "enum": ["question", "request"]},
                     "status": STATUS_SCHEMA,
                     "answer": {"type": "string", "description": "At most two short sentences on what the agent said or did; for partial or unanswered, what is missing"},
-                    "from": {"type": "string", "enum": [FROM_PROMPT, FROM_MID_TURN]},
+                    "from": {"type": "string", "enum": [Source.PROMPT.value, Source.MID_TURN.value]},
                 },
             },
         },
@@ -108,7 +106,7 @@ def _segment(entries, start, end, marker_for_later_prompts):
             if marker_for_later_prompts and users and text:
                 in_later_turn = True
             if not in_later_turn:
-                users.append((FROM_PROMPT if text else FROM_MID_TURN, text or queued))
+                users.append((Source.PROMPT if text else Source.MID_TURN, text or queued))
                 first_uuid = first_uuid or e.get("uuid")
             replies.append((True, f"(the user sent a message here: {clip(text or queued, MARKER_LIMIT)})"))
             continue
@@ -170,7 +168,7 @@ def extract_since(path, cursor):
 
 
 def build_message(turn, candidates):
-    users = "\n\n".join(f"[{'request' if kind == FROM_PROMPT else 'sent while the agent worked'}]\n{clip(text, USER_LIMIT)}"
+    users = "\n\n".join(f"[{'request' if kind == Source.PROMPT else 'sent while the agent worked'}]\n{clip(text, USER_LIMIT)}"
                         for kind, text in turn["users"]) or "(no new user messages; only re-judge the earlier open questions)"
     message = (f"## User messages\n{users}\n\n## What the agent did (tool calls)\n" + "\n".join(f"- {a}" for a in turn["actions"]) +
                f"\n\n## The agent's replies, in order\n{turn['replies']}")
@@ -213,7 +211,7 @@ def recheck_open(pane, transcript, model, turn_ids=None):
     if not sid:
         return
     with qa_store.session_lock(pane, sid):
-        candidates = [c for c in qa_store.all_open_items(pane, sid, MAX_OPEN_RECHECK * 10)
+        candidates = [c for c in qa_store.all_open_items(pane, sid)
                       if not turn_ids or c["turn_id"] in turn_ids][:MAX_OPEN_RECHECK]
     if not candidates:
         return
@@ -247,14 +245,15 @@ def _record(turn_id, sid, model, transcript, scope, users):
 def _judge_into(record, pane, message, model):
     try:
         data, cost = _judge(pane, message, model)
-        record.update(items=data.get("items", []), cost=cost, status="ok")
+        record.update(items=data.get("items", []), cost=cost, status=RecordStatus.OK.value)
         return data
     except Exception as exc:  # noqa: BLE001
-        record.update(items=[], status="error", error=str(exc)[:ERROR_LIMIT])
+        record.update(items=[], status=RecordStatus.ERROR.value, error=str(exc)[:ERROR_LIMIT])
         return {}
 
 
-def judge_since_cursor(pane, transcript, model):
+def judge_since_cursor(pane, transcript, model, started=None):
+    """started: when the turn ended, to record how long the check took; None for manual runs."""
     wait_until_written(transcript)
     sid = (extract_since(transcript, None) or {}).get("sid")
     if not sid:
@@ -273,9 +272,10 @@ def judge_since_cursor(pane, transcript, model):
         data = _judge_into(record, pane, build_message(seg, candidates), model)
         with qa_store.session_lock(pane, sid):
             if seg["users"]:
-                record["seconds"] = round(time.time() - STARTED, 1)
+                if started and record["status"] == RecordStatus.OK.value:
+                    record["seconds"] = round(time.time() - started, 1)
                 atomic_write_json(qa_store.record_path(pane, sid, seg["turn_id"]), record)
-            if record["status"] == STATUS_OK:
+            if record["status"] == RecordStatus.OK.value:
                 qa_store.apply_followups(pane, sid, candidates, data.get("followups"), seg["turn_id"] or seg["last_uuid"])
                 qa_store.write_cursor(pane, sid, seg["last_uuid"])
 
@@ -299,6 +299,7 @@ def judge_turn(pane, transcript, turn_id, model):
 
 
 def main():
+    started = time.time()
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     open_flag = next((a for a in sys.argv[1:] if a == "--open-items" or a.startswith("--open-items=")), None)
     item = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--item=")), None)
@@ -319,7 +320,7 @@ def main():
     elif turn_id:
         judge_turn(pane, transcript, turn_id, settings["model"])
     else:
-        judge_since_cursor(pane, transcript, settings["model"])
+        judge_since_cursor(pane, transcript, settings["model"], None if "--force" in sys.argv else started)
 
 
 if __name__ == "__main__":

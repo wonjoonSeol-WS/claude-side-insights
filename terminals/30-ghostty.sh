@@ -1,7 +1,7 @@
-# Ghostty 1.3+: the live view (claude-activity) in a split to the right, through Ghostty's AppleScript.
+# Ghostty 1.3+: the terminal panel (claude-activity) in a split to the right, through Ghostty's AppleScript.
 # The split opens next to the focused terminal, which is the one that just started Claude.
 
-term_detect() { [ "${TERM_PROGRAM:-}" = ghostty ] && [ -z "${CMUX_SURFACE_ID:-}" ] && [ -d /Applications/Ghostty.app ]; }
+term_detect() { [ "${TERM_PROGRAM:-}" = ghostty ] && [ -z "${CMUX_SURFACE_ID:-}" ] && { [ -d /Applications/Ghostty.app ] || [ -d "$HOME/Applications/Ghostty.app" ]; }; }
 
 term_open() {
   osascript - "$(panel_view_command "$1")" <<'OSA' >/dev/null 2>&1
@@ -23,7 +23,7 @@ on run argv
     repeat with w in windows
       repeat with t in tabs of w
         repeat with s in terminals of t
-          if name of s is item 1 of argv then set end of found to id of s
+          if name of s is item 1 of argv then set end of found to (id of s as text)
         end repeat
       end repeat
     end repeat
@@ -41,7 +41,7 @@ on run argv
     repeat with w in windows
       repeat with t in tabs of w
         repeat with s in terminals of t
-          if id of s is item 1 of argv then close s
+          if (id of s as text) is item 1 of argv then close s
         end repeat
       end repeat
     end repeat

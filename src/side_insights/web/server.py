@@ -5,23 +5,29 @@ import os
 import re
 import secrets
 import subprocess
-import sys
 import threading
+from collections import OrderedDict
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from side_insights import config
 from side_insights.analysis import flow_store, qa_store
-from side_insights.analysis.waiting import Waiting, eta_seconds
-from side_insights.live.activity import ActivityTail, log_path
 from side_insights.analysis.runner import Pending
-from side_insights.__main__ import child_env, command_line
-from side_insights.paths import DATA, ITEM_ID_RE, KEY_RE, PORT, TURN_ID_RE, api_token, json_files, read_json
+from side_insights.analysis.waiting import Waiting, eta_seconds
 from side_insights.i18n import current, messages, t
 from side_insights.language import DEFAULT, Language
+from side_insights.launch import child_env, command_line
+from side_insights.live.activity import ActivityTail, log_path
+from side_insights.paths import (ANALYSIS_LOG, APP_NAME, DATA, ITEM_ID_RE, KEY_RE, PORT, ROOT, TOKEN_HEADER, TURN_ID_RE, api_token,
+                                 last_turn_path, read_json)
 
 MAX_BODY = 64 * 1024
 MAX_INDEX_PANES = 40
+MAX_CACHED_PANES = 64
+TITLE_FALLBACK = 30
+REGEN_TARGETS = ("flow", "qa")
+SCOPE_OPEN = "open"
+LEGACY_TOKEN_HEADER = "X-Claude-Panel"
 FLOW_ID_RE = re.compile(r"^[0-9a-f-]{1,40}$")
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 TOKEN = api_token()
@@ -30,31 +36,42 @@ _spawn_lock = threading.Lock()
 _MARKERS = re.compile(r"__PANEL_(KEY|I18N|TOKEN)__")
 COPY_TIMEOUT = 5
 
-_tails = {}
-_tails_lock = threading.Lock()
+_tails = OrderedDict()
+_waiting = OrderedDict()
+_cache_lock = threading.Lock()
 
 
-def tail(pane):
-    with _tails_lock:
-        if pane not in _tails:
-            if not os.path.exists(log_path(pane)):
-                return None
-            _tails[pane] = ActivityTail(pane)
-        return _tails[pane]
+def _cached(cache, pane, make):
+    """Per-pane readers, keeping only the panes used most recently."""
+    with _cache_lock:
+        if pane in cache:
+            cache.move_to_end(pane)
+            return cache[pane]
+        value = cache[pane] = make()
+        while len(cache) > MAX_CACHED_PANES:
+            cache.popitem(last=False)
+        return value
 
 
 def snapshot(pane):
-    reader = tail(pane)
-    return reader.snapshot() if reader else {"sid": None, "cwd": None, "busy": False, "tools": [], "files": []}
+    if not os.path.exists(log_path(pane)):
+        return {"sid": None, "cwd": None, "transcript": None, "busy": False, "tools": [], "files": []}
+    return _cached(_tails, pane, lambda: ActivityTail(pane)).snapshot()
+
+
+def waiting_for(pane):
+    return _cached(_waiting, pane, Waiting)
 
 
 def flows(pane):
-    found = [{"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"),
-              "title": (rec.get("flow") or {}).get("title") or (rec.get("prompt") or "")[:30]} for rec in flow_store.records(pane)]
-    return found, Pending.active(os.path.join(flow_store.flow_dir(pane), "pending"))
+    found = []
+    for rec in flow_store.records(pane):
+        title = (rec.get("flow") or {}).get("title") or (rec.get("prompt") or "")[:TITLE_FALLBACK]
+        found.append({"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"), "title": title})
+    return found, Pending.active(flow_store.pending_path(pane))
 
 
-def known_panes():
+def known_panes(limit=MAX_INDEX_PANES):
     stamps = {}
     for sub, suffix in (("logs", ".jsonl"), ("flows", "")):
         directory = os.path.join(DATA, sub)
@@ -69,23 +86,20 @@ def known_panes():
                     stamps[pane] = max(stamps.get(pane, 0), os.path.getmtime(os.path.join(directory, name)))
                 except OSError:
                     pass
-    return sorted(stamps.items(), key=lambda kv: -kv[1])[:MAX_INDEX_PANES]
-
-
-_waiting = {}
-
-
-def waiting_for(pane):
-    with _tails_lock:
-        return _waiting.setdefault(pane, Waiting())
+    return sorted(stamps.items(), key=lambda kv: -kv[1])[:limit]
 
 
 def resolve_pane(pane):
-    """A unique prefix of a known pane key stands for that pane, so printed links stay short."""
-    if pane is None or os.path.exists(log_path(pane)):
+    """A unique prefix of a known pane key stands for that pane, so printed links stay short.
+
+    Returns the full key, the pane itself when it is unknown or exact, or None when the prefix is ambiguous."""
+    if pane is None:
+        return None
+    keys = [key for key, _ in known_panes(limit=None)]
+    if pane in keys:
         return pane
-    matches = [key for key, _ in known_panes() if key.startswith(pane)]
-    return matches[0] if len(matches) == 1 else pane
+    matches = [key for key in keys if key.startswith(pane)]
+    return matches[0] if len(matches) == 1 else None if matches else pane
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -133,7 +147,7 @@ class Handler(BaseHTTPRequestHandler):
         self.params = parse_qs(url.query)
         parts = [p for p in url.path.split("/") if p]
         page = method == "GET" and (not parts or parts[0] == "p")
-        sent = self.param("t") if page else self.headers.get("X-Claude-Panel")
+        sent = self.param("t") if page else (self.headers.get(TOKEN_HEADER) or self.headers.get(LEGACY_TOKEN_HEADER))
         if parts != ["health"] and not secrets.compare_digest((sent or "").encode(), TOKEN.encode()):
             return self.error(403, "err_forbidden")
         for route_method, pattern, handler in ROUTES:
@@ -151,15 +165,19 @@ class Handler(BaseHTTPRequestHandler):
     def param(self, name):
         return (self.params.get(name) or [None])[0]
 
+    def redirect(self, location):
+        query = urlsplit(self.path).query
+        self.send_response(302)
+        self.send_header("Location", location + (f"?{query}" if query else ""))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def get_page(self, pane=None):
         full = resolve_pane(pane)
         if full != pane:
-            query = urlsplit(self.path).query
-            self.send_response(302)
-            self.send_header("Location", f"/p/{full}" + (f"?{query}" if query else ""))
-            self.send_header("Content-Length", "0")
-            self.end_headers()
-            return
+            return self.redirect(f"/p/{full}" if full else "/")
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.html"), encoding="utf-8") as fh:
             html = fh.read()
         lang = Language.from_code(self.param("lang"), current(pane))
@@ -168,7 +186,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send(200, html, "text/html; charset=utf-8")
 
     def get_health(self):
-        self.json({"ok": True, "pid": os.getpid(), "app": "claude-panel"})
+        self.json({"ok": True, "pid": os.getpid(), "app": APP_NAME, "root": ROOT})
 
     def get_config(self):
         self.json(config.payload(self.param("pane") if KEY_RE.match(self.param("pane") or "") else None))
@@ -204,7 +222,7 @@ class Handler(BaseHTTPRequestHandler):
                           "eta": eta_seconds(records), "auto": config.load(pane)["qa_auto"]}})
 
     def get_flow(self, pane, flow_id):
-        rec = read_json(os.path.join(DATA, "flows", pane, f"{flow_id}.json"))
+        rec = read_json(flow_store.record_path(pane, flow_id))
         if not isinstance(rec, dict):
             return self.error(404, "err_not_found", pane=pane)
         self.json(rec)
@@ -258,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json({"ok": True})
 
     def post_regen(self, pane):
-        last = read_json(os.path.join(DATA, "turns", f"{pane}.json"))
+        last = read_json(last_turn_path(pane))
         if not isinstance(last, dict) or not last.get("transcript"):
             return self.error(409, "err_no_turn", pane=pane)
         with _spawn_lock:
@@ -269,10 +287,7 @@ class Handler(BaseHTTPRequestHandler):
         turn_id = self.param("turn")
         item = self.param("item")
         scope = self.param("scope")
-        invalid = (target not in ("flow", "qa") or (turn_id is not None and not TURN_ID_RE.match(turn_id))
-                   or (item is not None and not ITEM_ID_RE.match(item)) or (target == "flow" and (turn_id or item or scope))
-                   or (scope is not None and (scope != "open" or turn_id or item)) or (turn_id and item))
-        if invalid:
+        if not _valid_regen(target, turn_id, item, scope):
             return self.error(400, "err_bad_request", pane=pane)
         if item:
             found = self._item_or_error(pane, item)
@@ -280,24 +295,36 @@ class Handler(BaseHTTPRequestHandler):
                 return
             turn_id = found[0].get("turn_id")
             last = {**last, "transcript": found[0].get("transcript") or last["transcript"]}
-        marker = qa_store.pending_path(pane) if target == "qa" else os.path.join(DATA, "flows", pane, "pending")
+        marker = qa_store.pending_path(pane) if target == "qa" else flow_store.pending_path(pane)
         if Pending.active(marker):
             return self.error(409, "err_running", pane=pane)
         if target == "flow":
             command, args = "flow", [pane, last["transcript"], last.get("cwd") or ""]
         else:
             command, args = "qa", [pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
-            if scope == "open":
+            if scope == SCOPE_OPEN:
                 only = [tid for tid in (self.param("turns") or "").split(",") if tid]
                 if not all(TURN_ID_RE.match(tid) for tid in only):
                     return self.error(400, "err_bad_request", pane=pane)
                 args.append("--open-items" + (f"={','.join(only)}" if only else ""))
-        with open(os.path.join(DATA, "flow.log"), "a") as log:
+        with open(ANALYSIS_LOG, "a") as log:
             child = subprocess.Popen(command_line(command, [*args, "--force"]), env=child_env(),
                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
         Pending.claim(marker, child.pid)
         threading.Thread(target=child.wait, daemon=True).start()
         self.json({"ok": True})
+
+
+def _valid_regen(target, turn_id, item, scope):
+    if target not in REGEN_TARGETS:
+        return False
+    if (turn_id is not None and not TURN_ID_RE.match(turn_id)) or (item is not None and not ITEM_ID_RE.match(item)):
+        return False
+    if target == "flow":
+        return not (turn_id or item or scope)
+    if scope is not None:
+        return scope == SCOPE_OPEN and not (turn_id or item)
+    return not (turn_id and item)
 
 
 ROUTES = [

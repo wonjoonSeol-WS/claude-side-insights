@@ -6,7 +6,7 @@ PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 ensure_panel_server || { panel_py say server_down >&2; exit 1; }
 key=$(panel_key "{}")
 if [ "${1:-}" = all ] || [ -z "$key" ]; then
-  open "http://127.0.0.1:$(panel_port)/?t=$(panel_token)"
+  /usr/bin/open "http://127.0.0.1:$(panel_port)/?t=$(panel_token)"
 else
-  open "$(panel_url "$key")&full=1"
+  /usr/bin/open "$(panel_url "$key")&full=1"
 fi

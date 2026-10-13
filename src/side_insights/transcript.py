@@ -4,14 +4,14 @@ import os
 import re
 import time
 
-SKILL_PREAMBLE = "Base directory for this skill"
+_SKILL_PREAMBLE = "Base directory for this skill"
 _WRAPPER_RE = re.compile(r"^<(command-|local-command-|bash-|task-notification|system-reminder|user-prompt-submit-hook)")
-_NOT_A_PROMPT_PREFIXES = ("[Request interrupted", SKILL_PREAMBLE)
+_NOT_A_PROMPT_PREFIXES = ("[Request interrupted", _SKILL_PREAMBLE)
 _COMMAND_RE = re.compile(r"^\s*<command-name>\s*(/?[^<\s]+)\s*</command-name>.*?<command-args>(.*?)</command-args>", re.S)
 _LOCAL_OUTPUT = "<local-command-stdout>"
 LOCAL_COMMANDS = {"/add-dir", "/agents", "/clear", "/compact", "/config", "/context", "/cost", "/doctor", "/exit",
-                   "/help", "/hooks", "/ide", "/login", "/logout", "/mcp", "/memory", "/model", "/permissions",
-                   "/plugin", "/resume", "/rewind", "/status", "/statusline", "/theme", "/vim"}
+                  "/help", "/hooks", "/ide", "/login", "/logout", "/mcp", "/memory", "/model", "/permissions",
+                  "/plugin", "/resume", "/rewind", "/status", "/statusline", "/theme", "/vim"}
 
 
 def text_of(content):
@@ -65,13 +65,16 @@ def _has_reply(entries):
 def wait_until_written(path, quiet=1.0, limit=15.0, poll=0.25):
     """Claude Code can fire the Stop hook before the final reply reaches the file. Waits for a reply and a quiet file."""
     deadline = time.time() + limit
+    checked_mtime = None
     while time.time() < deadline:
         try:
-            changed = time.time() - os.stat(path).st_mtime
+            mtime = os.stat(path).st_mtime
         except OSError:
             return
-        if changed >= quiet and _has_reply(load_entries(path)):
-            return
+        if time.time() - mtime >= quiet and mtime != checked_mtime:
+            if _has_reply(load_entries(path)):
+                return
+            checked_mtime = mtime
         time.sleep(poll)
 
 
@@ -92,12 +95,26 @@ def load_entries(path):
     return entries
 
 
-def _drop_local_commands(entries):
+def command_name(entry):
+    if entry.get("type") != "user":
+        return None
+    command = _COMMAND_RE.search(text_of((entry.get("message") or {}).get("content")) or "")
+    return command.group(1) if command else None
+
+
+def is_local_output(entry):
+    return _LOCAL_OUTPUT in text_of((entry.get("message") or {}).get("content"))
+
+
+def is_local_command(entry, following=None):
     """Slash commands Claude Code runs itself (/model, /plugin ...) are followed by local output, not by Claude."""
+    name = command_name(entry)
+    return bool(name) and (name in LOCAL_COMMANDS or (following is not None and is_local_output(following)))
+
+
+def _drop_local_commands(entries):
     for i, entry in enumerate(entries):
-        following = text_of((entries[i + 1].get("message") or {}).get("content")) if i + 1 < len(entries) else ""
-        command = _COMMAND_RE.search(text_of((entry.get("message") or {}).get("content")) or "")
-        if entry.get("type") == "user" and command and (_LOCAL_OUTPUT in following or command.group(1) in LOCAL_COMMANDS):
+        if is_local_command(entry, entries[i + 1] if i + 1 < len(entries) else None):
             entry["isMeta"] = True
 
 

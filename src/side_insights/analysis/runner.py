@@ -7,7 +7,7 @@ import time
 
 import fcntl
 
-from side_insights.paths import atomic_write_json, process_alive, read_json, terminal_settings
+from side_insights.paths import CHILD_ENV, atomic_write_json, process_alive, read_json, terminal_settings
 
 STALE_AFTER = 1800
 _PARENT_PREFIXES = ("CLAUDE_CODE_MESSAGING_", *terminal_settings("CHILD_ENV_PREFIX"))
@@ -18,7 +18,7 @@ _PARENT_VARS = {*terminal_settings("PANE_ENV"), "CLAUDECODE", "CLAUDE_CODE_ENTRY
 def run_claude(system, schema, message, model, tools, cwd, timeout, max_turns):
     """Returns (structured_output, cost). Raises RuntimeError when no structured output came back."""
     env = {k: v for k, v in os.environ.items() if k not in _PARENT_VARS and not k.startswith(_PARENT_PREFIXES)}
-    env["CLAUDE_ACTIVITY_CHILD"] = "1"
+    env[CHILD_ENV] = "1"
     tool_list = ",".join(tools)
     cmd = ["claude", "-p", "--model", model, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
            "--system-prompt", system, "--no-session-persistence", "--output-format", "json", "--tools", tool_list,

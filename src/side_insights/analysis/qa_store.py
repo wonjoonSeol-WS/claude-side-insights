@@ -77,14 +77,14 @@ def records(pane, sid):
     return sorted(found, key=lambda r: -(r.get("ts") or 0))
 
 
-def overrides(pane):
+def item_overrides(pane):
     data = read_json(os.path.join(pane_dir(pane), "overrides.json"), {})
     return data if isinstance(data, dict) else {}
 
 
 def with_overrides(pane, recs):
     """Copies of the records with id, auto_status, manual and archived filled in per item."""
-    ovr = overrides(pane)
+    ovr = item_overrides(pane)
     out = []
     for rec in recs:
         items = []
@@ -111,7 +111,7 @@ def set_override(pane, turn_id, question, status=..., archived=None):
     key = item_key(turn_id, question)
     path = os.path.join(pane_dir(pane), "overrides.json")
     with _OVERRIDES_LOCK:
-        data = dict(overrides(pane))
+        data = dict(item_overrides(pane))
         entry = dict(data.get(key, {}))
         if status is not ...:
             if status is None:
@@ -139,9 +139,9 @@ def session_lock(pane, sid):
             fcntl.flock(fh, fcntl.LOCK_UN)
 
 
-def open_items(pane, sid, current_turn, limit):
+def open_items(pane, sid, current_turn, limit=None):
     """Unanswered or partial items from earlier turns, minus archived or manually set ones, newest first."""
-    ovr = overrides(pane)
+    ovr = item_overrides(pane)
     found = []
     for rec in records(pane, sid):
         if rec.get("turn_id") == current_turn:
@@ -153,11 +153,10 @@ def open_items(pane, sid, current_turn, limit):
     return found[:limit]
 
 
-def all_open_items(pane, sid, limit):
+def all_open_items(pane, sid):
     """Every unanswered or partial item of the session, minus archived or manually set ones, oldest turn first."""
-    found = open_items(pane, sid, None, limit)
-    order = {rec.get("turn_id"): -(rec.get("ts") or 0) for rec in records(pane, sid)}
-    return sorted(found, key=lambda c: -order.get(c["turn_id"], 0))
+    started = {rec.get("turn_id"): rec.get("ts") or 0 for rec in records(pane, sid)}
+    return sorted(open_items(pane, sid, None), key=lambda c: started.get(c["turn_id"], 0))
 
 
 def apply_followups(pane, sid, candidates, followups, resolved_in):
@@ -178,12 +177,16 @@ def apply_followups(pane, sid, candidates, followups, resolved_in):
             change = changes.get(item_key(turn_id, item.get("question", "")))
             current = Status.parse(item.get("status"))
             if change and (current is None or change[0].rank > current.rank):
-                item.setdefault("first_status", item.get("status"))
-                item["status"] = change[0].value
-                if change[1]:
-                    item["answer"] = change[1]
+                _set_status(item, *change)
                 item["resolved_in"], item["resolved_at"] = resolved_in, time.time()
         atomic_write_json(path, rec)
+
+
+def _set_status(item, status, answer):
+    item.setdefault("first_status", item.get("status"))
+    item["status"] = status.value
+    if answer:
+        item["answer"] = answer
 
 
 def set_verdict(pane, sid, turn_id, question, status, answer, upgrade_only=False):
@@ -195,10 +198,7 @@ def set_verdict(pane, sid, turn_id, question, status, answer, upgrade_only=False
     for item in rec.get("items") or []:
         current = Status.parse(item.get("status"))
         if item_key(turn_id, item.get("question", "")) == key and not (upgrade_only and current and status.rank <= current.rank):
-            item.setdefault("first_status", item.get("status"))
-            item["status"] = status.value
-            if answer:
-                item["answer"] = answer
+            _set_status(item, status, answer)
             item["rechecked_at"] = time.time()
             item.pop("resolved_in", None)
     atomic_write_json(path, rec)

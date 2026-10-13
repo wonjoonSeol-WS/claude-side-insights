@@ -4,9 +4,12 @@ import unicodedata
 
 RESET, BOLD = "\033[0m", "\033[1m"
 ANSI = re.compile(r"\033\[[0-9;]*m")
-BULLET = re.compile(r"^(?:[-•]\s+|\*\s+)")
+BULLET = re.compile(r"^[-•*]\s+")
 NO_LINE_START = set("。、，．）」』】！？ー.,)!?:;")
-MARKUP = re.compile(r"==(.+?)==|\*\*(.+?)\*\*|`([^`]+)`")
+MARKUP = re.compile(r"==(.+?)==|(?<![\w/*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w/*])|`([^`]+)`")
+CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
+TAB_SIZE = 4
+PAD_X = 2
 
 TEXT = (225, 228, 234)
 MUTED = (150, 156, 168)
@@ -40,6 +43,11 @@ def tint(rgb, amount=TINT):
     return tuple(round(b + (c - b) * amount) for c, b in zip(rgb, BASE))
 
 
+def clean(text):
+    """Text from transcripts and files may carry escape sequences; only printable characters reach the terminal."""
+    return CONTROL.sub("", (text or "").expandtabs(TAB_SIZE))
+
+
 def width(text):
     return sum(2 if unicodedata.east_asian_width(c) in "WF" else 0 if unicodedata.combining(c) else 1 for c in text)
 
@@ -63,6 +71,7 @@ def _cut(chars, limit):
 
 
 def fit(text, cols):
+    text = clean(text)
     if cols <= 0:
         return ""
     if width(text) <= cols:
@@ -72,6 +81,7 @@ def fit(text, cols):
 
 
 def fit_left(text, cols):
+    text = clean(text)
     if cols <= 0:
         return ""
     if width(text) <= cols:
@@ -94,7 +104,7 @@ def key_cap(text):
 
 def _styled_chars(text):
     """(char, style) pairs; ==x== is a highlight, **x** bold, `x` code."""
-    out, pos = [], 0
+    text, out, pos = clean(text), [], 0
     for m in MARKUP.finditer(text):
         out += [(c, None) for c in text[pos:m.start()]]
         style, inner = ("highlight", m.group(1)) if m.group(1) is not None else ("bold", m.group(2)) if m.group(2) is not None else ("code", m.group(3))
@@ -103,14 +113,21 @@ def _styled_chars(text):
     return out + [(c, None) for c in text[pos:]]
 
 
+def _breaks_anywhere(c):
+    """Chinese and Japanese text has no spaces between words, so it may break between any two characters."""
+    code = ord(c)
+    return 0x3040 <= code <= 0x30FF or 0x3400 <= code <= 0x9FFF or 0xFF00 <= code <= 0xFFEF
+
+
 def _break(chars, cols):
-    """Breaks at the last space when the moved word is short and has no CJK, else anywhere."""
-    lines, line = [], []
+    """Breaks at the last space unless the moved word is long or Chinese/Japanese; never starts a line with a space or closing punctuation."""
+    lines, line, used = [], [], 0
     for item in chars:
-        if width("".join(c for c, _ in line) + item[0]) > cols and line:
+        w = width(item[0])
+        if used + w > cols and line:
             cut = max((i for i, (c, _) in enumerate(line) if c == " "), default=-1)
-            word = "".join(c for c, _ in line[cut + 1:]) + item[0]
-            if cut > 0 and width(word) == len(word) and len(word) < cols // 2:
+            word = [c for c, _ in line[cut + 1:]] + [item[0]]
+            if cut > 0 and not any(_breaks_anywhere(c) for c in word) and len(word) < cols // 2:
                 lines.append(line[:cut])
                 line = line[cut + 1:]
             elif item[0] in NO_LINE_START and len(line) > 1:
@@ -119,13 +136,26 @@ def _break(chars, cols):
             else:
                 lines.append(line)
                 line = []
+            used = sum(width(c) for c, _ in line)
+        if not line and item[0] == " ":
+            continue
         line.append(item)
+        used += w
     lines.append(line)
-    return lines
+    return [list(reversed(list(_rstrip(reversed(l))))) for l in lines]
 
 
-def _render(line, color):
-    styles = {None: fg(color), "bold": BOLD + fg(TEXT), "code": fg(CODE), "highlight": fg(YELLOW) + bg(HIGHLIGHT_BG)}
+def _rstrip(items):
+    items = iter(items)
+    for item in items:
+        if item[0] != " ":
+            yield item
+            yield from items
+            return
+
+
+def _render(line, color, bold=False):
+    styles = {None: (BOLD if bold else "") + fg(color), "bold": BOLD + fg(TEXT), "code": fg(CODE), "highlight": fg(YELLOW) + bg(HIGHLIGHT_BG)}
     out, current = [], object()
     for c, style in line:
         if style != current:
@@ -135,11 +165,10 @@ def _render(line, color):
     return "".join(out) + RESET
 
 
-def styled(text, cols, color=TEXT, indent=0):
-    """Wraps text with its markup kept as colors, one list entry per screen line."""
+def styled(text, cols, color=TEXT, indent=0, bold=False):
     lines = []
     for paragraph in (text or "").split("\n"):
-        lines += [" " * indent + _render(line, color) for line in _break(_styled_chars(paragraph), max(1, cols - indent))]
+        lines += [" " * indent + _render(line, color, bold) for line in _break(_styled_chars(paragraph), max(1, cols - indent))]
     return lines
 
 
@@ -153,23 +182,15 @@ def bullets(text, cols, color=TEXT):
     return out
 
 
-def rule(cols, label="", color=LINE):
-    if not label:
-        return paint("─" * cols, color)
-    return paint("── ", color) + label + " " + paint("─" * max(0, cols - visible_width(label) - 4), color)
-
-
-PAD_X = 2
-
-
 def inner_width(cols):
-    """Room for content inside a box of width cols."""
     return cols - 2 - 2 * PAD_X
 
 
 def box(lines, cols, color=LINE, title=""):
     """Rounded box with one empty line above and below the content and PAD_X spaces on each side."""
     inner = inner_width(cols)
+    if visible_width(title) > cols - 5:
+        title = paint(fit(ANSI.sub("", title), cols - 5).rstrip(), color, bold=True)
     head = paint("╭─ ", color) + title + " " + paint("─" * max(0, cols - visible_width(title) - 5) + "╮", color) if title \
         else paint("╭" + "─" * (cols - 2) + "╮", color)
     side = paint("│", color)

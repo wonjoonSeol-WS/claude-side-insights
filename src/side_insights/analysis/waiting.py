@@ -4,10 +4,11 @@ import os
 import statistics
 import threading
 
-from side_insights.transcript import LOCAL_COMMANDS, is_prompt, prompt_text, queued_prompt
+from side_insights.transcript import is_local_command, is_local_output, is_prompt, prompt_text, queued_prompt
 
 DEFAULT_ETA_SECONDS = 40
 ETA_SAMPLES = 5
+MAX_ETA_SECONDS = 600
 TEXT_LIMIT = 300
 
 
@@ -18,7 +19,7 @@ class Waiting:
 
     def _reset(self, path):
         self.path, self.pos, self.buf = path, 0, b""
-        self.count, self.index, self.prompts = 0, {}, []
+        self.count, self.index, self.prompts, self.command = 0, {}, [], None
 
     def _read(self, path):
         try:
@@ -46,14 +47,18 @@ class Waiting:
         self.count += 1
         if entry.get("uuid"):
             self.index[entry["uuid"]] = self.count
-        if is_prompt(entry):
-            text = prompt_text(entry)
-            if text.split(" ", 1)[0] not in LOCAL_COMMANDS:
-                self.prompts.append({"at": self.count, "ts": entry.get("timestamp"), "text": text[:TEXT_LIMIT], "mid_turn": False})
-        else:
-            text = queued_prompt(entry)
-            if text:
-                self.prompts.append({"at": self.count, "ts": entry.get("timestamp"), "text": text[:TEXT_LIMIT], "mid_turn": True})
+        if self.command is not None and is_local_output(entry):
+            self.prompts.remove(self.command)
+        self.command = None
+        if is_prompt(entry) and not is_local_command(entry):
+            self._prompt(entry, prompt_text(entry), mid_turn=False)
+            if entry.get("message") and "<command-name>" in str(entry["message"].get("content")):
+                self.command = self.prompts[-1]
+        elif queued_prompt(entry):
+            self._prompt(entry, queued_prompt(entry), mid_turn=True)
+
+    def _prompt(self, entry, text, mid_turn):
+        self.prompts.append({"at": self.count, "ts": entry.get("timestamp"), "text": text[:TEXT_LIMIT], "mid_turn": mid_turn})
 
     def since(self, path, cursor):
         """Prompts after the entry `cursor`; without a cursor, from the last typed prompt on."""
@@ -71,5 +76,7 @@ class Waiting:
 
 def eta_seconds(records):
     """Typical time from the end of a turn to its Q&A result, from the latest checks."""
-    seconds = [r["seconds"] for r in records if isinstance(r.get("seconds"), (int, float))][:ETA_SAMPLES]
+    seconds = [r["seconds"] for r in records
+               if isinstance(r.get("seconds"), (int, float)) and not isinstance(r["seconds"], bool) and 0 < r["seconds"] < MAX_ETA_SECONDS]
+    seconds = seconds[:ETA_SAMPLES]
     return round(statistics.median(seconds)) if seconds else DEFAULT_ETA_SECONDS

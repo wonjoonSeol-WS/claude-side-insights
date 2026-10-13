@@ -12,14 +12,23 @@ PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(PACKAGE_DIR))
 DATA = os.environ.get("SIDE_INSIGHTS_DATA") or os.path.join(os.path.expanduser("~"), ".claude", "side-insights")
 DEFAULT_PORT = 47821
-_port = os.environ.get("CLAUDE_PANEL_PORT", "")
+_port = os.environ.get("SIDE_INSIGHTS_PORT") or os.environ.get("CLAUDE_PANEL_PORT", "")
 PORT = int(_port) if _port.isdigit() and 1024 <= int(_port) <= 65535 else DEFAULT_PORT
 KEY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}$")
 TURN_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F-]{27}$")
 ITEM_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 TOKEN_PATH = os.path.join(DATA, "token")
+APP_NAME = "side-insights"
+CHILD_ENV = "SIDE_INSIGHTS_CHILD"
+TOKEN_HEADER = "X-Side-Insights"
+ANALYSIS_LOG = os.path.join(DATA, "analysis.log")
 EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 _KEY_BYTES = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-")
+
+
+def last_turn_path(pane):
+    """Transcript path and cwd of the pane's last finished turn, written by hooks/record.sh."""
+    return os.path.join(DATA, "turns", f"{pane}.json")
 
 
 def data_dir(*parts):
@@ -41,7 +50,8 @@ def terminal_settings(name):
 
 
 def pane_key(raw=None):
-    """Same rule as key.sh panel_key: bytes outside [A-Za-z0-9_.-] become _, last 80, no leading dot."""
+    """Same sanitising as key.sh panel_key: bytes outside [A-Za-z0-9_.-] become _, last 80, no leading dot or dash.
+    Without raw it reads the adapters' PANE_ENV, then CLAUDE_CODE_SESSION_ID (the hooks use the hook's session_id instead)."""
     if raw is None:
         raw = next((os.environ[var] for var in terminal_settings("PANE_ENV") if os.environ.get(var)),
                    os.environ.get("CLAUDE_CODE_SESSION_ID", ""))
@@ -62,9 +72,9 @@ def api_token():
     """Reads the token, creating it on first use; concurrent first runs agree on one file."""
     token = read_token()
     if token:
-        os.chmod(TOKEN_PATH, 0o600)
         return token
     os.makedirs(DATA, mode=0o700, exist_ok=True)
+    os.chmod(DATA, 0o700)
     try:
         fd = os.open(TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:

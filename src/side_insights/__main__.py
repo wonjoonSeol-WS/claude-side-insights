@@ -13,7 +13,7 @@ import os
 import runpy
 import sys
 
-from side_insights.paths import ROOT
+from side_insights.launch import child_env, command_line
 
 COMMANDS = {
     "server": "side_insights.web.server",
@@ -25,14 +25,6 @@ COMMANDS = {
     "say": "side_insights.i18n",
 }
 DETACHABLE = ("server", "flow", "qa")
-
-
-def command_line(command, args):
-    return [sys.executable, "-m", "side_insights", command, *args]
-
-
-def child_env():
-    return {**os.environ, "PYTHONPATH": os.path.join(ROOT, "src")}
 
 
 def detach(args):
@@ -51,7 +43,7 @@ def main():
         return detach(args)
     if command not in COMMANDS:
         sys.exit(__doc__)
-    sys.argv = [f"side_insights {command}", *args]
+    sys.argv[1:] = args
     runpy.run_module(COMMANDS[command], run_name="__main__", alter_sys=True)
 
 

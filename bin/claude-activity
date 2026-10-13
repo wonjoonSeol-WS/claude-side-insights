@@ -1,4 +1,10 @@
 #!/bin/bash
+# The panel as a terminal UI. It needs a real terminal, so it refuses to run through Claude's Bash tool.
+set -u
 PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$PANEL_ROOT/shell/key.sh"
-panel_py activity "$@"
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+  panel_py say term_needs_tty >&2
+  exit 1
+fi
+exec env PYTHONPATH="$PANEL_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" "$PANEL_PYTHON" -m side_insights activity "$@"

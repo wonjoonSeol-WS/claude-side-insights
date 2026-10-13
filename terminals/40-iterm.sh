@@ -1,4 +1,4 @@
-# iTerm2: the live view (claude-activity) in a split to the right, through iTerm's AppleScript.
+# iTerm2: the terminal panel (claude-activity) in a split to the right, through iTerm's AppleScript.
 PANE_ENV=ITERM_SESSION_ID
 
 term_detect() { [ "${TERM_PROGRAM:-}" = iTerm.app ] && [ -n "${ITERM_SESSION_ID:-}" ]; }
@@ -38,7 +38,8 @@ tell application "iTerm2"
   return found as text
 end tell
 OSA
-    ps -o command= -t "${tty#/dev/}" 2>/dev/null | grep -q "side_insights activity $1\$" && printf '%s\n' "${tty#/dev/}"
+    ps -o command= -t "${tty#/dev/}" 2>/dev/null | awk -v want="side_insights activity $1" \
+      'substr($0, length($0) - length(want) + 1) == want { found = 1 } END { exit !found }' && printf '%s\n' "${tty#/dev/}"
   done
 }
 

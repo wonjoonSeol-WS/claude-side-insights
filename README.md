@@ -60,18 +60,18 @@ The Flow tab follows one example through every step. Its values are inferred fro
 | Terminal | What opens next to Claude | Tested |
 |---|---|---|
 | [cmux](https://cmux.dev) | Full panel in a browser split | yes |
-| Orca | Live view in a split | yes |
-| Ghostty 1.3+ | Live view in a split | yes |
-| iTerm2 | Live view in a split | yes |
+| Orca | Terminal panel in a split | yes |
+| Ghostty 1.3+ | Terminal panel in a split | yes |
+| iTerm2 | Terminal panel in a split | yes |
 | Anything else | Nothing. Use the commands below | yes |
 
-- In Orca, Ghostty and iTerm2, open Flow and Q&A with `! claude-flow`.
+- The terminal panel has the same three tabs (Flow, Live, Q&A). `! claude-flow` opens the browser version.
 - Ghostty and iTerm2 are driven by AppleScript. macOS asks once for permission.
 - Adding a terminal is one small shell file. See [terminals/README.md](terminals/README.md).
 
 ## Requirements
 
-- macOS
+- macOS (the plugin uses `osascript`, `open` and the system Python)
 - Claude Code 2.1.275 or later
 - `jq`, `curl`
 - `/usr/bin/python3` 3.9+ (`xcode-select --install`)
@@ -109,7 +109,7 @@ Keys in the panel:
 | Check Q&A when a turn ends | on | When off, Q&A is checked only with the ↻ buttons |
 | Open the panel when a session starts | on | When off, the panel opens only with `claude-panel` |
 
-The only environment variable is `CLAUDE_PANEL_PORT` (default `47821`).
+Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`) and `SIDE_INSIGHTS_DATA` (default `~/.claude/side-insights`).
 
 ## FAQ
 
@@ -141,10 +141,12 @@ On a subscription this probably counts toward your usage limit (not confirmed). 
 | `config.json` | settings |
 | `token` | secret for the page and `claude-qa` |
 | `logs/` | tool activity |
-| `turns/` | where each pane's turn started |
+| `turns/` | transcript and folder of each pane's last finished turn |
 | `flows/` | flows |
 | `qa/<pane>/<session>/` | Q&A, per session |
 | `qa/<pane>/overrides.json` | statuses you set |
+| `terminals/` | handles of open terminal panels |
+| `server.log`, `analysis.log` | output of the local server and of the flow and Q&A runs |
 
 ## How it works
 
@@ -165,7 +167,7 @@ flowchart LR
 
 - Everything stays in `~/.claude/side-insights/`, readable only by you.
 - The server listens on 127.0.0.1 and only accepts `127.0.0.1` or `localhost` as host (no DNS rebinding).
-- A secret token guards every page and API call. It is created and added to every link for you (`claude-panel`, `claude-flow`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs.
+- A secret token guards every page and API call. It is created and added to every link for you (`claude-panel`, `claude-flow`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs. The link `claude-panel` prints contains the token and ends up in your session transcript, so share it like a password.
 
 ## Uninstall
 
@@ -173,7 +175,9 @@ flowchart LR
 /plugin uninstall side-insights@claude-side-insights
 ```
 
-Recorded data stays in `~/.claude/side-insights/`. Delete that folder to remove it too.
+Recorded data stays in `~/.claude/side-insights/`. Delete that folder to remove it too. The local server stops when you restart your Mac, or right away with `pkill -f 'side_insights server'`.
+
+**Coming from the old `install.sh` version?** Remove its leftovers once: the hooks in `~/.claude/settings.json` that point at `~/.claude/activity-panel/record.sh` or `open-panel.sh`, the `claude-activity-panel` block in `~/.zshrc`, and `claude-panel`, `claude-flow`, `claude-qa` and `claude-activity` in `~/.local/bin`.
 
 ## License
 

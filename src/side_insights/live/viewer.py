@@ -16,7 +16,8 @@ import tty
 
 from side_insights.live import views
 from side_insights.live.activity import RUN, ActivityTail
-from side_insights.paths import PORT, pane_key, read_token
+from side_insights.live.term import RESET
+from side_insights.paths import KEY_RE, PORT, pane_key, read_token
 
 POLL_SECONDS = 0.1
 ANIMATE_SECONDS = 0.15
@@ -26,6 +27,8 @@ MARGIN = 2
 RIGHT_MARGIN = 1
 SCROLL_STEP = 3
 ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left"}
+OPEN = "/usr/bin/open"
+ALT_SCREEN_ON, ALT_SCREEN_OFF = "\033[?1049h", "\033[?1049l"
 
 
 class Tab(enum.Enum):
@@ -65,7 +68,7 @@ class Screen:
         top = max(0, min(self.scroll[self.tab], len(body) - space))
         self.scroll[self.tab] = top
         visible = [" " * MARGIN + line for line in (head + body[top:top + space] + [""] * space)[:rows - 1] + [foot]]
-        sys.stdout.write("\033[H" + "\r\n".join(line + "\033[0m\033[K" for line in visible) + "\033[J")
+        sys.stdout.write("\033[H" + "\r\n".join(line + RESET + "\033[K" for line in visible) + "\033[J")
         sys.stdout.flush()
 
     def key(self, key):
@@ -80,7 +83,10 @@ class Screen:
             self.scroll[Tab.FLOW] = 0
         elif key == "o":
             url = f"http://127.0.0.1:{PORT}/p/{self.pane}?t={read_token() or ''}&full=1&mode={self.tab.value}"
-            subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                subprocess.Popen([OPEN, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            except OSError:
+                pass
         elif key == "q":
             raise SystemExit(0)
         else:
@@ -88,32 +94,41 @@ class Screen:
         return True
 
 
-def read_keys(fd):
-    data = os.read(fd, 32).decode("utf-8", "ignore")
-    keys, i = [], 0
-    while i < len(data):
-        if data[i] == "\033" and data[i + 1:i + 2] == "[" and data[i + 2:i + 3] in ARROWS:
-            keys.append(ARROWS[data[i + 2]])
-            i += 3
-        else:
-            keys.append(data[i])
-            i += 1
-    return keys
+class Keys:
+    """Splits terminal input into keys; an arrow's escape sequence may arrive across two reads."""
+
+    def __init__(self, fd):
+        self.fd, self.pending = fd, ""
+
+    def read(self):
+        data = self.pending + os.read(self.fd, 32).decode("utf-8", "ignore")
+        self.pending, keys, i = "", [], 0
+        while i < len(data):
+            if data[i] == "\033" and len(data) - i < 3:
+                self.pending = data[i:]
+                break
+            if data[i] == "\033" and data[i + 1] == "[" and data[i + 2] in ARROWS:
+                keys.append(ARROWS[data[i + 2]])
+                i += 3
+            else:
+                keys.append(data[i])
+                i += 1
+        return keys
 
 
 def main():
     pane = sys.argv[1] if len(sys.argv) > 1 else pane_key()
-    if not pane:
+    if not pane or not KEY_RE.match(pane):
         sys.exit(__doc__)
     screen = Screen(pane)
     fd = sys.stdin.fileno()
     saved = termios.tcgetattr(fd) if os.isatty(fd) else None
+    keys = Keys(fd)
 
     def restore_terminal(*_):
         if saved:
             termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-        sys.stdout.write("\033[?25h\033[0m\r\n")
-        sys.stdout.flush()
+        os.write(sys.stdout.fileno(), f"{ALT_SCREEN_OFF}\033[?25h{RESET}".encode())
         os._exit(0)
 
     for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
@@ -122,13 +137,17 @@ def main():
     signal.signal(signal.SIGWINCH, lambda *_: resized.__setitem__(0, True))
     if saved:
         tty.setcbreak(fd)
-    sys.stdout.write(f"\033]2;{VIEW_TITLE}{pane}\007\033[?25l\033[2J")
+    sys.stdout.write(f"\033]2;{VIEW_TITLE}{pane}\007{ALT_SCREEN_ON}\033[?25l\033[2J")
     last_draw = 0.0
     try:
         while True:
             changed = screen.tail.refresh()
-            ready = select.select([fd], [], [], POLL_SECONDS)[0] if saved else time.sleep(POLL_SECONDS)
-            pressed = any(screen.key(k) for k in read_keys(fd)) if ready else False
+            pressed = False
+            if saved:
+                if select.select([fd], [], [], POLL_SECONDS)[0]:
+                    pressed = any(screen.key(k) for k in keys.read())
+            else:
+                time.sleep(POLL_SECONDS)
             st = screen.tail.state
             animating = st.busy or any(tool["state"] == RUN for tool in st.tools.values())
             since = time.time() - last_draw
@@ -137,10 +156,10 @@ def main():
                 screen.tick += 1
                 try:
                     screen.draw()
-                except OSError:
-                    pass
+                except (OSError, ValueError, KeyError, TypeError) as exc:
+                    print(f"side-insights: draw failed: {exc!r}", file=sys.stderr)
                 last_draw = time.time()
-    except SystemExit:
+    finally:
         restore_terminal()
 
 

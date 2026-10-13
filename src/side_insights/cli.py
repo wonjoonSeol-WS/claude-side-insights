@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from side_insights.paths import PORT, pane_key, read_token
+from side_insights.paths import PORT, TOKEN_HEADER, pane_key, read_token
 from side_insights.i18n import t
 from side_insights.analysis.qa_store import STATUSES, Status
 
@@ -22,7 +22,7 @@ TIMEOUT = 5
 def call(method, path, body=None):
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Content-Type": "application/json", "X-Claude-Panel": read_token() or ""})
+                                 headers={"Content-Type": "application/json", TOKEN_HEADER: read_token() or ""})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return json.load(resp)

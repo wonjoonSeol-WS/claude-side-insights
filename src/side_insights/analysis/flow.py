@@ -13,6 +13,7 @@ import uuid
 from side_insights import config
 from side_insights.analysis.runner import Pending, run_claude
 from side_insights.i18n import language_instruction
+from side_insights.records import RecordStatus, StepKind
 from side_insights.paths import EDIT_TOOLS, atomic_write_json, data_dir, json_files, read_json
 from side_insights.transcript import (assistant_blocks, prompt_text, clip, load_entries, queued_prompt, text_of, tool_results, turn_end, turn_start,
                         wait_until_written)
@@ -49,7 +50,6 @@ def writes_files(command):
     return bool(WRITES_FILES.search(_QUOTED.sub("''", command)) or (heredoc_body and WRITES_FILES.search(heredoc_body)))
 
 
-STEP_KINDS = ["input", "logic", "external", "storage", "output", "config", "test"]
 CHECK_STATUSES = ["pass", "fail", "unknown"]
 
 SCHEMA = {
@@ -67,7 +67,7 @@ SCHEMA = {
                 "properties": {
                     "title": {"type": "string"},
                     "location": {"type": "string", "description": "file / function names"},
-                    "kind": {"type": "string", "enum": STEP_KINDS},
+                    "kind": {"type": "string", "enum": [kind.value for kind in StepKind]},
                     "changed": {"type": "boolean", "description": "Did this turn's edits touch this step's code"},
                     "explanation": {"type": "string", "description": "One sentence per line, separated by \\n"},
                     "code": {"type": "string", "description": "Real code excerpt, at most 12 lines"},
@@ -197,7 +197,7 @@ def main():
         if force:
             flow_id = new_flow_id()
             atomic_write_json(os.path.join(out_dir, f"{flow_id}.json"),
-                              {"id": flow_id, "ts": time.time(), "status": "error", "error": "no turn found in the transcript"})
+                              {"id": flow_id, "ts": time.time(), "status": RecordStatus.ERROR.value, "error": "no turn found in the transcript"})
         return
     if not turn["edited"] and not turn["shell_writes"] and not force:
         return
@@ -213,11 +213,11 @@ def main():
         try:
             flow, cost = run_claude(SYSTEM + language_instruction(pane), SCHEMA, message, settings["model"],
                                     tools=("Read", "Grep", "Glob"), cwd=cwd, timeout=TIMEOUT, max_turns=MAX_TURNS)
-            record.update(flow=flow, cost=cost, status="ok")
+            record.update(flow=flow, cost=cost, status=RecordStatus.OK.value)
         except Exception as exc:  # noqa: BLE001
-            record.update(status="error", error=str(exc)[:ERROR_LIMIT])
+            record.update(status=RecordStatus.ERROR.value, error=str(exc)[:ERROR_LIMIT])
         atomic_write_json(os.path.join(out_dir, f"{flow_id}.json"), record)
-    if record["status"] == "ok":
+    if record["status"] == RecordStatus.OK.value:
         _prune(out_dir, flow_id, turn["turn_id"])
 
 
