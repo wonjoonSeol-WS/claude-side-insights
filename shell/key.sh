@@ -27,6 +27,9 @@ panel_token() { cat "$PANEL_DATA/token" 2>/dev/null; }
 
 panel_url() { printf 'http://127.0.0.1:%s/p/%s?t=%s' "$(panel_port)" "$1" "$(panel_token)"; }
 
+# panel_short_url <key>: the server expands a unique key prefix, so the printed link fits on one line.
+panel_short_url() { panel_url "$(printf '%s' "$1" | cut -c1-16)"; }
+
 ensure_panel_server() {
   [ -n "$(panel_server_pid)" ] && return 0
   mkdir -p "$PANEL_DATA" && chmod 700 "$PANEL_DATA"

@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
 from side_insights import config
-from side_insights.analysis import qa_store
+from side_insights.analysis import flow_store, qa_store
 from side_insights.live.activity import ActivityTail, log_path
 from side_insights.analysis.runner import Pending
 from side_insights.__main__ import child_env, command_line
@@ -48,14 +48,9 @@ def snapshot(pane):
 
 
 def flows(pane):
-    directory = os.path.join(DATA, "flows", pane)
-    found = []
-    for path in sorted(json_files(directory), reverse=True):
-        rec = read_json(path)
-        if isinstance(rec, dict) and rec.get("id"):
-            found.append({"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"),
-                          "title": (rec.get("flow") or {}).get("title") or (rec.get("prompt") or "")[:30]})
-    return found, Pending.active(os.path.join(directory, "pending"))
+    found = [{"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"),
+              "title": (rec.get("flow") or {}).get("title") or (rec.get("prompt") or "")[:30]} for rec in flow_store.records(pane)]
+    return found, Pending.active(os.path.join(flow_store.flow_dir(pane), "pending"))
 
 
 def known_panes():
@@ -74,6 +69,14 @@ def known_panes():
                 except OSError:
                     pass
     return sorted(stamps.items(), key=lambda kv: -kv[1])[:MAX_INDEX_PANES]
+
+
+def resolve_pane(pane):
+    """A unique prefix of a known pane key stands for that pane, so printed links stay short."""
+    if pane is None or os.path.exists(log_path(pane)):
+        return pane
+    matches = [key for key, _ in known_panes() if key.startswith(pane)]
+    return matches[0] if len(matches) == 1 else pane
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -140,6 +143,14 @@ class Handler(BaseHTTPRequestHandler):
         return (self.params.get(name) or [None])[0]
 
     def get_page(self, pane=None):
+        full = resolve_pane(pane)
+        if full != pane:
+            query = urlsplit(self.path).query
+            self.send_response(302)
+            self.send_header("Location", f"/p/{full}" + (f"?{query}" if query else ""))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.html"), encoding="utf-8") as fh:
             html = fh.read()
         lang = Language.from_code(self.param("lang"), current(pane))

@@ -28,6 +28,12 @@ def t(key, *args, pane=None):
         return text
 
 
+def language_instruction(pane, keep=""):
+    kept = f" Keep {keep} exactly in the user's own words and language." if keep else ""
+    return (f"\n\nWrite every text field in {current(pane).prompt_name}.{kept}"
+            " Keep code excerpts, identifiers, file names and commands as they are.")
+
+
 if __name__ == "__main__":
     import sys
 
@@ -36,9 +42,3 @@ if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("usage: python3 -m side_insights say <message-key> [args...]")
     print(t(sys.argv[1], *sys.argv[2:], pane=pane_key() or None))
-
-
-def language_instruction(pane, keep=""):
-    kept = f" Keep {keep} exactly in the user's own words and language." if keep else ""
-    return (f"\n\nWrite every text field in {current(pane).prompt_name}.{kept}"
-            " Keep code excerpts, identifiers, file names and commands as they are.")

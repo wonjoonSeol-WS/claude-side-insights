@@ -72,7 +72,7 @@
   "mode_qa": "Q&A",
   "next_page": "Next page",
   "next_step": "Next step",
-  "no_pane": "Run this inside a cmux or Orca pane",
+  "no_pane": "Run this inside Claude Code: ! claude-panel",
   "none": "None",
   "not_yet": "Nothing yet",
   "off": "Off",
@@ -137,5 +137,6 @@
   "tools": "Tools ({0})",
   "turns_n": "{0} turns",
   "unknown_err": "Unknown error",
-  "panel_link": "Full panel (Flow, Live, Q&A): {0}"
+  "panel_link": "Full panel (Flow, Live, Q&A):",
+  "term_keys": "1 2 3 tabs  ←→ steps  ↑↓ scroll  o open in browser  q quit"
 }

@@ -72,7 +72,7 @@
   "mode_qa": "Q&A",
   "next_page": "次のページ",
   "next_step": "次のステップ",
-  "no_pane": "cmux または Orca のペイン内で実行してください",
+  "no_pane": "Claude Code の中で実行してください: ! claude-panel",
   "none": "なし",
   "not_yet": "まだありません",
   "off": "オフ",
@@ -137,5 +137,6 @@
   "tools": "ツール ({0})",
   "turns_n": "{0} ターン",
   "unknown_err": "不明なエラー",
-  "panel_link": "パネル全体 (フロー、リアルタイム、Q&A): {0}"
+  "panel_link": "パネル全体 (フロー、リアルタイム、Q&A):",
+  "term_keys": "1 2 3 タブ  ←→ ステップ  ↑↓ スクロール  o ブラウザで開く  q 終了"
 }

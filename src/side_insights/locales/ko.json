@@ -72,7 +72,7 @@
   "mode_qa": "Q&A",
   "next_page": "다음 페이지",
   "next_step": "다음 단계",
-  "no_pane": "cmux나 Orca의 창 안에서 실행하세요",
+  "no_pane": "Claude Code 안에서 실행하세요: ! claude-panel",
   "none": "없음",
   "not_yet": "아직 없음",
   "off": "꺼짐",
@@ -137,5 +137,6 @@
   "tools": "도구 ({0})",
   "turns_n": "{0}턴",
   "unknown_err": "알 수 없는 오류",
-  "panel_link": "전체 패널 (Flow, 실시간, Q&A): {0}"
+  "panel_link": "전체 패널 (Flow, 실시간, Q&A):",
+  "term_keys": "1 2 3 탭  ←→ 단계  ↑↓ 스크롤  o 브라우저로 열기  q 종료"
 }

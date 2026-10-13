@@ -30,5 +30,6 @@ else
   panel_py say panel_failed >&2
   status=1
 fi
-panel_py say panel_link "$(panel_url "$key")&full=1"
+panel_py say panel_link
+printf '%s&full=1\n' "$(panel_short_url "$key")"
 exit "$status"
