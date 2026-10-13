@@ -307,7 +307,7 @@ def flow_lines(st, step, tick, cols):
         example = styled(flow["example"], cols, MUTED, indent=visible_width(label) + 1)
         lines += [label + " " + example[0].lstrip(" "), *example[1:]]
     if flow.get("summary"):
-        lines += ["", *styled(flow["summary"], cols, MUTED)]
+        lines += ["", *styled(flow["summary"], cols, TEXT)]
     wide = cols >= WIDE_COLS
     pipe_w, detail_w = _split(cols) if wide else (cols, cols)
     pipeline = box(_pipeline(steps, step, inner_width(pipe_w), pane), pipe_w, LINE, paint(t("pipeline", pane=pane), TEXT, bold=True))
