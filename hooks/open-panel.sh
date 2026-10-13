@@ -9,6 +9,15 @@ PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 force=0
 [ "${1:-}" = "--force" ] && force=1
 
+input=""
+[ -t 0 ] || input=$(cat)
+key=$(panel_key "$input")
+[ -n "$key" ] || exit 0
+adapter=$(panel_terminal)
+if [ "$force" = 0 ]; then
+  [ "$(uname -s)" = Darwin ] && [ -n "$adapter" ] || exit 0
+fi
+
 missing=$(panel_missing)
 if [ -n "$missing" ]; then
   [ "$force" = 1 ] && echo "side-insights needs: $missing" >&2 \
@@ -16,13 +25,7 @@ if [ -n "$missing" ]; then
   exit 0
 fi
 
-input=""
-[ -t 0 ] || input=$(cat)
-key=$(panel_key "$input")
-[ -n "$key" ] || exit 0
-adapter=$(panel_terminal)
 if [ "$force" = 0 ]; then
-  [ -n "$adapter" ] || exit 0
   [ "$(panel_py config get panel_auto "$key" 2>/dev/null)" != "0" ] || exit 0
 fi
 

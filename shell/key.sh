@@ -10,9 +10,13 @@ panel_py() { PYTHONPATH="$PANEL_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" "$PANEL_PYT
 # panel_missing: names of required tools that are not installed, space separated; empty when all are there.
 panel_missing() {
   local missing=""
-  # Without the Command Line Tools, /usr/bin/python3 is a stub that pops an install dialog, so check first.
-  if ! xcode-select -p >/dev/null 2>&1 || ! "$PANEL_PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
-    missing="python3 (xcode-select --install)"
+  # Without the Command Line Tools, macOS /usr/bin/python3 is a stub that pops an install dialog, so check first.
+  if [ "$(uname -s)" = Darwin ]; then
+    if ! xcode-select -p >/dev/null 2>&1 || ! "$PANEL_PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+      missing="python3 (xcode-select --install)"
+    fi
+  elif ! "$PANEL_PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
+    missing="python3 3.9+ at $PANEL_PYTHON"
   fi
   command -v jq >/dev/null 2>&1 || missing="${missing:+$missing, }jq"
   command -v curl >/dev/null 2>&1 || missing="${missing:+$missing, }curl"
