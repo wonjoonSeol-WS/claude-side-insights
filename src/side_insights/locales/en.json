@@ -143,6 +143,5 @@
   "qa_wait_d": "These are checked after Claude finishes the turn, usually about {0} seconds later.",
   "qa_wait_checking": "Checking now. Results appear in a few seconds.",
   "qa_wait_off": "Automatic checks are off. Press ↻ to check.",
-  "qa_eta": "Questions are checked after each turn ends, about {0} s later.",
-  "panel_keys": "Keys (click the panel first): 1 Flow  2 Live  3 Q&A  ←→ steps  ↑↓ scroll"
+  "qa_eta": "Questions are checked after each turn ends, about {0} s later."
 }
