@@ -52,12 +52,12 @@ Flow 탭은 예시 하나를 모든 단계에 따라가며 보여 줍니다. 값
 | 터미널 | Claude 옆에 열리는 것 | 테스트 |
 |---|---|---|
 | [cmux](https://cmux.dev) | 전체 패널 (브라우저 split) | 함 |
-| Orca | 전체 패널 (브라우저 탭) | 아직 |
+| Orca | 실시간 화면 (split) | 함 |
 | Ghostty 1.3 이상 | 실시간 화면 (split) | 함 |
 | iTerm2 | 실시간 화면 (split) | 아직 |
 | 그 밖의 터미널 | 없음. 아래 명령을 쓰세요 | 함 |
 
-- Ghostty, iTerm2에서 Flow와 Q&A는 `! claude-flow`로 엽니다.
+- Orca, Ghostty, iTerm2에서 Flow와 Q&A는 `! claude-flow`로 엽니다.
 - Ghostty, iTerm2는 AppleScript로 조작합니다. 처음 한 번 macOS가 권한을 묻습니다.
 - 터미널 추가는 셸 파일 하나면 됩니다. [terminals/README.md](terminals/README.md) 참고.
 

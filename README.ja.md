@@ -52,12 +52,12 @@ English、한국어、日本語に対応しています。
 | ターミナル | Claude の横に開くもの | テスト |
 |---|---|---|
 | [cmux](https://cmux.dev) | パネル全体 (ブラウザ split) | 済み |
-| Orca | パネル全体 (ブラウザタブ) | まだ |
+| Orca | リアルタイム画面 (split) | 済み |
 | Ghostty 1.3 以上 | リアルタイム画面 (split) | 済み |
 | iTerm2 | リアルタイム画面 (split) | まだ |
 | その他 | なし。下のコマンドを使います | 済み |
 
-- Ghostty と iTerm2 では、フローと Q&A は `! claude-flow` で開きます。
+- Orca、Ghostty、iTerm2 では、フローと Q&A は `! claude-flow` で開きます。
 - Ghostty と iTerm2 は AppleScript で操作します。最初に一度だけ macOS が許可を求めます。
 - ターミナルの追加はシェルファイル一つです。[terminals/README.md](terminals/README.md) を参照。
 

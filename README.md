@@ -52,12 +52,12 @@ The Flow tab follows one example through every step. Its values are inferred fro
 | Terminal | What opens next to Claude | Tested |
 |---|---|---|
 | [cmux](https://cmux.dev) | Full panel in a browser split | yes |
-| Orca | Full panel in a browser tab | not yet |
+| Orca | Live view in a split | yes |
 | Ghostty 1.3+ | Live view in a split | yes |
 | iTerm2 | Live view in a split | not yet |
 | Anything else | Nothing. Use the commands below | yes |
 
-- In Ghostty and iTerm2, open Flow and Q&A with `! claude-flow`.
+- In Orca, Ghostty and iTerm2, open Flow and Q&A with `! claude-flow`.
 - Ghostty and iTerm2 are driven by AppleScript. macOS asks once for permission.
 - Adding a terminal is one small shell file. See [terminals/README.md](terminals/README.md).
 
