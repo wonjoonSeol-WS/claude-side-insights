@@ -5,20 +5,24 @@ import signal
 import subprocess
 import time
 
+import fcntl
+
 from common import atomic_write_json, process_alive, read_json
 from i18n import current
 
 STALE_AFTER = 1800
+_PARENT_SESSION_VARS = ("CMUX_", "ORCA_", "CLAUDE_CODE_", "CLAUDECODE")
 
 
-def language_instruction(pane):
+def language_instruction(pane, keep=""):
     name = current(pane).prompt_name
-    return f"\n\nWrite every text field in {name}. Keep code excerpts, identifiers, file names and commands as they are."
+    kept = f" Keep {keep} exactly in the user's own words and language." if keep else ""
+    return f"\n\nWrite every text field in {name}.{kept} Keep code excerpts, identifiers, file names and commands as they are."
 
 
-def run_claude(system, schema, message, model, tools=(), cwd=None, timeout=600, max_turns=40):
+def run_claude(system, schema, message, model, tools, cwd, timeout, max_turns):
     """Returns (structured_output, cost). Raises RuntimeError when no structured output came back."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("CMUX_", "ORCA_"))}
+    env = {k: v for k, v in os.environ.items() if not k.startswith(_PARENT_SESSION_VARS)}
     env["CLAUDE_ACTIVITY_CHILD"] = "1"
     tool_list = ",".join(tools)
     cmd = ["claude", "-p", "--model", model, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
@@ -31,16 +35,21 @@ def run_claude(system, schema, message, model, tools=(), cwd=None, timeout=600, 
     try:
         out, err = proc.communicate(message, timeout=timeout)
     except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
         proc.communicate()
         raise RuntimeError(f"timed out after {timeout}s")
     try:
         result = json.loads(out or "{}")
     except ValueError:
         result = {}
+    result = result if isinstance(result, dict) else {}
     data = result.get("structured_output")
-    if not data:
-        raise RuntimeError(result.get("result") or err[-500:] or "no structured output")
+    if not isinstance(data, dict):
+        detail = " ".join(str(x) for x in (result.get("subtype"), result.get("result")) if x)
+        raise RuntimeError(detail or err[-500:] or "no structured output")
     return data, result.get("total_cost_usd")
 
 
@@ -50,23 +59,37 @@ class Pending:
     def __init__(self, path, **info):
         self.path = path
         self.info = info
+        self.lock = None
 
     def __enter__(self):
+        os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
+        self.lock = open(self.path + ".lock", "w")
+        fcntl.flock(self.lock, fcntl.LOCK_EX)
         atomic_write_json(self.path, {"pid": os.getpid(), "since": time.time(), **self.info})
         return self
 
     def __exit__(self, *_):
-        current_marker = read_json(self.path, {})
-        if current_marker.get("pid") == os.getpid():
+        marker = read_json(self.path, {})
+        if isinstance(marker, dict) and marker.get("pid") == os.getpid():
             try:
                 os.remove(self.path)
             except OSError:
                 pass
+        fcntl.flock(self.lock, fcntl.LOCK_UN)
+        self.lock.close()
+
+    @staticmethod
+    def claim(path, pid):
+        """Written by the server right after spawning, so a second click sees the run before the child starts."""
+        atomic_write_json(path, {"pid": pid, "since": time.time()})
 
     @staticmethod
     def active(path):
         marker = read_json(path)
         if not isinstance(marker, dict):
             return None
-        fresh = time.time() - float(marker.get("since") or 0) < STALE_AFTER
+        try:
+            fresh = time.time() - float(marker.get("since") or 0) < STALE_AFTER
+        except (TypeError, ValueError):
+            return None
         return marker if fresh and process_alive(marker.get("pid")) else None

@@ -8,3 +8,5 @@ config.json
 .tmp-*
 __pycache__/
 .DS_Store
+token
+*.lock

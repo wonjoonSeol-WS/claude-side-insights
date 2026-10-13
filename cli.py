@@ -11,7 +11,7 @@ import sys
 import urllib.error
 import urllib.request
 
-from common import PORT, pane_key
+from common import PORT, api_token, pane_key
 from i18n import t
 from qa_store import STATUSES
 
@@ -22,7 +22,7 @@ TIMEOUT = 5
 def call(method, path, body=None):
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Content-Type": "application/json", "X-Claude-Panel": "1"})
+                                 headers={"Content-Type": "application/json", "X-Claude-Panel": api_token()})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return json.load(resp)
@@ -58,7 +58,7 @@ def main():
         list_items(pane, "--open" in args)
     elif command == "set" and len(args) == 3 and args[2] in (*STATUSES, AUTO):
         call("POST", f"/api/{pane}/qa/override", {"id": args[1], "status": None if args[2] == AUTO else args[2]})
-        print(t("cli_set", args[1], args[2], pane=pane))
+        print(t("cli_set", args[1], t("st_" + args[2], pane=pane) if args[2] in STATUSES else args[2], pane=pane))
     elif command in ("archive", "restore") and len(args) == 2:
         call("POST", f"/api/{pane}/qa/override", {"id": args[1], "archived": command == "archive"})
         print(t("cli_" + command + "d", args[1], pane=pane))

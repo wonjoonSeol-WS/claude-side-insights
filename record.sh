@@ -3,6 +3,8 @@
 set -u
 [ -z "${CLAUDE_ACTIVITY_CHILD:-}" ] || exit 0
 umask 077
+LOG_MAX_BYTES=5000000
+LOG_KEEP_LINES=5000
 
 base="$HOME/.claude/activity-panel"
 mkdir -p "$base/logs" "$base/turns" 2>/dev/null || exit 0
@@ -12,13 +14,17 @@ key=$(panel_key "$input")
 [ -n "$key" ] || exit 0
 
 out=$(printf '%s' "$input" | jq -r -f "$base/record.jq" 2>/dev/null) || exit 0
-printf '%s\n' "$out" | sed -n 1p >> "$base/logs/$key.jsonl"
-stop_line=$(printf '%s\n' "$out" | sed -n 2p)
-if [ -n "$stop_line" ]; then
-  IFS=$'\t' read -r _ transcript cwd <<< "$stop_line"
+log="$base/logs/$key.jsonl"
+printf '%s\n' "$out" | sed -n 1p >> "$log"
+if [ "$(stat -f%z "$log" 2>/dev/null || echo 0)" -gt "$LOG_MAX_BYTES" ]; then
+  tail -n "$LOG_KEEP_LINES" "$log" > "$log.tmp" && mv "$log.tmp" "$log"
+fi
+stop_json=$(printf '%s\n' "$out" | sed -n 2p)
+if [ -n "$stop_json" ]; then
   turn_file="$base/turns/$key.json"
-  jq -n --arg t "$transcript" --arg c "$cwd" --arg s "${CMUX_SURFACE_ID:-}" --arg w "${CMUX_WORKSPACE_ID:-}" \
-    '{transcript: $t, cwd: $c, cmux_surface: $s, cmux_workspace: $w}' > "$turn_file.tmp" && mv "$turn_file.tmp" "$turn_file"
+  printf '%s\n' "$stop_json" > "$turn_file.tmp" && mv "$turn_file.tmp" "$turn_file"
+  transcript=$(printf '%s' "$stop_json" | jq -r '.transcript')
+  cwd=$(printf '%s' "$stop_json" | jq -r '.cwd')
   /usr/bin/python3 "$base/detach.py" flow.py "$key" "$transcript" "$cwd" </dev/null >> "$base/flow.log" 2>&1 &
   /usr/bin/python3 "$base/detach.py" qa.py "$key" "$transcript" </dev/null >> "$base/flow.log" 2>&1 &
 fi

@@ -16,7 +16,7 @@ fi
 
 {
   ensure_panel_server || exit 0
-  url="http://127.0.0.1:$(panel_port)/p/$key"
+  url=$(panel_url "$key")
   if [ -n "${CMUX_SURFACE_ID:-}" ] && command -v cmux >/dev/null 2>&1; then
     [ -n "$(cmux_panel_surfaces "$key")" ] && exit 0
     cmux browser open-split "$url" >/dev/null 2>&1

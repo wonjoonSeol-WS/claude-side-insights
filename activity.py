@@ -33,6 +33,8 @@ class State:
     def __init__(self):
         self.reset(None)
 
+    pane = None
+
     def reset(self, sid):
         self.sid, self.cwd, self.busy, self.seq = sid, None, False, 0
         self.tools = OrderedDict()
@@ -83,7 +85,7 @@ class State:
         if root and path.startswith(root + "/"):
             return path[len(root) + 1:]
         home = os.path.expanduser("~")
-        return "~" + path[len(home):] if path.startswith(home) else path
+        return "~" + path[len(home):] if path.startswith(home + "/") else path
 
 
 class ActivityTail:
@@ -113,14 +115,20 @@ class ActivityTail:
                 *lines, self.buf = self.buf.split(b"\n")
                 for line in lines:
                     try:
-                        self.state.apply(json.loads(line.decode("utf-8")))
-                        changed = True
+                        event = json.loads(line.decode("utf-8"))
                     except ValueError:
-                        pass
+                        continue
+                    if isinstance(event, dict):
+                        self.state.apply(event)
+                        changed = True
             return changed
 
     def snapshot(self, max_tools=200):
         self.refresh()
+        with self.lock:
+            return self._snapshot(max_tools)
+
+    def _snapshot(self, max_tools):
         s = self.state
         return {
             "sid": s.sid, "cwd": s.cwd, "busy": s.busy,

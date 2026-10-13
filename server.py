@@ -3,7 +3,7 @@
 import json
 import os
 import re
-import shutil
+import secrets
 import subprocess
 import sys
 import threading
@@ -14,7 +14,7 @@ import config
 import qa_store
 from activity import ActivityTail, log_path
 from claude_run import Pending
-from common import BASE, ID_RE, KEY_RE, PORT, read_json
+from common import BASE, ITEM_ID_RE, KEY_RE, PORT, TURN_ID_RE, api_token, json_files, read_json
 from i18n import current, messages, t
 from language import DEFAULT, Language
 
@@ -22,8 +22,11 @@ MAX_BODY = 64 * 1024
 MAX_INDEX_PANES = 40
 FLOW_ID_RE = re.compile(r"^[0-9a-f-]{1,40}$")
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
-CMUX = shutil.which("cmux") or "/Applications/cmux.app/Contents/Resources/bin/cmux"
-SEND_TIMEOUT = 5
+TOKEN = api_token()
+REQUEST_TIMEOUT = 10
+_spawn_lock = threading.Lock()
+_MARKERS = re.compile(r"__PANEL_(KEY|I18N|TOKEN)__")
+COPY_TIMEOUT = 5
 
 _tails = {}
 _tails_lock = threading.Lock()
@@ -47,19 +50,12 @@ def snapshot(pane):
 def flows(pane):
     directory = os.path.join(BASE, "flows", pane)
     found = []
-    for path in sorted(_json_paths(directory), reverse=True):
+    for path in sorted(json_files(directory), reverse=True):
         rec = read_json(path)
         if isinstance(rec, dict) and rec.get("id"):
             found.append({"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"),
                           "title": (rec.get("flow") or {}).get("title") or (rec.get("prompt") or "")[:30]})
     return found, Pending.active(os.path.join(directory, "pending"))
-
-
-def _json_paths(directory):
-    try:
-        return [os.path.join(directory, n) for n in os.listdir(directory) if n.endswith(".json") and not n.startswith(".")]
-    except OSError:
-        return []
 
 
 def known_panes():
@@ -80,21 +76,9 @@ def known_panes():
     return sorted(stamps.items(), key=lambda kv: -kv[1])[:MAX_INDEX_PANES]
 
 
-def send_to_cmux(surface, workspace, message):
-    """Type the message into the Claude pane and press Enter. False when the pane is unknown or cmux fails."""
-    if not surface or not os.path.exists(CMUX):
-        return False
-    scope = ["--surface", surface] + (["--workspace", workspace] if workspace else [])
-    try:
-        typed = subprocess.run([CMUX, "send", *scope, "--", message], capture_output=True, timeout=SEND_TIMEOUT)
-        entered = typed.returncode == 0 and subprocess.run([CMUX, "send-key", *scope, "enter"], capture_output=True,
-                                                           timeout=SEND_TIMEOUT).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
-    return entered
-
-
 class Handler(BaseHTTPRequestHandler):
+    timeout = REQUEST_TIMEOUT
+
     def log_message(self, *_):
         pass
 
@@ -103,6 +87,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -129,11 +115,13 @@ class Handler(BaseHTTPRequestHandler):
     def route(self, method):
         if self.headers.get("Host") not in ALLOWED_HOSTS:
             return self.error(403, "err_forbidden")
-        if method == "POST" and self.headers.get("X-Claude-Panel") != "1":
-            return self.error(403, "err_forbidden")
         url = urlsplit(self.path)
         self.params = parse_qs(url.query)
         parts = [p for p in url.path.split("/") if p]
+        page = method == "GET" and (not parts or parts[0] == "p")
+        sent = self.param("t") if page else self.headers.get("X-Claude-Panel")
+        if parts != ["health"] and not secrets.compare_digest(sent or "", TOKEN):
+            return self.error(403, "err_forbidden")
         for route_method, pattern, handler in ROUTES:
             if route_method == method and len(pattern) == len(parts) and all(
                     p == q if isinstance(p, str) else bool(p.match(q)) for p, q in zip(pattern, parts)):
@@ -153,10 +141,8 @@ class Handler(BaseHTTPRequestHandler):
         with open(os.path.join(BASE, "app.html"), encoding="utf-8") as fh:
             html = fh.read()
         lang = Language.from_code(self.param("lang"), current(pane))
-        i18n_data = {"lang": lang.code, "messages": messages(lang), "fallback": messages(DEFAULT)}
-        inject = {"__PANEL_KEY__": pane, "__PANEL_I18N__": i18n_data}
-        for marker, value in inject.items():
-            html = html.replace(marker, json.dumps(value, ensure_ascii=False).replace("</", "<\\/"))
+        values = {"KEY": pane, "I18N": {"lang": lang.code, "messages": messages(lang), "fallback": messages(DEFAULT)}, "TOKEN": TOKEN}
+        html = _MARKERS.sub(lambda m: json.dumps(values[m.group(1)], ensure_ascii=False).replace("</", "<\\/"), html)
         self.send(200, html, "text/html; charset=utf-8")
 
     def get_health(self):
@@ -216,7 +202,7 @@ class Handler(BaseHTTPRequestHandler):
         qa_store.set_override(pane, *found, status=status, archived=archived)
         self.json({"ok": True})
 
-    def post_ask(self, pane):
+    def post_copy_question(self, pane):
         body = self.body()
         if body is None or not isinstance(body.get("id"), str):
             return self.error(400, "err_need_id", pane=pane)
@@ -226,14 +212,15 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(404, "err_no_id", body["id"], pane=pane)
         question = " ".join(str(found[1].get("question", "")).replace("\\", " ").split())
         message = t("ask_message", question, pane=pane)
-        last = read_json(os.path.join(BASE, "turns", f"{pane}.json")) or {}
-        if send_to_cmux(last.get("cmux_surface"), last.get("cmux_workspace"), message):
-            return self.json({"sent": True})
-        subprocess.run(["/usr/bin/pbcopy"], input=message.encode("utf-8"), check=False)
-        self.json({"sent": False, "copied": True})
+        try:
+            copied = subprocess.run(["/usr/bin/pbcopy"], input=message.encode("utf-8"), timeout=COPY_TIMEOUT).returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            copied = False
+        self.json({"copied": copied})
 
     def post_open(self, pane):
-        subprocess.Popen(["/usr/bin/open", f"http://127.0.0.1:{PORT}/p/{pane}?full=1"],
+        mode = self.param("mode") if self.param("mode") in ("flow", "live", "qa") else ""
+        subprocess.Popen(["/usr/bin/open", f"http://127.0.0.1:{PORT}/p/{pane}?full=1&t={TOKEN}" + (f"&mode={mode}" if mode else "")],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.json({"ok": True})
 
@@ -241,10 +228,15 @@ class Handler(BaseHTTPRequestHandler):
         last = read_json(os.path.join(BASE, "turns", f"{pane}.json"))
         if not isinstance(last, dict) or not last.get("transcript"):
             return self.error(409, "err_no_turn", pane=pane)
+        with _spawn_lock:
+            return self._regen(pane, last)
+
+    def _regen(self, pane, last):
         target = self.param("target")
         turn_id = self.param("turn")
         item = self.param("item")
-        if target not in ("flow", "qa") or any(v is not None and not ID_RE.match(v) for v in (turn_id, item)):
+        if target not in ("flow", "qa") or (turn_id is not None and not TURN_ID_RE.match(turn_id)) or (
+                item is not None and not ITEM_ID_RE.match(item)):
             return self.error(400, "err_bad_request", pane=pane)
         if item:
             sid = snapshot(pane)["sid"]
@@ -261,9 +253,14 @@ class Handler(BaseHTTPRequestHandler):
         else:
             args = ["qa.py", pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
             if self.param("scope") == "open":
-                args.append("--open-items")
-        subprocess.Popen([sys.executable, os.path.join(BASE, args[0]), *args[1:], "--force"],
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                only = [t for t in (self.param("turns") or "").split(",") if t]
+                if not all(TURN_ID_RE.match(t) for t in only):
+                    return self.error(400, "err_bad_request", pane=pane)
+                args.append("--open-items" + (f"={','.join(only)}" if only else ""))
+        with open(os.path.join(BASE, "flow.log"), "a") as log:
+            child = subprocess.Popen([sys.executable, os.path.join(BASE, args[0]), *args[1:], "--force"],
+                                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+        Pending.claim(marker, child.pid)
         self.json({"ok": True})
 
 
@@ -278,7 +275,7 @@ ROUTES = [
     ("POST", ["api", "config"], Handler.post_config),
     ("POST", ["api", KEY_RE, "qa", "override"], Handler.post_override),
     ("POST", ["api", KEY_RE, "open"], Handler.post_open),
-    ("POST", ["api", KEY_RE, "qa", "ask"], Handler.post_ask),
+    ("POST", ["api", KEY_RE, "qa", "copy"], Handler.post_copy_question),
     ("POST", ["api", KEY_RE, "regen"], Handler.post_regen),
 ]
 

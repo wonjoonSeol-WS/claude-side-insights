@@ -1,10 +1,13 @@
 """Reading Claude Code transcript JSONL: which entries are the user's prompts and what each turn contains."""
 import json
+import os
 import re
+import time
 
 SKILL_PREAMBLE = "Base directory for this skill"
 _WRAPPER_RE = re.compile(r"^<(command-|local-command-|bash-|task-notification|system-reminder|user-prompt-submit-hook)")
 _NOT_A_PROMPT_PREFIXES = ("[Request interrupted", SKILL_PREAMBLE)
+_COMMAND_RE = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>.*?<command-args>(.*?)</command-args>", re.S)
 
 
 def text_of(content):
@@ -13,6 +16,16 @@ def text_of(content):
     if isinstance(content, list):
         return "\n".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
     return ""
+
+
+def prompt_text(entry):
+    """What the user typed: plain text, or "/command args" for a slash command typed with arguments."""
+    text = text_of((entry.get("message") or {}).get("content")).strip()
+    command = _COMMAND_RE.search(text)
+    if command and command.group(2).strip():
+        name = command.group(1) if command.group(1).startswith("/") else "/" + command.group(1)
+        return f"{name} {command.group(2).strip()}"
+    return text
 
 
 def _is_user_text(text):
@@ -26,7 +39,7 @@ def is_prompt(entry):
     content = (entry.get("message") or {}).get("content")
     if isinstance(content, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content):
         return False
-    return _is_user_text(text_of(content))
+    return _is_user_text(prompt_text(entry))
 
 
 def queued_prompt(entry):
@@ -34,8 +47,28 @@ def queued_prompt(entry):
     att = entry.get("attachment") if entry.get("type") == "attachment" else None
     if not isinstance(att, dict) or att.get("type") != "queued_command" or (att.get("origin") or {}).get("kind") != "human":
         return None
+    if att.get("commandMode", "prompt") != "prompt":
+        return None
     text = text_of(att.get("prompt")).strip()
     return text if _is_user_text(text) else None
+
+
+def _has_reply(entries):
+    start = turn_start(entries)
+    return start is not None and any(True for _ in assistant_blocks(entries[start + 1:]))
+
+
+def wait_until_written(path, quiet=1.0, limit=15.0, poll=0.25):
+    """Claude Code can fire the Stop hook before the final reply reaches the file. Waits for a reply and a quiet file."""
+    deadline = time.time() + limit
+    while time.time() < deadline:
+        try:
+            changed = time.time() - os.stat(path).st_mtime
+        except OSError:
+            return
+        if changed >= quiet and _has_reply(load_entries(path)):
+            return
+        time.sleep(poll)
 
 
 def load_entries(path):
@@ -52,7 +85,7 @@ def load_entries(path):
 def turn_start(entries, turn_id=None):
     """Index of the prompt that starts the given turn, or of the last turn."""
     if turn_id:
-        return next((i for i, e in enumerate(entries) if e.get("uuid") == turn_id and is_prompt(e)), None)
+        return next((i for i, e in enumerate(entries) if e.get("uuid") == turn_id), None)
     return max((i for i, e in enumerate(entries) if is_prompt(e)), default=None)
 
 

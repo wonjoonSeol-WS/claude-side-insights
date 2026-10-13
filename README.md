@@ -6,7 +6,7 @@
 
 In long coding sessions your questions get buried under pages of output, and a "done" message rarely shows how the changed code now works. This panel sits next to each [Claude Code](https://claude.com/claude-code) pane in [cmux](https://cmux.dev) or Orca and answers both, turn by turn:
 
-- **Q&A check**: every question and request you sent in a turn, including messages typed while Claude was working, judged answered / partial / unanswered against what Claude actually said and did, with the missing part highlighted. Open items are re-checked as later turns answer them. You can override a status or archive an item, from the page or with `claude-qa`. For an open item, **↩ Ask again** copies a follow-up message to the clipboard to paste into Claude (it is typed into the pane directly when cmux's socket password mode is on, because cmux otherwise only accepts its own child processes).
+- **Q&A check**: every question and request you sent in a turn, including messages typed while Claude was working, judged answered / partial / unanswered against what Claude actually said and did, with the missing part highlighted. Open items are re-checked as later turns answer them. You can override a status or archive an item, from the page or with `claude-qa`. For an open item, **⧉ Copy question** copies a follow-up asking it again, to paste into Claude.
 - **Logic flow**: when a turn that edited files ends, a walkthrough of the changed feature in execution order: a step pipeline, what each step does and what changed, real code excerpts with the changed lines highlighted, changed files and the checks that ran.
 - **Live activity**: every tool Claude calls (running, ok, failed, duration) and the files it changed, as it happens.
 
@@ -40,11 +40,11 @@ The panel and the analysis are available in English, Korean and Japanese.
 Claude Code hooks ──► record.sh ──► logs/<pane>.jsonl ──┐
    (tool calls, prompt, stop)                           ├─► server.py (127.0.0.1:47821) ──► app.html in a browser pane
 Stop hook ──► flow.py / qa.py ──► flows/, qa/ (JSON) ───┘
-                 └─ headless `claude -p` (read-only tools, no MCP/hooks/CLAUDE.md)
+                 └─ headless `claude -p` (read-only tools, no MCP servers or hooks)
 ```
 
 - The live view costs nothing: hooks append JSON lines and the page polls the local server every second.
-- Flow and Q&A are separate headless `claude -p` runs after a turn ends, so they never touch your session's context. A flow runs only for turns that edited files and can read code with Read/Grep/Glob. Q&A reads the conversation text only.
+- Flow and Q&A are separate headless `claude -p` runs after a turn ends, so they never touch your session's context. A flow runs only for turns that edited files (with Edit/Write, or a shell command that writes files) and can read code with Read/Grep/Glob. Q&A reads the conversation text only.
 - Panel key: the cmux panel id, else the Orca pane key, else the session id. Q&A is stored per session and shows the current session only.
 - In cmux the panel opens as a browser split to the right of the pane. In Orca it opens as a browser tab (Orca has no browser split).
 
@@ -67,7 +67,7 @@ Run these in a terminal, or inside Claude Code with a leading `!` (for example `
 
 | Command | What it does |
 |---|---|
-| `claude-panel` | Show or hide this pane's panel |
+| `claude-panel` | Show or hide this pane's panel (in Orca it can only open it) |
 | `claude-flow` / `claude-flow all` | Open this pane's panel / all panes full page in the default browser |
 | `claude-qa list [--open]` | Questions in the current session with id and status |
 | `claude-qa set <id> answered\|partial\|unanswered\|auto` | Override a status (`auto` returns to the model's verdict) |
@@ -84,11 +84,11 @@ Open **⚙ Settings** at the top right of the panel. Changes are saved to `~/.cl
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Analysis model | `opus` | Model for flow and Q&A analysis (`opus`, `sonnet`, `haiku` or a full model id) |
-| Language | `en` | Panel text and analysis output: English, 한국어, 日本語 |
-| Build flows automatically | on | Off: build flows only with the ↻ button |
-| Check Q&A automatically | on | Off: check Q&A only with the ↻ button |
-| Open panel at session start | on | Off: open it only with `claude-panel` |
+| Analysis model | `opus` | `opus`, `sonnet` or `haiku` (a full model id can be set in config.json) |
+| UI and analysis language | `en` | English, 한국어, 日本語 |
+| Build a flow when a turn ends | on | Off: build flows only with the ↻ button |
+| Check Q&A when a turn ends | on | Off: check Q&A only with the ↻ buttons |
+| Open the panel at session start | on | Off: open it only with `claude-panel` |
 
 The only environment variable is `CLAUDE_PANEL_PORT` (default `47821`).
 
@@ -103,7 +103,7 @@ Measured: a Q&A check $0.04 to $0.11 on Opus; a logic flow $0.16 to $0.17 on Son
 **Does Claude write HTML every turn?**
 No. There is one page template. The analysis returns JSON and the page renders it.
 
-**Is ↻ Rebuild / ↻ Re-check an agent call?**
+**Are ↻ Rebuild flow / ↻ Check open / ↻ Re-check this question agent calls?**
 Yes. It starts the same headless `claude -p` run as the automatic one, with the same cost. It can only read files; it cannot edit them or run commands.
 
 **Does it slow down or bloat my session?**
@@ -113,10 +113,10 @@ No. The analysis runs in a separate process after the turn ends and never adds t
 That is what it is for: it lays out the changed feature as runtime steps and shows real excerpts from the current files. It runs automatically only for turns that edited files; for an explain-only turn press ↻.
 
 **A question was answered in a later turn but still shows as partial.**
-Each turn is judged against its own replies. When a turn ends, open items from earlier turns in the session (up to 20) are re-checked against it and upgraded if answered. For older items press "↻ Check open" at the top (re-judges every open question of the session in one call) or "↻ Re-check this question" on a single item, or set the status yourself.
+Each turn is judged against its own replies. When a turn ends, open items from earlier turns in the session (up to 60) are re-checked against it and upgraded if answered. For older items press "↻ Check open" at the top (re-judges up to 40 open questions of the turns on the current page in one call) or "↻ Re-check this question" on a single item, or set the status yourself.
 
 **How do I hide the panel or turn it off?**
-`claude-panel` hides or shows it. To stop it opening on its own, switch off "Open panel at session start". To remove it, run `uninstall.sh` (add `--purge` to delete recorded data and settings too).
+`claude-panel` hides or shows it. To stop it opening on its own, switch off "Open the panel at session start". To remove it, run `uninstall.sh` (add `--purge` to delete recorded data and settings too).
 
 **Where is everything stored?**
 In `~/.claude/activity-panel/`: `config.json` (settings), `logs/` (tool activity), `flows/` (logic flows), `qa/<pane>/<session>/` (Q&A, kept per session) and `qa/<pane>/overrides.json` (your status changes). None of it is committed to git. The page for a pane is `http://127.0.0.1:47821/p/<pane>`, and all panes are listed at `http://127.0.0.1:47821/`.

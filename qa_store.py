@@ -40,6 +40,24 @@ def record_path(pane, sid, turn_id):
     return os.path.join(session_dir(pane, sid), f"{safe_name(turn_id)}.json")
 
 
+def cursor_path(pane, sid):
+    return os.path.join(session_dir(pane, sid), "cursor")
+
+
+def read_cursor(pane, sid):
+    try:
+        with open(cursor_path(pane, sid), encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def write_cursor(pane, sid, entry_uuid):
+    os.makedirs(session_dir(pane, sid), mode=0o700, exist_ok=True)
+    with open(cursor_path(pane, sid), "w", encoding="utf-8") as fh:
+        fh.write(entry_uuid)
+
+
 def pending_path(pane):
     return os.path.join(pane_dir(pane), "pending")
 
@@ -50,6 +68,11 @@ def item_key(turn_id, question):
 
 def item_id(turn_id, question):
     return hashlib.sha1(item_key(turn_id, question).encode("utf-8")).hexdigest()[:8]
+
+
+def read_record(pane, sid, turn_id):
+    rec = read_json(record_path(pane, sid, turn_id))
+    return rec if isinstance(rec, dict) else None
 
 
 def records(pane, sid):
@@ -185,4 +208,5 @@ def set_verdict(pane, sid, turn_id, question, status, answer):
             if answer:
                 item["answer"] = answer
             item["rechecked_at"] = time.time()
+            item.pop("resolved_in", None)
     atomic_write_json(path, rec)

@@ -22,7 +22,10 @@ def messages(language):
 
 def t(key, *args, pane=None):
     text = messages(current(pane)).get(key) or messages(DEFAULT).get(key) or key
-    return text.format(*args)
+    try:
+        return text.format(*args)
+    except (IndexError, KeyError, ValueError):
+        return text
 
 
 if __name__ == "__main__":

@@ -50,6 +50,8 @@ def fit(text, cols):
 
 
 def fit_left(text, cols):
+    if cols <= 0:
+        return ""
     if width(text) <= cols:
         return text + " " * (cols - width(text))
     out, used = _cut(reversed(text), cols - 1)
@@ -80,10 +82,10 @@ def _tool_line(tool, st, tick, now, cols):
 
 def render(st, tick):
     cols, rows = os.get_terminal_size()
-    status = f"{YELLOW}{SPINNER[tick % len(SPINNER)]} {t('busy')}{RESET}" if st.busy else f"{DIM}○ {t('idle')}{RESET}"
+    status = f"{YELLOW}{SPINNER[tick % len(SPINNER)]} {t('busy', pane=st.pane)}{RESET}" if st.busy else f"{DIM}○ {t('idle', pane=st.pane)}{RESET}"
     where = os.path.basename((st.cwd or "").rstrip("/")) or "-"
     session = (st.sid or "-")[:8]
-    lines = [f"{BOLD}{t('title_index')}{RESET}  {status}", f"{DIM}{fit(where + '  /  ' + session, cols)}{RESET}"]
+    lines = [f"{BOLD}{t('term_title', pane=st.pane)}{RESET}  {status}", f"{DIM}{fit(where + '  /  ' + session, cols)}{RESET}"]
 
     def rule(label):
         return f"{DIM}── {RESET}{BOLD}{label}{RESET} {DIM}{'─' * max(0, cols - width(label) - 4)}{RESET}"
@@ -93,18 +95,18 @@ def render(st, tick):
     body = rows - len(lines) - 2
     file_rows = min(len(files), max(MIN_FILE_ROWS, int(body * FILES_SHARE))) if files else 1
     shown = files if len(files) <= file_rows else files[:file_rows - 1]
-    lines.append(rule(t("term_files", len(files))))
+    lines.append(rule(t("term_files", len(files), pane=st.pane)))
     if not files:
-        lines.append(f"{DIM}  {t('term_none')}{RESET}")
+        lines.append(f"{DIM}  {t('term_none', pane=st.pane)}{RESET}")
     for path, changed in shown:
         mark = f"{GREEN}A{RESET}" if changed["created"] else f"{YELLOW}M{RESET}"
         count = f"×{changed['count']}" if changed["count"] > 1 else ""
         lines.append(f" {mark} {fit_left(st.rel(path), cols - 4 - width(count))}{DIM}{count}{RESET}")
     if len(files) > len(shown):
-        lines.append(f"{DIM}   {t('term_more', len(files) - len(shown))}{RESET}")
-    lines.append(rule(t("term_tools", len(tools))))
+        lines.append(f"{DIM}   {t('term_more', len(files) - len(shown), pane=st.pane)}{RESET}")
+    lines.append(rule(t("term_tools", len(tools), pane=st.pane)))
     if not tools:
-        lines.append(f"{DIM}  {t('term_not_yet')}{RESET}")
+        lines.append(f"{DIM}  {t('term_not_yet', pane=st.pane)}{RESET}")
     now = time.time()
     lines += [_tool_line(tool, st, tick, now, cols) for tool in tools[-max(1, body - file_rows):]]
 
@@ -118,6 +120,7 @@ def main():
     if not pane:
         sys.exit(__doc__)
     tail = ActivityTail(pane)
+    tail.state.pane = pane
 
     def restore_terminal(*_):
         sys.stdout.write("\033[?25h\033[0m\r\n")

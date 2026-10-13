@@ -50,7 +50,8 @@ def _valid_only(values):
 
 
 def overrides(pane):
-    return _valid_only(_saved().get(_PANES, {}).get(pane)) if pane else {}
+    panes = _saved().get(_PANES)
+    return _valid_only(panes.get(pane)) if pane and isinstance(panes, dict) else {}
 
 
 def load(pane=None):
@@ -72,7 +73,8 @@ def save(update, pane=None):
             raise ValueError(f"invalid setting: {name}={value!r}")
     with _SAVE_LOCK:
         saved = _saved()
-        data = {**_valid_only(saved), _PANES: dict(saved.get(_PANES) or {})}
+        panes = saved.get(_PANES)
+        data = {**_valid_only(saved), _PANES: dict(panes) if isinstance(panes, dict) else {}}
         if pane:
             pane_values = {**overrides(pane), **update}
             pane_values = {k: v for k, v in pane_values.items() if v is not None}

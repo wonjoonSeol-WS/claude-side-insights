@@ -13,7 +13,8 @@ import uuid
 import config
 from claude_run import Pending, language_instruction, run_claude
 from common import EDIT_TOOLS, atomic_write_json, data_dir, json_files, read_json
-from transcript import assistant_blocks, clip, load_entries, queued_prompt, text_of, tool_results, turn_end, turn_start
+from transcript import (assistant_blocks, prompt_text, clip, load_entries, queued_prompt, text_of, tool_results, turn_end, turn_start,
+                        wait_until_written)
 
 KEEP_FLOWS = 30
 MAX_CONTEXT = 70000
@@ -26,9 +27,23 @@ COMMAND_LIMIT = 600
 RESULT_TAIL = 600
 BRIEF_LIMIT = 200
 PROMPT_LIMIT = 3000
+ERROR_LIMIT = 1000
+RECORD_PROMPT_LIMIT = 500
+_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+_SCRATCH = r"(?:/tmp/|/private/tmp/|/dev/|\$TMPDIR|\$\{TMPDIR)"
 WRITES_FILES = re.compile(
-    r"(?<![<>&|0-9])>{1,2}\s*(?!/dev/null|&)[\w~./$\"']|\bsed\s+-i\b|\btee\b|\bcat\s*>|\bgit\s+(commit|apply|mv|rm|checkout\s+--)"
-    r"|\bpython3?\s+-\s*<<|\.write\(|\bopen\([^)]*['\"][wa]['\"]|\b(mv|cp|rm|mkdir|touch|patch)\s")
+    r"(?:^|[\s;&|])(?:&>|>\||>{1,2})\s*(?!" + _SCRATCH + r"|&)[\w~./$]"
+    r"|\bsed\s+-i\b|\bperl\s+-[a-z]*i|\btee\s+(?:-a\s+)?(?!" + _SCRATCH + r")[\w~./$]"
+    r"|\bcurl\b[^|;&]*\s-o\s*(?!" + _SCRATCH + r")[\w~./$]|\bgit\s+(?:apply|mv|rm|checkout\s+--)\b"
+    r"|\.write\(|\bopen\([^)]*['\"][wa]['\"]|\b(?:mv|cp|patch)\s+(?!-)[\w~./$]")
+
+
+def writes_files(command):
+    """Heuristic for shell commands that change files outside scratch space; quoted text is ignored."""
+    heredoc_body = command.split("<<", 1)[1] if "<<" in command else ""
+    return bool(WRITES_FILES.search(_QUOTED.sub("''", command)) or (heredoc_body and WRITES_FILES.search(heredoc_body)))
+
+
 STEP_KINDS = ["input", "logic", "external", "storage", "output", "config", "test"]
 CHECK_STATUSES = ["pass", "fail", "unknown"]
 
@@ -84,6 +99,8 @@ List the steps in the order data moves through the changed feature when it runs 
 def _describe_edit(name, path, inp):
     if name == "Write":
         return [f"[Write {path}]\n{clip(inp.get('content', ''), WRITE_LIMIT)}"]
+    if name == "NotebookEdit":
+        return [f"[NotebookEdit {path} {inp.get('edit_mode', 'replace')}]\n{clip(inp.get('new_source', ''), EDIT_LIMIT)}"]
     edits = inp.get("edits") if name == "MultiEdit" else [inp]
     return [f"[Edit {path}]\n- {clip(e.get('old_string', ''), EDIT_LIMIT)}\n+ {clip(e.get('new_string', ''), EDIT_LIMIT)}"
             for e in edits or []]
@@ -104,7 +121,7 @@ def extract_turn(path):
         return None
     turn = entries[start + 1:turn_end(entries, start)]
     results = tool_results(turn)
-    parts, edited = [], []
+    parts, edited, shell_writes = [], [], []
     for e in turn:
         queued = queued_prompt(e)
         if queued:
@@ -120,8 +137,8 @@ def extract_turn(path):
                 edited.append(file_path)
                 parts += _describe_edit(name, file_path, inp)
             elif name == "Bash":
-                if WRITES_FILES.search(inp.get("command", "")):
-                    edited.append(f"(shell) {inp.get('description') or clip(inp.get('command', ''), BRIEF_LIMIT)}")
+                if writes_files(inp.get("command", "")):
+                    shell_writes.append(inp.get("description") or clip(inp.get("command", ""), BRIEF_LIMIT))
                 parts.append(f"[Bash] {inp.get('description', '')}: {clip(inp.get('command', ''), COMMAND_LIMIT)}"
                              + _describe_result(results.get(b.get("id"))))
             else:
@@ -130,8 +147,12 @@ def extract_turn(path):
     body = "\n\n".join(parts)
     if len(body) > MAX_CONTEXT:
         body = body[:MAX_CONTEXT // 3] + "\n\n...(middle omitted)...\n\n" + body[-(MAX_CONTEXT * 2 // 3):]
-    return {"turn_id": entries[start].get("uuid"), "prompt": text_of(entries[start]["message"]["content"]),
-            "body": body, "edited": [f for f in dict.fromkeys(edited) if f]}
+    return {"turn_id": entries[start].get("uuid"), "prompt": prompt_text(entries[start]),
+            "body": body, "edited": [f for f in dict.fromkeys(edited) if f], "shell_writes": shell_writes}
+
+
+def new_flow_id():
+    return f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
 def _prune(out_dir, keep_id, turn_id):
@@ -152,14 +173,23 @@ def main():
     settings = config.load(pane)
     if not settings["flow_auto"] and not force:
         return
+    if not force:
+        wait_until_written(transcript)
     turn = extract_turn(transcript)
-    if not turn or (not turn["edited"] and not force):
-        return
     out_dir = data_dir("flows", pane)
-    flow_id = f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    if not turn:
+        if force:
+            atomic_write_json(os.path.join(out_dir, f"{new_flow_id()}.json"),
+                              {"id": None, "ts": time.time(), "status": "error", "error": "no turn found in the transcript"})
+        return
+    if not turn["edited"] and not turn["shell_writes"] and not force:
+        return
+    flow_id = new_flow_id()
     record = {"turn_id": turn["turn_id"], "model": settings["model"], "id": flow_id, "ts": time.time(), "cwd": cwd,
-              "prompt": turn["prompt"][:500], "edited": turn["edited"]}
-    message = (f"Working directory: {cwd}\nFiles edited this turn:\n" + "\n".join(f"- {f}" for f in turn["edited"]) +
+              "prompt": turn["prompt"][:RECORD_PROMPT_LIMIT], "edited": turn["edited"]}
+    shell = "".join(f"\nShell commands that may have changed files:\n" + "\n".join(f"- {c}" for c in turn["shell_writes"])
+                    for _ in [0] if turn["shell_writes"])
+    message = (f"Working directory: {cwd}\nFiles edited this turn:\n" + "\n".join(f"- {f}" for f in turn["edited"]) + shell +
                f"\n\n## User request\n{clip(turn['prompt'], PROMPT_LIMIT)}\n\n## What happened this turn\n{turn['body']}\n\n"
                "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema.")
     with Pending(os.path.join(out_dir, "pending"), id=flow_id):
@@ -167,8 +197,8 @@ def main():
             flow, cost = run_claude(SYSTEM + language_instruction(pane), SCHEMA, message, settings["model"],
                                     tools=("Read", "Grep", "Glob"), cwd=cwd, timeout=TIMEOUT, max_turns=MAX_TURNS)
             record.update(flow=flow, cost=cost, status="ok")
-        except (RuntimeError, OSError) as exc:
-            record.update(status="error", error=str(exc)[:1000])
+        except Exception as exc:  # noqa: BLE001
+            record.update(status="error", error=str(exc)[:ERROR_LIMIT])
         atomic_write_json(os.path.join(out_dir, f"{flow_id}.json"), record)
     if record["status"] == "ok":
         _prune(out_dir, flow_id, turn["turn_id"])

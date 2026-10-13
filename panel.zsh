@@ -30,14 +30,13 @@ claude-panel() {
 }
 
 claude-flow() {
-  local key port
+  local key
   ( . "$_claude_panel_dir/key.sh"; ensure_panel_server )
-  port=$( . "$_claude_panel_dir/key.sh"; panel_port )
   key=$(_claude_panel_key)
   if [[ "$1" == all || -z "$key" ]]; then
-    open "http://127.0.0.1:$port/"
+    open "$( . "$_claude_panel_dir/key.sh"; printf 'http://127.0.0.1:%s/?t=%s' "$(panel_port)" "$(panel_token)" )"
   else
-    open "http://127.0.0.1:$port/p/$key"
+    open "$( . "$_claude_panel_dir/key.sh"; panel_url "$key" )&full=1"
   fi
 }
 
