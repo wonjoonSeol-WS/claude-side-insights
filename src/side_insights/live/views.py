@@ -131,8 +131,9 @@ def live_lines(st, tick, cols, rows):
     tools = list(st.tools.values())
     done = sum(1 for tool in tools if tool["state"] in (OK, ERR))
     failed = sum(1 for tool in tools if tool["state"] == ERR)
-    lines = [f"{progress(done, len(tools), GREEN if not failed else ORANGE)} {paint(f'{done}/{len(tools)}', MUTED)}"
-             + (f"  {paint(f'✗ {failed}', RED)}" if failed else ""), _legend(pane, cols), ""]
+    counts = paint(f"{done}/{len(tools)}", MUTED) + (f"  {paint(f'✗ {failed}', RED)}" if failed else "")
+    bar = progress(done, len(tools), GREEN if not failed else ORANGE, max(4, min(BAR, cols - visible_width(counts) - 1)))
+    lines = [f"{bar} {counts}", _legend(pane, cols), ""]
     wide = cols >= WIDE_COLS
     files_w, tools_w = _split(cols) if wide else (cols, cols)
     file_lines = [paint(t("term_none", pane=pane), FAINT)] if not files else []
@@ -287,20 +288,20 @@ def _flow_cards(st, rec, flow, tick, cols):
 
 
 def _flow_tabs(records, index, cols):
-    """One pill per flow, newest first; the selected one stays in view when they do not all fit."""
-    pills = [paint(f" {fit(rec.get('flow', {}).get('title') or rec.get('prompt') or '-', 24).rstrip()} {clock(rec.get('ts'))} ",
+    """One pill per flow, newest first; a window around the selected one when they do not all fit."""
+    budget = cols - 6
+    title_w = max(4, min(24, cols - 16))
+    pills = [paint(f" {fit(rec.get('flow', {}).get('title') or rec.get('prompt') or '-', title_w).rstrip()} {clock(rec.get('ts'))} ",
                    TEXT if i == index else MUTED, tint(BLUE, 0.55) if i == index else tint(LINE, 0.6), bold=i == index)
              for i, rec in enumerate(records)]
-    start = index
-    while start > 0 and visible_width(" ".join(pills[start - 1:index + 1])) <= cols:
-        start -= 1
-    shown = []
-    for pill in pills[start:]:
-        if visible_width(" ".join(shown + [pill])) > cols - 4:
-            break
-        shown.append(pill)
-    more = paint(f" +{len(pills) - start - len(shown)}", FAINT) if start + len(shown) < len(pills) else ""
-    return (paint("‹ ", FAINT) if start else "") + " ".join(shown or [pills[index]]) + more
+    first = last = index
+    while first > 0 and visible_width(" ".join(pills[first - 1:last + 1])) <= budget:
+        first -= 1
+    while last + 1 < len(pills) and visible_width(" ".join(pills[first:last + 2])) <= budget:
+        last += 1
+    line = (paint("‹ ", FAINT) if first else "") + " ".join(pills[first:last + 1]) \
+        + (paint(f" +{len(pills) - last - 1}", FAINT) if last + 1 < len(pills) else "")
+    return line if visible_width(line) <= cols else pills[index]
 
 
 def flow_lines(st, flow_index, step, tick, cols):
