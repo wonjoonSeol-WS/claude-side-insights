@@ -12,6 +12,14 @@ Claude Code 안에서:
 /reload-plugins
 ```
 
+그다음 Claude 옆에 패널을 엽니다:
+
+```
+! claude-panel
+```
+
+cmux, Orca, Ghostty, iTerm2에서는 새 세션을 시작하면 자동으로 열립니다. 한 번 더 실행하면 숨겨집니다.
+
 업데이트:
 
 ```

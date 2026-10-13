@@ -12,6 +12,14 @@ Inside Claude Code:
 /reload-plugins
 ```
 
+Then open the panel next to Claude:
+
+```
+! claude-panel
+```
+
+It also opens on its own when a new session starts in cmux, Orca, Ghostty or iTerm2. Run it again to hide it.
+
 Update:
 
 ```
