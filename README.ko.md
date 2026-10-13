@@ -2,6 +2,27 @@
 
 [English](README.md) | **한국어** | [日本語](README.ja.md)
 
+## 설치
+
+Claude Code 안에서:
+
+```
+/plugin marketplace add wonjoonSeol-WS/claude-side-insights
+/plugin install side-insights@claude-side-insights
+/reload-plugins
+```
+
+업데이트:
+
+```
+/plugin marketplace update claude-side-insights
+/plugin update side-insights@claude-side-insights
+```
+
+`/plugin` > Marketplaces에서 자동 업데이트를 켜도 됩니다.
+
+## 무엇을 보여 주나
+
 **Claude가 내 질문에 다 답했나? 무엇을 바꿨나? 지금 뭘 하고 있나?**
 
 [Claude Code](https://claude.com/claude-code) 창 옆에 붙는 패널입니다. 턴이 끝날 때마다 갱신됩니다.
@@ -20,9 +41,9 @@ English, 한국어, 日本語를 지원합니다.
 
 | Q&A | Flow |
 |---|---|
-| ![Q&A 탭](docs/qa.png) | ![Flow 탭](docs/flow.png) |
+| ![Q&A 탭](docs/ko/qa.png) | ![Flow 탭](docs/ko/flow.png) |
 | **실시간** | **설정** |
-| ![실시간 탭](docs/live.png) | ![설정 창](docs/settings.png) |
+| ![실시간 탭](docs/ko/live.png) | ![설정 창](docs/ko/settings.png) |
 
 Flow 탭은 예시 하나를 모든 단계에 따라가며 보여 줍니다. 값은 코드에서 추론한 것이고 실행 중에 잡은 값이 아닙니다.
 
@@ -46,25 +67,6 @@ Flow 탭은 예시 하나를 모든 단계에 따라가며 보여 줍니다. 값
 - Claude Code 2.1.275 이상
 - `jq`, `curl`
 - `/usr/bin/python3` 3.9 이상 (`xcode-select --install`)
-
-## 설치
-
-Claude Code 안에서:
-
-```
-/plugin marketplace add wonjoonSeol-WS/claude-side-insights
-/plugin install side-insights@claude-side-insights
-/reload-plugins
-```
-
-업데이트:
-
-```
-/plugin marketplace update claude-side-insights
-/plugin update side-insights@claude-side-insights
-```
-
-`/plugin` > Marketplaces에서 자동 업데이트를 켜도 됩니다.
 
 ## 명령
 

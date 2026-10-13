@@ -2,6 +2,27 @@
 
 **English** | [한국어](README.ko.md) | [日本語](README.ja.md)
 
+## Install
+
+Inside Claude Code:
+
+```
+/plugin marketplace add wonjoonSeol-WS/claude-side-insights
+/plugin install side-insights@claude-side-insights
+/reload-plugins
+```
+
+Update:
+
+```
+/plugin marketplace update claude-side-insights
+/plugin update side-insights@claude-side-insights
+```
+
+Or turn on auto-update in `/plugin` > Marketplaces.
+
+## What it shows
+
 **Did Claude answer everything I asked? What did it change? What is it doing now?**
 
 A panel next to each [Claude Code](https://claude.com/claude-code) pane, updated after every turn.
@@ -46,25 +67,6 @@ The Flow tab follows one example through every step. Its values are inferred fro
 - Claude Code 2.1.275 or later
 - `jq`, `curl`
 - `/usr/bin/python3` 3.9+ (`xcode-select --install`)
-
-## Install
-
-Inside Claude Code:
-
-```
-/plugin marketplace add wonjoonSeol-WS/claude-side-insights
-/plugin install side-insights@claude-side-insights
-/reload-plugins
-```
-
-Update:
-
-```
-/plugin marketplace update claude-side-insights
-/plugin update side-insights@claude-side-insights
-```
-
-Or turn on auto-update in `/plugin` > Marketplaces.
 
 ## Commands
 

@@ -2,6 +2,27 @@
 
 [English](README.md) | [한국어](README.ko.md) | **日本語**
 
+## インストール
+
+Claude Code の中で:
+
+```
+/plugin marketplace add wonjoonSeol-WS/claude-side-insights
+/plugin install side-insights@claude-side-insights
+/reload-plugins
+```
+
+更新:
+
+```
+/plugin marketplace update claude-side-insights
+/plugin update side-insights@claude-side-insights
+```
+
+`/plugin` > Marketplaces で自動更新をオンにもできます。
+
+## 表示されるもの
+
 **Claude は質問に全部答えた? 何を変えた? 今何をしている?**
 
 [Claude Code](https://claude.com/claude-code) のペインの横に表示されるパネルです。ターンが終わるたびに更新されます。
@@ -20,9 +41,9 @@ English、한국어、日本語に対応しています。
 
 | Q&A | フロー |
 |---|---|
-| ![Q&A タブ](docs/qa.png) | ![フロータブ](docs/flow.png) |
+| ![Q&A タブ](docs/ja/qa.png) | ![フロータブ](docs/ja/flow.png) |
 | **リアルタイム** | **設定** |
-| ![リアルタイムタブ](docs/live.png) | ![設定ダイアログ](docs/settings.png) |
+| ![リアルタイムタブ](docs/ja/live.png) | ![設定ダイアログ](docs/ja/settings.png) |
 
 フロータブは一つの例をすべてのステップで追います。値はコードから推定したもので、実行時に取得したものではありません。
 
@@ -46,25 +67,6 @@ English、한국어、日本語に対応しています。
 - Claude Code 2.1.275 以上
 - `jq`、`curl`
 - `/usr/bin/python3` 3.9 以上 (`xcode-select --install`)
-
-## インストール
-
-Claude Code の中で:
-
-```
-/plugin marketplace add wonjoonSeol-WS/claude-side-insights
-/plugin install side-insights@claude-side-insights
-/reload-plugins
-```
-
-更新:
-
-```
-/plugin marketplace update claude-side-insights
-/plugin update side-insights@claude-side-insights
-```
-
-`/plugin` > Marketplaces で自動更新をオンにもできます。
 
 ## コマンド
 
