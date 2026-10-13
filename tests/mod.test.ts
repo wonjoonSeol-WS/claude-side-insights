@@ -6,6 +6,7 @@ import { changeFiles } from '../hooks/mod/select'
 import { PILL_STRONG_TINT, PILL_TINT, TAB_TINT, TOGGLES, Tab } from '../hooks/mod/views'
 import { AUTO_THEME, DARK, LIGHT, THEMES, hex, mix, resolvePalette, type Palette, type Rgb } from '../hooks/mod/theme'
 import { LOCALES } from './locales'
+import { keysFromText } from '../hooks/mod/hangul'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const KEY = 'demo'
@@ -1379,7 +1380,7 @@ test('the theme setting offers auto, dark and light even when the server lists n
   const ui = await mountPane($)
   expect(await background(ui)).toBe(hex(DARK.base))
   await ui.press({ key: 'settings' })
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 7; i++) {
     await ui.press({ key: 'setting-next' })
   }
   expect(await settingText(ui, Setting.THEME)).toContain(EN.theme_auto)
@@ -1523,5 +1524,39 @@ test('the settings footer shows g to close them', async ($, on) => {
   expect((await ui.find({ key: 'settings' }))?.text).toContain(' g ')
   await ui.press({ key: 'hk-g' })
   expect(await ui.find({ key: 'setting-scope' }), 'g closes settings').toBeUndefined()
+  await ui.unmount()
+})
+
+test('Korean keyboard input maps to the keys it was typed on, through any syllable composition', () => {
+  expect(keysFromText('ㅜ')).toEqual(['n'])
+  expect(keysFromText('가')).toEqual(['r', 'k'])
+  expect(keysFromText('간')).toEqual(['r', 'k', 's'])
+  expect(keysFromText('과')).toEqual(['r', 'h', 'k'])
+  expect(keysFromText('닭')).toEqual(['e', 'k', 'f', 'r'])
+  expect(keysFromText('ㅃ')).toEqual(['q'])
+  expect(keysFromText('J1')).toEqual(['j', '1'])
+  expect(keysFromText('가나'), 'the same keys whether the final consonant was taken by the next syllable or not').toEqual(keysFromText('간') .concat(['k']))
+})
+
+test('with Korean keys on, a key typed in 한글 runs the matching hotkey once', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  expect(await ui.find({ key: 'ko-keys' }), 'off by default').toBeUndefined()
+  await ui.press({ key: 'settings' })
+  for (let i = 0; i < 6; i++) {
+    await ui.press({ key: 'setting-next' })
+  }
+  await ui.press({ key: 'setting-value-next' })
+  expect(posts(calls).at(-1)?.body).toEqual({ korean_keys: true })
+  await ui.press({ key: 'tab-flow' })
+  expect(await ui.find({ key: 'ko-keys' }), 'the key field appears').toBeDefined()
+  calls.length = 0
+  await ui.input({ key: 'ko-keys', text: 'ㅜ', kind: 'change' })
+  expect(calls.filter(c => c.url.endsWith(`/api/${KEY}/flow/f1`)), 'ㅜ is n: the next flow is opened').toHaveLength(1)
+  calls.length = 0
+  await ui.input({ key: 'ko-keys', text: 'ㅜ', kind: 'change' })
+  expect(calls.filter(c => c.url.includes('/flow/')), 'the same text again runs nothing new').toHaveLength(0)
   await ui.unmount()
 })

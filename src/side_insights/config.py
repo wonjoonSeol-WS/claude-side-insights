@@ -25,6 +25,7 @@ class Setting(Enum):
     FLOW_AUTO = ("flow_auto", True)
     QA_AUTO = ("qa_auto", True)
     PANEL_AUTO = ("panel_auto", False)
+    KOREAN_KEYS = ("korean_keys", False)
     THEME = ("theme", AUTO_THEME)
 
     def __init__(self, key, default):

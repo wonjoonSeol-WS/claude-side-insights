@@ -1,5 +1,6 @@
 import type { Register, RenderSurface, UiCopyResult, UiPressArgument } from 'claude-code'
 
+import { keysFromText } from './hangul'
 import {
   Api,
   FETCH_ERROR,
@@ -81,6 +82,9 @@ const IDLE_FRAME_EVERY = 4
 const THEME_PROBE_MS = 2000
 
 type Mod = {
+  hotkeys: Map<string, (press: UiPressArgument) => void>
+  koValue: string
+  koSent: number
   io?: Io
   api?: Api
   env?: Env
@@ -121,6 +125,9 @@ type Mod = {
 const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false, settings: false, scope: Scope.GLOBAL, settingRow: 0 })
 
 const mod: Mod = {
+  hotkeys: new Map(),
+  koValue: '',
+  koSent: 0,
   quiet: false,
   pollCount: 0,
   polling: false,
@@ -439,6 +446,51 @@ const absolute = (path: string) => {
 const dropDiff = () => {
   mod.diff = undefined
   mod.view.file = undefined
+}
+
+const KO_FIELD_RESET = 16
+
+const runKey = (key: string, surface: RenderSurface) => {
+  const press = mod.hotkeys.get(key)
+  if (press) {
+    press({ surface } as UiPressArgument)
+  } else if (/^[0-9a-z]$/.test(key)) {
+    void say(t('mod_key_unused', key), Tone.INFO)
+  }
+}
+
+const onKoreanInput = (value: string, surface: RenderSurface) => {
+  const keys = keysFromText(value)
+  const fresh = keys.slice(Math.min(mod.koSent, keys.length))
+  mod.koSent = keys.length
+  mod.koValue = value
+  for (const key of fresh) {
+    runKey(key, surface)
+  }
+  if (value.length >= KO_FIELD_RESET) {
+    mod.koValue = ''
+    mod.koSent = 0
+    redraw()
+  }
+}
+
+const koreanKeyField = (ui: unknown, surface: RenderSurface) => {
+  const { Input } = ui as { Input: (props: Record<string, unknown>) => unknown }
+  return (
+    <Input
+      key="ko-keys"
+      autoFocus
+      label={t('mod_korean_keys_field')}
+      placeholder={t('mod_korean_keys_hint')}
+      value={mod.koValue}
+      onInput={(value: string) => onKoreanInput(value, surface)}
+      onSubmit={() => {
+        mod.koValue = ''
+        mod.koSent = 0
+        redraw()
+      }}
+    />
+  )
 }
 
 const refreshConfig = async () => {
@@ -939,12 +991,17 @@ export const register: Register = on => {
     const body = mod.view.settings ? settings(c) : mod.view.help ? help(c) : mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
     const bottom = footer(c)
     mod.focusable = buttonKeys([top, body, bottom])
+    const layer = hotkeyLayer(c)
+    mod.hotkeys = new Map(c.hotkeys.map(hot => [hot.key, hot.onPress]))
+    const { Input } = ui as unknown as { Input?: (props: Record<string, unknown>) => unknown }
+    const koreanKeys = !!mod.config?.effective?.korean_keys && !!Input
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} minHeight={e.props.scroll.bodyRows} paddingX={PAD} paddingY={1} backgroundColor={hex(mod.palette.base)}>
+        {koreanKeys ? koreanKeyField(ui, e.surface) : null}
         {top}
         {body}
         {bottom}
-        {hotkeyLayer(c)}
+        {layer}
       </Box>
     )
   })

@@ -589,7 +589,7 @@ const keyRows = (c: Ctx, rows: [string, string][]) => {
 export const ON = '1'
 const OFF = '0'
 export const SCOPE_ROW = 'scope'
-export const TOGGLES: SettingKey[] = [Setting.FLOW_AUTO, Setting.QA_AUTO, Setting.PANEL_AUTO]
+export const TOGGLES: SettingKey[] = [Setting.FLOW_AUTO, Setting.QA_AUTO, Setting.PANEL_AUTO, Setting.KOREAN_KEYS]
 
 type Option = { value: string; label: string }
 type SettingRow = { key: SettingKey | typeof SCOPE_ROW; label: string; options: Option[]; value: string }

@@ -69,9 +69,9 @@ export type QaItem = {
 }
 export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[] }
 type Waiting = { ts?: number; text: string; mid_turn?: boolean }
-export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', PANEL_AUTO: 'panel_auto', THEME: 'theme' } as const
+export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', PANEL_AUTO: 'panel_auto', KOREAN_KEYS: 'korean_keys', THEME: 'theme' } as const
 export type SettingKey = (typeof Setting)[keyof typeof Setting]
-type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean; theme?: string }
+type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean; korean_keys?: boolean; theme?: string }
 export type ConfigPayload = {
   global?: Settings
   pane?: Partial<Settings>
