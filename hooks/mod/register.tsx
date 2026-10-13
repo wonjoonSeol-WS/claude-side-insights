@@ -24,15 +24,19 @@ import {
   type QaItem,
   type Reply,
 } from './data'
+import { DARK, LIGHT, hex, type Palette } from './theme'
 import {
+  HERO_KEY,
+  PAD,
   Tab,
   currentFlow,
   flow,
+  footer,
   header,
+  heroCanvas,
   isOpen,
   isShown,
   live,
-  noteOrHints,
   qa,
   selection,
   type Actions,
@@ -53,6 +57,7 @@ const START_TIMEOUT_MS = 8000
 const CONFIRM_MS = 4000
 const NOTE_MS = 5000
 const SEP = '  |  '
+const FRAME_MS = 140
 
 type Mod = {
   io?: Io
@@ -79,6 +84,10 @@ type Mod = {
   view: View
   confirm?: { key: string; until: number }
   noteUntil: number
+  palette: Palette
+  tick: number
+  frames?: { cancel: () => void }
+  heroCols?: number
 }
 
 const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false })
@@ -96,11 +105,41 @@ const mod: Mod = {
   paneOpen: false,
   view: freshView(),
   noteUntil: 0,
+  palette: DARK,
+  tick: 0,
 }
 
 const t = (key: string, ...args: (string | number)[]) => format(mod.messages, key, ...args)
 
 const redraw = () => mod.io?.invalidate()
+
+const frame = () => {
+  const io = mod.io
+  if (!io || !mod.heroCols) {
+    return
+  }
+  const busy = !!mod.state?.activity.busy
+  mod.tick += 1
+  if (!busy && mod.tick % 4) {
+    return
+  }
+  const canvas = heroCanvas(mod.palette, mod.heroCols, busy, mod.tick)
+  void io.blit(HERO_KEY, canvas.columns, canvas.rows, canvas.encode()).catch(() => undefined)
+}
+
+const animate = (on: boolean) => {
+  if (on && !mod.frames && mod.io && !mod.quiet) {
+    mod.frames = mod.io.every(FRAME_MS, frame)
+  } else if (!on) {
+    mod.frames?.cancel()
+    mod.frames = undefined
+  }
+}
+
+const loadTheme = async (io: Io) => {
+  const theme = await io.theme().catch(() => undefined)
+  mod.palette = (theme ?? '').toLowerCase().includes('light') ? LIGHT : DARK
+}
 
 const now = async () => (mod.io ? mod.io.now() : 0)
 
@@ -488,6 +527,12 @@ export const register: Register = on => {
         run: (argv, init) => $.process.run(argv, init),
         toast: text => $.ui.toast(text),
         invalidate: () => $.ui.invalidate('ui.render'),
+        blit: (key, columns, rows, cells) => $.ui.blit({ requestId: PANE, key, columns, rows, cells }),
+        every: (ms, fn) => $.clock.every(ms, fn),
+        theme: async () => {
+          const row = (await $.config.list()).find(r => r.key === 'theme')
+          return row?.value === undefined ? undefined : String(row.value)
+        },
         now: () => $.clock.now(),
         root: $.plugin.root,
       },
@@ -514,13 +559,18 @@ export const register: Register = on => {
 
   on('command.run', { command: ['side-insights', 'si'] }, async $ => {
     mod.paneOpen = true
+    if (mod.io) {
+      await loadTheme(mod.io)
+    }
     await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true })
+    animate(true)
     void poll()
     return {}
   }).catch(($, e, next) => next(e))
 
   on('ui.close', { id: PANE }, async ($, e, next) => {
     mod.paneOpen = false
+    animate(false)
     return next(e)
   }).catch(($, e, next) => next(e))
 
@@ -559,8 +609,12 @@ export const register: Register = on => {
     const ui = $.ui.resolve(e)
     const { Box } = ui
     const id = flowId()
+    mod.heroCols = e.props.bodyColumns
     const c: Ctx = {
       ui,
+      raster: e.surface === 'terminal' ? $.ui.resolve(e).Raster : undefined,
+      p: mod.palette,
+      tick: mod.tick,
       s: mod.state,
       t,
       cols: e.props.bodyColumns,
@@ -575,10 +629,10 @@ export const register: Register = on => {
     }
     const body = mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
     return (
-      <Box flexDirection="column" width={e.props.bodyColumns}>
+      <Box flexDirection="column" width={e.props.bodyColumns} paddingX={PAD} paddingY={1} backgroundColor={hex(mod.palette.base)}>
         {header(c)}
-        {noteOrHints(c)}
         {body}
+        {footer(c)}
       </Box>
     )
   })

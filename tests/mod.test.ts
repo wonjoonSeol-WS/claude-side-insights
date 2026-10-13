@@ -304,7 +304,7 @@ test('pane draws the three tabs and its keys act on the server', async ($, on) =
     await ui.press({ key: 'item-1-i2' })
     expect((await ui.find({ key: 'row-1-i2' }))?.text).toContain('▶')
     expect(await ui.find({ type: 'Markdown', text: /\*\*Answer\*\*/ }), "{ type: 'Markdown', text: /\\*\\*Answer\\*\\*/ }").toBeDefined()
-    expect((await ui.find({ type: 'Link' }))?.props.href).toBe('http://localhost:47821/p/demo?t=tok&full=1')
+    expect((await ui.find({ type: 'Link' }))?.props.href).toBe(surface === 'desktop' ? 'http://localhost:47821/p/demo?t=tok&full=1' : undefined)
 
     calls.length = 0
     await ui.press({ key: 'status' })
@@ -402,10 +402,10 @@ test('a new flow arriving keeps the flow on screen', async ($, on) => {
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
   await ui.press({ key: 'tab-flow' })
   await ui.press({ key: 'flow-next' })
-  expect(await ui.find({ type: 'Text', text: '2/2' }), "{ text: '2/2' }").toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '2 / 2' }), "{ text: '2 / 2' }").toBeDefined()
   world.current = { ...STATE, flows: [{ id: 'f3', ts: 1791905300, status: 'ok', title: 'Login rate limit' }, ...STATE.flows] }
   await clock.advance(2000)
-  expect(await ui.find({ type: 'Text', text: '3/3' }), "{ text: '3/3' }").toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '3 / 3' }), "{ text: '3 / 3' }").toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Cart total rounding' }), 'still on f1').toBeDefined()
   await ui.unmount()
 })

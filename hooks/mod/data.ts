@@ -6,6 +6,9 @@ export type Io = {
   run: (argv: readonly string[], init: ProcessRunInit) => Promise<ProcessRunResult>
   toast: (text: string) => void
   invalidate: () => void
+  blit: (key: string, columns: number, rows: number, cells: string) => Promise<unknown>
+  every: (ms: number, fn: () => void) => { cancel: () => void }
+  theme: () => Promise<string | undefined>
   now: () => Promise<number>
   root: string
 }
