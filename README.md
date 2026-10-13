@@ -103,6 +103,8 @@ Keys in the panel:
 - `←` `→`: flow steps
 - `?`: help, `Esc`: close
 
+In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a question, then `s` changes its status, `a` archives it, `c` copies it and `r` re-checks it. On Flow, `[` `]` switch flows and `p` plays the steps.
+
 ## Settings
 
 - Open with **⚙** at the top right. Changes apply from the next analysis, no restart.
