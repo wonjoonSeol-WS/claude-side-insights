@@ -128,6 +128,12 @@ pre.code span.hl { background: var(--hl); box-shadow: inset 3px 0 var(--hl-line)
 
 .qa-bar { margin-bottom: 12px; }
 .qa-turn { margin-bottom: 20px; }
+.qa-wait { border-color: var(--orange); }
+.qa-wait ul { margin: 8px 0 0; padding-left: 20px; }
+.qa-wait li { max-width: 72ch; margin: 4px 0; overflow-wrap: anywhere; }
+.qa-wait li small { color: var(--faint); margin-left: 6px; }
+.qa-note { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+.qa-eta { color: var(--faint); font-size: 12.5px; margin: 0 2px 12px; }
 .qa-head { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12.5px; margin-bottom: 8px; flex-wrap: wrap; }
 .qa-head .p { max-width: 72ch; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 200px; }
 .qa-item { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 12px; padding: 16px 0; border-top: 1px solid var(--line); }
@@ -331,7 +337,7 @@ function absorbState(data) {
   S.state = data.activity;
   S.flows = list(data.flows);
   S.pending = data.pending;
-  S.qa = data.qa || { turns: [], pending: false };
+  S.qa = data.qa || { turns: [], pending: false, waiting: [] };
   const ids = new Set(S.flows.map(f => f.id));
   const fresh = S.seenFlows && S.flows.find(f => !S.seenFlows.has(f.id));
   S.seenFlows = ids;
@@ -533,10 +539,21 @@ function findItem(id) {
   return null;
 }
 
+const DEFAULT_ETA_SECONDS = 40;
+
+function waitingCard() {
+  const waiting = list(S.qa.waiting);
+  const eta = S.qa.eta || DEFAULT_ETA_SECONDS;
+  if (!waiting.length) return `<div class="qa-eta">${t("qa_eta", eta)}</div>`;
+  const note = S.qa.pending ? t("qa_wait_checking") : S.qa.auto === false ? t("qa_wait_off") : t("qa_wait_d", eta);
+  return `<div class="card qa-wait" role="status"><b>⏳ ${t("qa_wait_t", waiting.length)}</b><p class="qa-note">${note}</p>
+    <ul>${waiting.map(w => `<li>${esc(w.text)}${w.mid_turn ? `<small>${t("midturn")}</small>` : ""}</li>`).join("")}</ul></div>`;
+}
+
 function renderQA() {
   if (!S.qa.turns.length) {
     S.qaPageTurns = [];
-    return qaBar() + `<div class="big-empty"><b>${t("qa_empty_t")}</b>${t("qa_empty_d")}</div>`;
+    return qaBar() + waitingCard() + (list(S.qa.waiting).length ? "" : `<div class="big-empty"><b>${t("qa_empty_t")}</b>${t("qa_empty_d")}</div>`);
   }
   const visible = S.qa.turns
     .map(turn => ({ turn, items: list(turn.items).filter(i => (!S.qaOnlyOpen || i.status !== QA.ANSWERED) && (S.qaArchived || !i.archived)) }))
@@ -551,7 +568,7 @@ function renderQA() {
   S.qaPageTurns = shown.map(({ turn }) => turn.turn_id).filter(Boolean);
   const body = shown.map(({ turn, items }) => renderTurn(turn, items)).join("");
   const allArchived = !body && S.qa.turns.some(turn => list(turn.items).some(i => i.archived));
-  return qaBar() + pager + (body || `<div class="big-empty"><b>${allArchived ? t("qa_nothing_shown") : t("qa_all_done")}</b></div>`) + pager;
+  return qaBar() + waitingCard() + pager + (body || `<div class="big-empty"><b>${allArchived ? t("qa_nothing_shown") : t("qa_all_done")}</b></div>`) + pager;
 }
 
 function renderTurn(turn, items) {

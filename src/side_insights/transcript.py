@@ -9,7 +9,7 @@ _WRAPPER_RE = re.compile(r"^<(command-|local-command-|bash-|task-notification|sy
 _NOT_A_PROMPT_PREFIXES = ("[Request interrupted", SKILL_PREAMBLE)
 _COMMAND_RE = re.compile(r"^\s*<command-name>\s*(/?[^<\s]+)\s*</command-name>.*?<command-args>(.*?)</command-args>", re.S)
 _LOCAL_OUTPUT = "<local-command-stdout>"
-_LOCAL_COMMANDS = {"/add-dir", "/agents", "/clear", "/compact", "/config", "/context", "/cost", "/doctor", "/exit",
+LOCAL_COMMANDS = {"/add-dir", "/agents", "/clear", "/compact", "/config", "/context", "/cost", "/doctor", "/exit",
                    "/help", "/hooks", "/ide", "/login", "/logout", "/mcp", "/memory", "/model", "/permissions",
                    "/plugin", "/resume", "/rewind", "/status", "/statusline", "/theme", "/vim"}
 
@@ -97,7 +97,7 @@ def _drop_local_commands(entries):
     for i, entry in enumerate(entries):
         following = text_of((entries[i + 1].get("message") or {}).get("content")) if i + 1 < len(entries) else ""
         command = _COMMAND_RE.search(text_of((entry.get("message") or {}).get("content")) or "")
-        if entry.get("type") == "user" and command and (_LOCAL_OUTPUT in following or command.group(1) in _LOCAL_COMMANDS):
+        if entry.get("type") == "user" and command and (_LOCAL_OUTPUT in following or command.group(1) in LOCAL_COMMANDS):
             entry["isMeta"] = True
 
 

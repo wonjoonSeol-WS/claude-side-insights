@@ -18,6 +18,7 @@ import unicodedata
 
 from side_insights.analysis import flow_store, qa_store
 from side_insights.analysis.runner import Pending
+from side_insights.analysis.waiting import Waiting, eta_seconds
 from side_insights.i18n import t
 from side_insights.live.activity import ERR, OK, RUN, ActivityTail, tool_label
 from side_insights.paths import EDIT_TOOLS, PORT, pane_key, read_token
@@ -41,6 +42,7 @@ STATUS_COLOR = {qa_store.Status.ANSWERED.value: GREEN, qa_store.Status.PARTIAL.v
                 qa_store.Status.UNANSWERED.value: RED}
 HIGHLIGHT = re.compile(r"==(.+?)==")
 MARKUP = re.compile(r"\*\*|`")
+WAITING = Waiting()
 ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left"}
 
 
@@ -188,6 +190,16 @@ def qa_lines(st, cols):
     if Pending.active(qa_store.pending_path(pane)):
         lines.append(f"{YELLOW}⟳ {t('qa_checking', pane=pane)}{RESET}")
     turns = qa_store.with_overrides(pane, qa_store.records(pane, st.sid)) if st.sid else []
+    waiting = WAITING.since(st.transcript, qa_store.read_cursor(pane, st.sid)) if st.sid else []
+    eta = eta_seconds(turns)
+    if waiting:
+        lines.append(f"{YELLOW}⏳ {t('qa_wait_t', len(waiting), pane=pane)}{RESET}")
+        lines += marked(t("qa_wait_d", eta, pane=pane), cols, 0, DIM)
+        for w in waiting:
+            lines += [f"  {line}" for line in wrap("• " + w["text"], cols - 2)]
+        lines.append(f"{DIM}{'─' * cols}{RESET}")
+    else:
+        lines += marked(t("qa_eta", eta, pane=pane), cols, 0, DIM)
     if not turns:
         return lines + [f"{BOLD}{t('qa_empty_t', pane=pane)}{RESET}", *marked(t("qa_empty_d", pane=pane), cols, 0, DIM)]
     for turn in turns:

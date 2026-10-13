@@ -35,7 +35,7 @@ class State:
         self.reset(None)
 
     def reset(self, sid):
-        self.sid, self.cwd, self.busy, self.seq = sid, None, False, 0
+        self.sid, self.cwd, self.transcript, self.busy, self.seq = sid, None, None, False, 0
         self.tools = OrderedDict()
         self.files = {}
 
@@ -45,6 +45,8 @@ class State:
             self.reset(sid)
         if e.get("cwd"):
             self.cwd = e["cwd"]
+        if e.get("transcript"):
+            self.transcript = e["transcript"]
         if ev == "UserPromptSubmit":
             self.busy = True
         elif ev == "Stop":
@@ -129,7 +131,7 @@ class ActivityTail:
     def _snapshot(self, max_tools):
         s = self.state
         return {
-            "sid": s.sid, "cwd": s.cwd, "busy": s.busy,
+            "sid": s.sid, "cwd": s.cwd, "transcript": s.transcript, "busy": s.busy,
             "tools": [{"tool": tool["tool"], "label": tool_label(tool["tool"]), "summary": tool["summary"],
                        "file": s.rel(tool["file"]) if tool["file"] else None,
                        "state": tool["state"], "start": tool["start"], "end": tool["end"]}

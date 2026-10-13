@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from side_insights import config
 from side_insights.analysis import flow_store, qa_store
+from side_insights.analysis.waiting import Waiting, eta_seconds
 from side_insights.live.activity import ActivityTail, log_path
 from side_insights.analysis.runner import Pending
 from side_insights.__main__ import child_env, command_line
@@ -69,6 +70,14 @@ def known_panes():
                 except OSError:
                     pass
     return sorted(stamps.items(), key=lambda kv: -kv[1])[:MAX_INDEX_PANES]
+
+
+_waiting = {}
+
+
+def waiting_for(pane):
+    with _tails_lock:
+        return _waiting.setdefault(pane, Waiting())
 
 
 def resolve_pane(pane):
@@ -189,8 +198,10 @@ class Handler(BaseHTTPRequestHandler):
         snap = snapshot(pane)
         records = qa_store.with_overrides(pane, qa_store.records(pane, snap["sid"])) if snap["sid"] else []
         qa_pending = Pending.active(qa_store.pending_path(pane))
+        waiting = waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"])) if snap["sid"] else []
         self.json({"activity": snap, "flows": pane_flows, "pending": pending,
-                   "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending)}})
+                   "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending), "waiting": waiting,
+                          "eta": eta_seconds(records), "auto": config.load(pane)["qa_auto"]}})
 
     def get_flow(self, pane, flow_id):
         rec = read_json(os.path.join(DATA, "flows", pane, f"{flow_id}.json"))

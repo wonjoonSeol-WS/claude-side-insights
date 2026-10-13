@@ -34,6 +34,7 @@ MARKER_LIMIT = 300
 ACTION_LIMIT = 120
 MAX_ACTIONS = 80
 FROM_PROMPT, FROM_MID_TURN = "prompt", "mid-turn"
+STARTED = time.time()
 SCOPE_TURN, SCOPE_THROUGH_END = "turn", "through-end"
 STATUS_OK = "ok"
 STATUS_SCHEMA = {"type": "string", "enum": qa_store.STATUSES}
@@ -272,6 +273,7 @@ def judge_since_cursor(pane, transcript, model):
         data = _judge_into(record, pane, build_message(seg, candidates), model)
         with qa_store.session_lock(pane, sid):
             if seg["users"]:
+                record["seconds"] = round(time.time() - STARTED, 1)
                 atomic_write_json(qa_store.record_path(pane, sid, seg["turn_id"]), record)
             if record["status"] == STATUS_OK:
                 qa_store.apply_followups(pane, sid, candidates, data.get("followups"), seg["turn_id"] or seg["last_uuid"])

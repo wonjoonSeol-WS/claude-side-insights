@@ -5,6 +5,7 @@ def cut(n): if type == "string" and length > n then .[0:n] + "…" else . end;
     ev: .hook_event_name,
     sid: .session_id,
     cwd: .cwd,
+    transcript: .transcript_path,
     id: .tool_use_id,
     tool: .tool_name,
     file: ($in.file_path // $in.notebook_path // null),
