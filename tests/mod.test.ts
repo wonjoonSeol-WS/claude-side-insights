@@ -406,10 +406,11 @@ test('a new flow arriving keeps the flow on screen', async ($, on) => {
   const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
   await ui.press({ key: 'tab-flow' })
   await ui.press({ key: 'flow-next' })
-  expect(await ui.find({ type: 'Text', text: '2 / 2' }), "{ text: '2 / 2' }").toBeDefined()
+  expect((await ui.find({ key: 'flow-row-f1' }))?.text, 'the second flow is open').toContain('▶')
   world.current = { ...STATE, flows: [{ id: 'f3', ts: 1791905300, status: 'ok', title: 'Login rate limit' }, ...STATE.flows] }
   await clock.advance(2000)
-  expect(await ui.find({ type: 'Text', text: '3 / 3' }), "{ text: '3 / 3' }").toBeDefined()
+  expect((await ui.find({ key: 'flow-row-f1' }))?.text, 'still on f1 after a newer flow arrives').toContain('▶')
+  expect((await ui.find({ key: 'flow-row-f3' }))?.text).not.toContain('▶')
   expect(await ui.find({ type: 'Text', text: 'Cart total rounding' }), 'still on f1').toBeDefined()
   await ui.unmount()
 })

@@ -98,6 +98,7 @@ type Mod = {
   tick: number
   frames?: { cancel: () => void }
   heroCols?: number
+  working?: boolean
   diff?: { path: string; loading: boolean; data?: FileDiff }
   config?: ConfigPayload
 }
@@ -125,12 +126,23 @@ const t = (key: string, ...args: (string | number)[]) => format(mod.messages, ke
 
 const redraw = () => mod.io?.invalidate()
 
+const isBusy = () => mod.working ?? !!mod.state?.activity.busy
+
+const setWorking = (working: boolean) => {
+  if (mod.working !== working) {
+    mod.working = working
+    if (mod.paneOpen) {
+      redraw()
+    }
+  }
+}
+
 const frame = () => {
   const io = mod.io
   if (!io || !mod.heroCols) {
     return
   }
-  const busy = !!mod.state?.activity.busy
+  const busy = isBusy()
   mod.tick += 1
   if (!busy && mod.tick % 4) {
     return
@@ -253,7 +265,7 @@ const pruneSelection = () => {
 const pollOnce = async (io: Io, api: Api) => {
   mod.ticks += 1
   const s = mod.state
-  const idle = !!s && !mod.paneOpen && !s.activity.busy && !s.qa.waiting.length && !s.qa.pending
+  const idle = !!s && !mod.paneOpen && !isBusy() && !s.qa.waiting.length && !s.qa.pending
   if (idle && mod.ticks % IDLE_EVERY !== 0) {
     return
   }
@@ -721,6 +733,7 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    setWorking(e.props.isWorking)
     const below = await next(e)
     if (e.props.hasSurvey) {
       return below
@@ -755,12 +768,15 @@ export const register: Register = on => {
     const ui = $.ui.resolve(e)
     const { Box } = ui
     const id = flowId()
+    mod.paneOpen = true
+    animate(true)
     mod.heroCols = e.props.bodyColumns
     const c: Ctx = {
       ui,
       raster: e.surface === 'terminal' ? $.ui.resolve(e).Raster : undefined,
       p: mod.palette,
       tick: mod.tick,
+      busy: isBusy(),
       s: mod.state,
       t,
       cols: e.props.bodyColumns,
