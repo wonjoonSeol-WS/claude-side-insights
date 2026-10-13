@@ -11,3 +11,4 @@ __pycache__/
 token
 *.lock
 .claude-plugin/types/
+docs/legacy/

@@ -5,6 +5,8 @@ import {
   DiffSource,
   Kind,
   RecordStatus,
+  Scope,
+  Setting,
   Source,
   Status,
   ToolState,
@@ -15,7 +17,10 @@ import {
   fit,
   highlight,
   turnRow,
+  type ConfigPayload,
   type FileDiff,
+  type ScopeValue,
+  type SettingKey,
   type FlowRecord,
   type FlowRef,
   type FlowStep,
@@ -26,7 +31,7 @@ import {
 } from './data'
 import { CAT, HERO_ROWS, hero, hex, meter, mix, tint, type Canvas, type Palette, type Rgb, type Segment } from './theme'
 
-export type UI = Pick<Elements['mobile'], 'Box' | 'Text' | 'Button' | 'Link' | 'Code' | 'Markdown'>
+export type UI = Pick<Elements['mobile'], 'Box' | 'Text' | 'Button' | 'Link' | 'Code' | 'Markdown' | 'Select'>
 export type RasterTag = Elements['terminal']['Raster']
 
 export const Tab = { FLOW: 'flow', LIVE: 'live', QA: 'qa' } as const
@@ -45,6 +50,8 @@ export type View = {
   openOnly: boolean
   showArchived: boolean
   help: boolean
+  settings: boolean
+  scope: ScopeValue
   file?: string
   note?: { text: string; color: string }
 }
@@ -63,6 +70,9 @@ export type Actions = {
   toggleArchived: () => void
   openBrowser: () => void
   toggleHelp: () => void
+  toggleSettings: () => void
+  setScope: (scope: ScopeValue) => void
+  saveSetting: (key: SettingKey, value: string | boolean) => void
   unusedKey: (key: string) => void
   openFile: (path: string) => void
   fileBy: (delta: number) => void
@@ -86,6 +96,7 @@ export type Ctx = {
   pageUrl: string
   problem?: string
   diff?: { path: string; loading: boolean; data?: FileDiff }
+  config?: ConfigPayload
 }
 
 export const HERO_KEY = 'hero'
@@ -362,6 +373,7 @@ export const footer = (c: Ctx) => {
         </Text>
       ))}
       <Button key="help" plain hotkey="h" label={c.t(c.view.help ? 'mod_help_close' : 'term_k_help')} onPress={() => c.act.toggleHelp()} />
+      <Button key="settings" plain hotkey="g" label={c.view.settings ? c.t('mod_settings_close') : c.t('settings')} onPress={() => c.act.toggleSettings()} />
     </Box>
   )
 }
@@ -377,6 +389,75 @@ const keyRows = (c: Ctx, rows: [string, string][]) => {
       <Text color={hex(c.p.text)}>{c.t(label)}</Text>
     </Box>
   ))
+}
+
+const ON = '1'
+const OFF = '0'
+const SETTING_LABEL = 28
+
+export const settings = (c: Ctx) => {
+  const { Box, Text, Select } = c.ui
+  const cfg = c.config
+  if (!cfg?.effective) {
+    return card(c, 'settings-view', c.t('settings'), [<Text key="settings-loading" color={hex(c.p.faint)}>{c.t('loading')}</Text>], c.p.blue)
+  }
+  const values = c.view.scope === Scope.PANE ? cfg.effective : (cfg.global ?? cfg.effective)
+  const onOff = [
+    { value: ON, label: c.t('on') },
+    { value: OFF, label: c.t('off') },
+  ]
+  const row = (key: string, label: string, control: RenderChildren) => (
+    <Box key={`setting-${key}`} flexDirection="row" columnGap={2}>
+      <Box width={SETTING_LABEL} flexShrink={0}>
+        <Text color={hex(c.p.text)}>{label}</Text>
+      </Box>
+      {control}
+    </Box>
+  )
+  const toggle = (key: SettingKey) => (
+    <Select key={`set-${key}`} options={onOff} value={values[key as keyof typeof values] ? ON : OFF} onSelect={v => c.act.saveSetting(key, v === ON)} />
+  )
+  return (
+    <Box key="settings-view" flexDirection="column">
+      {card(
+        c,
+        'settings-card',
+        c.t('settings'),
+        [
+          row(
+            'scope',
+            c.t('scope_label'),
+            <Select
+              key="set-scope"
+              options={[
+                { value: Scope.GLOBAL, label: c.t('scope_global') },
+                { value: Scope.PANE, label: c.t('scope_pane') },
+              ]}
+              value={c.view.scope}
+              onSelect={v => c.act.setScope(v === Scope.PANE ? Scope.PANE : Scope.GLOBAL)}
+            />,
+          ),
+          row(
+            Setting.LANG,
+            c.t('s_lang'),
+            <Select key="set-lang" options={(cfg.langs ?? []).map(l => ({ value: l.code, label: l.label }))} value={values.lang} onSelect={v => c.act.saveSetting(Setting.LANG, v)} />,
+          ),
+          row(
+            Setting.MODEL,
+            c.t('s_model'),
+            <Select key="set-model" options={(cfg.models ?? []).map(m => ({ value: m, label: m }))} value={values.model} onSelect={v => c.act.saveSetting(Setting.MODEL, v)} />,
+          ),
+          row(Setting.FLOW_AUTO, c.t('s_flow_auto'), toggle(Setting.FLOW_AUTO)),
+          row(Setting.QA_AUTO, c.t('s_qa_auto'), toggle(Setting.QA_AUTO)),
+          row(Setting.PANEL_AUTO, c.t('s_panel_auto'), toggle(Setting.PANEL_AUTO)),
+          <Box key="settings-note" marginTop={1}>
+            <Text color={hex(c.p.muted)}>{c.t('mod_settings_note')}</Text>
+          </Box>,
+        ],
+        c.p.blue,
+      )}
+    </Box>
+  )
 }
 
 export const help = (c: Ctx) => {
@@ -639,7 +720,42 @@ const language = (location: string | undefined) => {
   return LANGUAGE[ext]
 }
 
-const stepCard = (c: Ctx, s: FlowStep, step: number, total: number) => {
+type Change = NonNullable<NonNullable<FlowRecord['flow']>['changes']>[number]
+
+const sameFile = (a: string, b: string) => {
+  const x = a.replace(/^~\//, '')
+  const y = b.replace(/^~\//, '')
+  return !!x && !!y && (x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`))
+}
+
+export const stepChanges = (s: FlowStep, changes: Change[]) => {
+  const file = (s.location ?? '').split(' ')[0] ?? ''
+  return file ? changes.filter(ch => ch.file && sameFile(ch.file, file)) : []
+}
+
+const stepChangeList = (c: Ctx, own: Change[]) => {
+  const { Box, Text, Button } = c.ui
+  return (
+    <Box key="step-changes" flexDirection="column" marginTop={1}>
+      <Text color={hex(c.p.orange)} bold>
+        {c.t('mod_step_changes')}
+      </Text>
+      {own.map((ch, i) => (
+        <Box key={`step-chg-${i}`} flexDirection="column" backgroundColor={ch.file && c.view.file === ch.file ? hex(c.p.selected) : undefined}>
+          <Button key={`step-change-${i}`} plain onPress={() => ch.file && c.act.openFile(ch.file)}>
+            {pill(c, `step-chg-mark-${i}`, 'M', c.p.orange)}
+            <Text color={hex(c.p.text)}>{` ${ch.file ?? ''}`}</Text>
+          </Button>
+          <Box paddingLeft={4}>
+            <Text color={hex(c.p.muted)}>{ch.what ?? ''}</Text>
+          </Box>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+const stepCard = (c: Ctx, s: FlowStep, step: number, total: number, changes: Change[] = []) => {
   const { Box, Text, Code, Markdown } = c.ui
   const color = kindColor(c.p, s.kind)
   const lang = language(s.location)
@@ -684,6 +800,10 @@ const stepCard = (c: Ctx, s: FlowStep, step: number, total: number) => {
         })}
       </Box>,
     )
+  }
+  const own = stepChanges(s, changes)
+  if (own.length) {
+    body.push(stepChangeList(c, own))
   }
   return card(c, 'step', `${step + 1}. ${s.title ?? ''}`, body, color)
 }
@@ -913,7 +1033,7 @@ export const flow = (c: Ctx) => {
           <Button key="rebuild" plain hotkey="r" label={c.t('regen')} dimColor onPress={() => c.act.rebuild()} />
         </Box>,
       ])
-  const detail = [...(steps[step] ? [stepCard(c, steps[step], step, steps.length)] : []), ...(steps.length > 0 ? [stateCard(c, steps, step)] : [])]
+  const detail = [...(steps[step] ? [stepCard(c, steps[step], step, steps.length, f.changes ?? [])] : []), ...(steps.length > 0 ? [stateCard(c, steps, step)] : [])]
   return (
     <Box flexDirection="column">
       {top}

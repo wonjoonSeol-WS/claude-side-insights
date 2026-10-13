@@ -68,6 +68,18 @@ export type QaItem = {
 }
 export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[] }
 export type Waiting = { ts?: number; text: string; mid_turn?: boolean }
+export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', PANEL_AUTO: 'panel_auto' } as const
+export type SettingKey = (typeof Setting)[keyof typeof Setting]
+export type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean }
+export type ConfigPayload = {
+  global?: Settings
+  pane?: Partial<Settings>
+  effective?: Settings
+  models?: string[]
+  langs?: { code: string; label: string }[]
+}
+export const Scope = { GLOBAL: 'global', PANE: 'pane' } as const
+export type ScopeValue = (typeof Scope)[keyof typeof Scope]
 export type QaCounts = { answered: number; partial: number; unanswered: number; open: number; total: number }
 export type PanelState = {
   activity: { sid?: string | null; cwd?: string | null; busy?: boolean; tools: Tool[]; files: FileChange[] }
@@ -194,7 +206,9 @@ export class Api {
 
   state = () => this.call<PanelState>('GET', `/api/${this.conn.key}/state`)
   flow = (id: string) => this.call<FlowRecord>('GET', `/api/${this.conn.key}/flow/${encodeURIComponent(id)}`)
-  config = () => this.call<{ effective?: { lang?: string } }>('GET', `/api/config?pane=${encodeURIComponent(this.conn.key)}`)
+  config = () => this.call<ConfigPayload>('GET', `/api/config?pane=${encodeURIComponent(this.conn.key)}`)
+  saveConfig = (update: Partial<Record<SettingKey, string | boolean | null>>, scope: ScopeValue) =>
+    this.call<ConfigPayload>('POST', `/api/config${scope === Scope.PANE ? `?pane=${encodeURIComponent(this.conn.key)}` : ''}`, update)
   setStatus = (id: string, status: string | null) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, status })
   setArchived = (id: string, archived: boolean) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, archived })
   open = (mode: string) => this.call('POST', `/api/${this.conn.key}/open?mode=${encodeURIComponent(mode)}`)

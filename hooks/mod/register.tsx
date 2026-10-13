@@ -16,7 +16,9 @@ import {
   rowTurn,
   type Env,
   type Io,
+  Scope,
   loadDiff,
+  type ConfigPayload,
   type FileDiff,
   type FlowRecord,
   type Messages,
@@ -35,6 +37,7 @@ import {
   header,
   help,
   keyCatcher,
+  settings,
   heroCanvas,
   isOpen,
   isShown,
@@ -96,9 +99,10 @@ type Mod = {
   frames?: { cancel: () => void }
   heroCols?: number
   diff?: { path: string; loading: boolean; data?: FileDiff }
+  config?: ConfigPayload
 }
 
-const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false })
+const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false, settings: false, scope: Scope.GLOBAL })
 
 const mod: Mod = {
   quiet: false,
@@ -375,6 +379,19 @@ const absolute = (path: string) => {
   return path.startsWith('/') || !cwd ? path : `${cwd}/${path}`
 }
 
+const dropDiff = () => {
+  mod.diff = undefined
+  mod.view.file = undefined
+}
+
+const refreshConfig = async () => {
+  const reply = await mod.api?.config()
+  if (reply?.data) {
+    mod.config = reply.data
+    redraw()
+  }
+}
+
 const showDiff = async (path: string) => {
   const io = mod.io
   if (!io) {
@@ -451,8 +468,7 @@ const actions = (copyText: Copy): Actions => ({
     }
   },
   closeDiff: () => {
-    mod.diff = undefined
-    mod.view.file = undefined
+    dropDiff()
     redraw()
   },
   unusedKey: key => {
@@ -460,17 +476,48 @@ const actions = (copyText: Copy): Actions => ({
   },
   toggleHelp: () => {
     mod.view.help = !mod.view.help
+    mod.view.settings = false
     redraw()
   },
+  toggleSettings: () => {
+    mod.view.settings = !mod.view.settings
+    mod.view.help = false
+    redraw()
+    if (mod.view.settings) {
+      void refreshConfig()
+    }
+  },
+  setScope: scope => {
+    mod.view.scope = scope
+    redraw()
+  },
+  saveSetting: (key, value) => {
+    const api = mod.api
+    const io = mod.io
+    if (!api || !io) {
+      return
+    }
+    void api.saveConfig({ [key]: value }, mod.view.scope).then(async reply => {
+      if (!isOk(reply)) {
+        return say(t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err'))), 'error')
+      }
+      mod.config = reply.data
+      await loadConfig(io, api)
+      await say(t('mod_settings_saved'))
+    })
+  },
   setTab: (tab: TabValue) => {
+    dropDiff()
     mod.view.tab = tab
     mod.view.help = false
+    mod.view.settings = false
     redraw()
     if (tab === Tab.FLOW) {
       void loadFlow()
     }
   },
   flowTo: id => {
+    dropDiff()
     mod.view.flowId = id
     mod.view.step = 0
     redraw()
@@ -481,6 +528,7 @@ const actions = (copyText: Copy): Actions => ({
     if (!flows.length) {
       return
     }
+    dropDiff()
     const { index } = currentFlow(flows, mod.view.flowId)
     mod.view.flowId = flows[Math.max(0, Math.min(flows.length - 1, index + delta))]?.id
     mod.view.step = 0
@@ -488,6 +536,7 @@ const actions = (copyText: Copy): Actions => ({
     void loadFlow()
   },
   stepTo: step => {
+    dropDiff()
     const id = flowId()
     const steps = (id && mod.flows.get(id)?.flow?.steps?.length) || 1
     mod.view.step = Math.max(0, Math.min(steps - 1, step))
@@ -724,8 +773,9 @@ export const register: Register = on => {
       pageUrl: mod.api?.pageUrl() ?? '',
       problem: problem(),
       diff: mod.diff,
+      config: mod.config,
     }
-    const body = mod.view.help ? help(c) : mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
+    const body = mod.view.settings ? settings(c) : mod.view.help ? help(c) : mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} minHeight={e.props.scroll.bodyRows} paddingX={PAD} paddingY={1} backgroundColor={hex(mod.palette.base)}>
         {keyCatcher(c)}

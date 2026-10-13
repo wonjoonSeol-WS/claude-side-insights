@@ -152,7 +152,8 @@ const setup = (on: On, world: World) => {
     }
     const path = e.url.replace('http://127.0.0.1:47821', '')
     if (path.startsWith('/api/config')) {
-      return reply(200, { effective: { lang: world.lang ?? 'en' } })
+      const settings = { model: 'opus', lang: world.lang ?? 'en', flow_auto: true, qa_auto: true, panel_auto: false }
+      return reply(200, { global: settings, pane: {}, effective: settings, models: ['opus', 'sonnet', 'haiku'], langs: [{ code: 'en', label: 'English' }, { code: 'ko', label: '한국어' }, { code: 'ja', label: '日本語' }] })
     }
     if (path.endsWith('/state')) {
       return world.stateStatus ? reply(world.stateStatus, { error: 'Request refused. Reopen the panel and try again.' }) : reply(200, world.current)
@@ -643,5 +644,58 @@ test('the Flow tab shows every flow title as a pill, and pressing one opens it',
   calls.length = 0
   await ui.press({ key: 'flow-tab-f1' })
   expect(calls.some(c => c.url.endsWith(`/api/${KEY}/flow/f1`))).toBe(true)
+  await ui.unmount()
+})
+
+test('g opens settings; a change is saved for all panels, or for this panel only', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'settings' })
+  expect(await ui.find({ key: 'set-lang' }), "{ key: 'set-lang' }").toBeDefined()
+  calls.length = 0
+  await ui.select({ key: 'set-model', value: 'sonnet' })
+  const global = calls.find(c => c.method === 'POST' && c.url.includes('/api/config'))
+  expect(global?.url).toBe('http://127.0.0.1:47821/api/config')
+  expect(JSON.parse(global?.body ?? '{}')).toEqual({ model: 'sonnet' })
+  await ui.select({ key: 'set-scope', value: 'pane' })
+  calls.length = 0
+  await ui.select({ key: 'set-qa_auto', value: '0' })
+  const pane = calls.find(c => c.method === 'POST' && c.url.includes('/api/config'))
+  expect(pane?.url).toBe(`http://127.0.0.1:47821/api/config?pane=${KEY}`)
+  expect(JSON.parse(pane?.body ?? '{}')).toEqual({ qa_auto: false })
+  await ui.press({ key: 'tab-qa' })
+  expect(await ui.find({ key: 'set-lang' }), 'a tab press leaves settings').toBeUndefined()
+  await ui.unmount()
+})
+
+test('a diff opened from a flow closes when the step or the flow changes', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true, git: DIFF_CASES[0]!.git })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-flow' })
+  await ui.press({ key: 'change-0' })
+  expect(await ui.find({ key: 'diff' }), 'opened from Changes').toBeDefined()
+  await ui.press({ key: 'step-next' })
+  expect(await ui.find({ key: 'diff' }), 'closed by a step change').toBeUndefined()
+  await ui.press({ key: 'change-0' })
+  await ui.press({ key: 'flow-next' })
+  expect(await ui.find({ key: 'diff' }), 'closed by a flow change').toBeUndefined()
+  await ui.unmount()
+})
+
+test('each step lists only the changes to its own file, and a change opens its diff', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true, git: DIFF_CASES[0]!.git })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-flow' })
+  expect(await ui.find({ key: 'step-changes' }), 'step 1 reads route.ts, which did not change').toBeUndefined()
+  await ui.press({ key: 'step-next' })
+  expect((await ui.find({ key: 'step-change-0' }))?.text).toContain('src/checkout/idempotency.ts')
+  await ui.press({ key: 'step-change-0' })
+  expect(await ui.find({ key: 'diff' }), 'the diff of that file').toBeDefined()
   await ui.unmount()
 })

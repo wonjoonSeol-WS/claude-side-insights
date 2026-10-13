@@ -12,13 +12,13 @@ Inside Claude Code:
 /reload-plugins
 ```
 
-Then open the panel next to Claude:
+Then open the panel inside Claude Code:
 
 ```
-! claude-panel
+/si
 ```
 
-Run it again to hide it. To open it by itself at every session start, turn on "Open the panel when a session starts".
+For the full browser view, run `/si-browser`: a browser split in cmux, your browser anywhere else. Run either again to hide it.
 
 Update:
 
@@ -31,16 +31,13 @@ Or turn on auto-update in `/plugin` > Marketplaces.
 
 ## What it shows
 
-![Terminal panel next to a Claude Code session](docs/full/terminal-flow.png)
+![The /si pane on the Q&A tab](docs/si/en-qa.png)
 
-![Browser panel next to a Claude Code session](docs/full/browser-flow.png)
-
-As a narrow side panel:
-
-| Terminal | Browser |
+| Flow | Live |
 |---|---|
-| ![Narrow terminal panel](docs/full/narrow-terminal-flow.png) | ![Narrow browser panel](docs/full/narrow-browser-flow.png) |
-
+| ![Flow tab](docs/si/en-flow.png) | ![Live tab](docs/si/en-live.png) |
+| **Narrow pane** | **Help (`h`)** |
+| ![Flow tab in a narrow pane](docs/si/en-flow-narrow.png) | ![Help card](docs/si/en-help.png) |
 
 **Did Claude answer everything I asked? What did it change? What is it doing now?**
 
@@ -51,6 +48,9 @@ A panel next to each [Claude Code](https://claude.com/claude-code) pane, updated
 | **Q&A** | Every question you asked, even mid-turn: ✓ answered, ◐ partial, ✗ unanswered. The missing part is highlighted. **⧉ Copy question** asks it again. |
 | **Flow** | After a turn that edited files: the changed feature step by step, with real code and the changed lines highlighted. |
 | **Live** | Every tool call as it runs, and the files it changed. |
+
+> [!WARNING]
+> **Flow is not a debugger.** A model writes it after the turn by reading the changed code and the conversation. Nothing is run or traced, so steps, the example and its values can be wrong or made up. Check the real code before you rely on it.
 
 Available in English, 한국어 and 日本語.
 
@@ -68,13 +68,11 @@ Available in English, 한국어 and 日本語.
 
 The Flow tab follows one example through every step. Its values are inferred from the code, not captured at runtime.
 
-**Terminal panel** in iTerm2, Ghostty and Orca: the same three tabs, drawn in the terminal.
-
-| Flow | Live | Q&A |
-|---|---|---|
-| ![Flow](docs/terminal/en-flow.png) | ![Live](docs/terminal/en-live.png) | ![Q&A](docs/terminal/en-qa.png) |
+**Terminal panel**: in iTerm2, Ghostty and Orca, `! claude-panel` also opens the classic terminal panel in a split, with the same three tabs.
 
 ## Supported terminals
+
+`/si` works in any terminal Claude Code runs in. `! claude-panel` (and `/si-browser` in cmux) opens a panel next to Claude in these:
 
 | Terminal | What opens next to Claude | Tested |
 |---|---|---|
@@ -88,20 +86,22 @@ The Flow tab follows one example through every step. Its values are inferred fro
 - Ghostty and iTerm2 are driven by AppleScript. macOS asks once for permission.
 - Adding a terminal is one small shell file. See [terminals/README.md](terminals/README.md).
 
-## Inside Claude Code (mod)
+## The /si pane
 
-Claude Code 2.1.287 or later (tested with Claude Code 2.1.296) also loads the same panel inside Claude Code itself, next to everything above. Nothing else changes: the terminal panels, the browser page and the commands keep working as before.
+Needs Claude Code 2.1.287 or later (tested with 2.1.296). It is drawn by Claude Code itself, so it looks the same in every terminal.
 
-- **Band above the prompt**: one line with the Q&A counts (answered, partial, unanswered), the questions waiting for the turn to end and when they get checked, and the latest flow. When there is nothing to show it adds nothing, except to say the server is not running.
+- **`/si`** (or `/side-insights`): opens the pane. It works while Claude is still running a turn. **`/si-browser`** shows or hides the browser panel.
+- **Keys**: first give the pane the keyboard with `ctrl+x tab` (or click it). A key the pane does not use shows a hint instead of going to the prompt. Press `h` for every key.
+  - `1` `2` `3`: Flow, Live, Q&A. `o`: the full page in your browser
+  - Flow: click a flow title or press `p` `n` to switch flows, `k` `j` to move between steps, `r` to rebuild the flow
+  - Live: click a changed file or press `k` `j` to see its diff (`git diff`, the new file, or the last commit that touched it), `x` to close it
+  - Q&A: click a question to select it, then `r` re-checks it, `a` archives it, `c` copies an open one. `f` shows open ones only, `v` shows archived ones
+- **Size**: `ctrl+x ←` `ctrl+x →` make it wider or narrower (`↑` `↓` above the prompt), or drag the divider. From 78 columns, Flow and Live show two columns.
+- **Band above the prompt**: the Q&A counts, the questions waiting for the turn to end and when they get checked, and the latest flow.
 - **Spinner**: while Claude works, it adds how many of your questions are waiting.
-- **`/side-insights`** (or **`/si`**): opens a pane with the three tabs. It works while Claude is still running a turn.
-  - `1` `2` `3`: Flow, Live, Q&A
-  - Flow: `p` `n` switch flows, `k` `j` move between steps (or click a step), `r` rebuilds the flow
-  - Q&A: click a question to select it, then `s` changes its status, `u` goes back to the automatic verdict, `a` archives, `c` copies an open question, `r` re-checks, `f` shows open ones only, `v` shows archived ones
-  - `o`: the full page in your browser
 - **Notices**: one short note when a new flow is ready or a turn's check leaves questions open.
 
-It reads from the same local server. If the server is not running, the band says so and the mod tries to start it once a minute; `! claude-panel` starts it at once.
+It reads from the same local server as the other panels. If the server is not running, the band says so and the pane tries to start it once a minute; `! claude-panel` starts it at once.
 
 ## Requirements
 
