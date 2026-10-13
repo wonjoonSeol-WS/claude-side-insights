@@ -234,19 +234,25 @@ def _code(s, cols):
     return out
 
 
-def _state(s, cols, pane):
-    data = s.get("data") or []
-    if not data:
-        return []
-    name_w = min(max(width(d.get("name") or "") for d in data), cols // 3)
-    out = [paint(fit(t("state_title", pane=pane), cols).rstrip(), FAINT)]
-    for d in data:
-        before = d.get("before")
-        moved = before not in (None, "", d.get("after"))
-        value = f"{before} → {d.get('after')}" if moved else str(d.get("after"))
-        dot = paint("●", ORANGE) if moved else " "
-        out.append(f"{dot} {paint(fit(d.get('name') or '', name_w), BLUE)}  {paint(fit(value, cols - name_w - 4).rstrip(), TEXT)}")
-    return out
+def _state_box(steps, step, cols, pane):
+    """Every traced value up to this step, newest value per name; the ones this step changed are marked."""
+    values = {}
+    for i, s in enumerate(steps[:step + 1]):
+        for d in s.get("data") or []:
+            values[d.get("name") or ""] = (d, i == step)
+    inner = inner_width(cols)
+    if not values:
+        body = [paint(fit(t("state_empty", pane=pane), inner).rstrip(), FAINT)]
+    else:
+        name_w = min(max(width(name) for name in values), inner // 3)
+        body = []
+        for name, (d, now) in values.items():
+            before = d.get("before")
+            moved = now and before not in (None, "", d.get("after"))
+            value = f"{before} → {d.get('after')}" if moved else str(d.get("after"))
+            dot = paint("●", ORANGE) if now else " "
+            body.append(f"{dot} {paint(fit(name, name_w), BLUE if now else MUTED)}  {paint(fit(value, inner - name_w - 4).rstrip(), TEXT if now else MUTED)}")
+    return box(body, cols, YELLOW if any(now for _, now in values.values()) else LINE, paint(t("state_title", pane=pane), TEXT, bold=True))
 
 
 def _flow_cards(st, rec, flow, tick, cols):
@@ -299,6 +305,8 @@ def flow_lines(st, step, tick, cols):
         label = badge(t("example_label", pane=pane), BLUE)
         example = styled(flow["example"], cols, MUTED, indent=visible_width(label) + 1)
         lines += [label + " " + example[0].lstrip(" "), *example[1:]]
+    if flow.get("summary"):
+        lines += ["", *styled(flow["summary"], cols, MUTED)]
     wide = cols >= WIDE_COLS
     pipe_w, detail_w = _split(cols) if wide else (cols, cols)
     pipeline = box(_pipeline(steps, step, inner_width(pipe_w), pane), pipe_w, LINE, paint(t("pipeline", pane=pane), TEXT, bold=True))
@@ -309,11 +317,9 @@ def flow_lines(st, step, tick, cols):
         inner = inner_width(detail_w)
         body = [paint(fit(s.get("location") or "", inner).rstrip(), FAINT), *bullets(s.get("explanation"), inner)]
         code = _code(s, inner)
-        state = _state(s, inner, pane)
-        body += ([""] + code if code else []) + ([""] + state if state else [])
+        body += [""] + code if code else []
         detail = box(body, detail_w, color, paint(f"{step + 1}. {s.get('title') or ''}", color, bold=True))
+        detail += [""] + _state_box(steps, step, detail_w, pane)
     detail += _flow_cards(st, rec, flow, tick, detail_w)
     lines += [""] + (_side_by_side(pipeline, detail, pipe_w) if wide else pipeline + [""] + detail)
-    if flow.get("summary"):
-        lines += ["", *styled(flow["summary"], cols, MUTED)]
     return lines, step

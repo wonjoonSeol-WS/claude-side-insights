@@ -6,7 +6,7 @@ RESET, BOLD = "\033[0m", "\033[1m"
 ANSI = re.compile(r"\033\[[0-9;]*m")
 BULLET = re.compile(r"^[-•*]\s+")
 NO_LINE_START = set("。、，．）」』】！？ー.,)!?:;")
-MARKUP = re.compile(r"==(.+?)==|(?<![\w/*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![\w/*])|`([^`]+)`")
+MARKUP = re.compile(r"==(.+?)==|(?<![A-Za-z0-9_/*])\*\*(?=\S)(.+?)(?<=\S)\*\*(?![A-Za-z0-9_/*])|`([^`]+)`")
 CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 TAB_SIZE = 4
 PAD_X = 2
