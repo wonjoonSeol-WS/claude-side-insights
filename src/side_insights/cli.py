@@ -11,9 +11,9 @@ import sys
 import urllib.error
 import urllib.request
 
-from common import PORT, pane_key, read_token
-from i18n import t
-from qa_store import STATUSES, Status
+from side_insights.paths import PORT, pane_key, read_token
+from side_insights.i18n import t
+from side_insights.analysis.qa_store import STATUSES, Status
 
 AUTO = "auto"
 TIMEOUT = 5

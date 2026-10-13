@@ -1,0 +1,12 @@
+#!/bin/bash
+# Open this pane's panel, or the list of all panels with `all`, full page in the default browser.
+set -u
+PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$PANEL_ROOT/shell/key.sh"
+ensure_panel_server || { panel_py say server_down >&2; exit 1; }
+key=$(panel_key "{}")
+if [ "${1:-}" = all ] || [ -z "$key" ]; then
+  open "http://127.0.0.1:$(panel_port)/?t=$(panel_token)"
+else
+  open "$(panel_url "$key")&full=1"
+fi

@@ -1,92 +1,95 @@
-# Claude activity panel
+# Claude Side Insights
 
 [English](README.md) | **한국어** | [日本語](README.ja.md)
 
-**Claude가 내 질문에 다 답했을까? 실제로 무엇을 바꿨을까?**
+**Claude가 내 질문에 다 답했나? 무엇을 바꿨나? 지금 뭘 하고 있나?**
 
-코딩 세션이 길어지면 내 질문은 몇 페이지씩 이어지는 출력에 묻히고, "완료했습니다"라는 말만으로는 바뀐 코드가 이제 어떻게 동작하는지 알기 어렵습니다. 이 패널은 [Claude Code](https://claude.com/claude-code)가 도는 창(pane) 옆에 붙어, 턴이 끝날 때마다 이 두 질문에 답합니다.
+[Claude Code](https://claude.com/claude-code) 창 옆에 붙는 패널입니다. 턴이 끝날 때마다 갱신됩니다.
 
-- **Q&A 점검**: 그 턴에 보낸 질문과 요청을 모두 모읍니다. Claude가 작업하는 동안 보낸 메시지도 포함됩니다. Claude가 실제로 한 말과 작업을 근거로 각 항목을 답변됨 / 일부 답변 / 미답변으로 판정하고, 빠진 부분을 하이라이트합니다. 미해결 항목은 이후 턴에서 답이 나오면 다시 점검해 갱신합니다. 상태 변경과 보관은 페이지에서 해도 되고 `claude-qa` 명령으로 해도 됩니다. 미해결 항목에서 **⧉ 질문 복사**를 누르면 같은 질문을 다시 묻는 메시지가 복사되니, Claude에 붙여 넣으면 됩니다.
-- **Flow**: 파일을 고친 턴이 끝나면 바뀐 기능을 실행 순서대로 보여 줍니다. 단계별 파이프라인, 단계마다 하는 일과 바뀐 점, 바뀐 줄을 하이라이트한 실제 코드, 바뀐 파일, 실행한 검증을 담습니다.
-- **실시간 활동**: Claude가 호출하는 도구(실행 중, 성공, 실패, 걸린 시간)와 바뀐 파일을 그때그때 보여 줍니다.
+| 탭 | 보이는 것 |
+|---|---|
+| **Q&A** | 내가 한 모든 질문 (작업 중에 보낸 것 포함): ✓ 답변됨, ◐ 일부 답변, ✗ 미답변. 빠진 부분을 강조합니다. **⧉ 질문 복사**로 다시 물어볼 수 있습니다. |
+| **Flow** | 파일을 고친 턴 뒤에: 바뀐 기능을 단계별로, 실제 코드와 바뀐 줄 강조와 함께. |
+| **실시간** | 도는 중인 도구 호출과 바뀐 파일. |
 
-패널 화면과 분석 결과는 영어, 한국어, 일본어로 볼 수 있습니다.
+English, 한국어, 日本語를 지원합니다.
 
 ## 화면
 
-*가상의 프로젝트로 만든 예시 데이터입니다.*
+*가상의 프로젝트로 만든 예시입니다.*
 
-**Q&A 점검**: 질문마다 상태, 짧게 요약한 답, 빠진 부분 하이라이트.
+| Q&A | Flow |
+|---|---|
+| ![Q&A 탭](docs/qa.png) | ![Flow 탭](docs/flow.png) |
+| **실시간** | **설정** |
+| ![실시간 탭](docs/live.png) | ![설정 창](docs/settings.png) |
 
-![Q&A 탭](docs/qa.png)
-
-**Flow**: 바뀐 기능을 실행 순서대로 나눈 단계, 그리고 바뀐 줄을 하이라이트한 실제 코드. 구체적인 예시 하나가 모든 단계를 따라가고, 상태 패널은 현재 단계까지의 값을 보여 주며 이번 단계에서 바뀐 값을 강조합니다. 이 값은 실행 중에 잡은 것이 아니라 모델이 코드를 읽고 추정한 것입니다.
-
-![Flow 탭](docs/flow.png)
-
-**실시간 활동**: 실행 중인 도구와 바뀐 파일.
-
-![실시간 탭](docs/live.png)
-
-**설정**(⚙)과 **도움말**(`?`).
-
-![설정 화면](docs/settings.png)
-
-![도움말](docs/help.png)
+Flow 탭은 예시 하나를 모든 단계에 따라가며 보여 줍니다. 값은 코드에서 추론한 것이고 실행 중에 잡은 값이 아닙니다.
 
 ## 지원하는 터미널
 
-| 터미널 | Claude 옆에 열리는 것 | `claude-panel`로 숨기기 | 테스트 |
-|---|---|---|---|
-| [cmux](https://cmux.dev) | 전체 패널(Flow, 실시간, Q&A)이 브라우저 split으로 | 됨 | 함 |
-| Orca | 전체 패널이 브라우저 탭으로 | 안 됨 | 안 함 |
-| Ghostty 1.3 이상 | 실시간 화면이 split으로. Flow와 Q&A는 `claude-flow`로 열기 | 됨 | 함 |
-| iTerm2 | 실시간 화면이 split으로. Flow와 Q&A는 `claude-flow`로 열기 | 됨 | 안 함 |
-| 그 밖의 터미널 (VS Code, Terminal.app, tmux, Warp 등) | 자동으로 열리는 것은 없습니다. `claude-panel`은 브라우저로 패널을 열고, `claude-activity`는 어느 터미널에서나 실시간 화면을 보여 줍니다 | - | 함 |
+| 터미널 | Claude 옆에 열리는 것 | 테스트 |
+|---|---|---|
+| [cmux](https://cmux.dev) | 전체 패널 (브라우저 split) | 함 |
+| Orca | 전체 패널 (브라우저 탭) | 아직 |
+| Ghostty 1.3 이상 | 실시간 화면 (split) | 함 |
+| iTerm2 | 실시간 화면 (split) | 아직 |
+| 그 밖의 터미널 | 없음. 아래 명령을 쓰세요 | 함 |
 
-Ghostty와 iTerm2는 AppleScript로 조작하기 때문에, 처음 한 번 macOS가 제어 권한을 묻습니다.
-
-다른 터미널을 추가하려면 [terminals/README.md](terminals/README.md)를 보세요. 작은 셸 파일 하나면 됩니다.
+- Ghostty, iTerm2에서 Flow와 Q&A는 `! claude-flow`로 엽니다.
+- Ghostty, iTerm2는 AppleScript로 조작합니다. 처음 한 번 macOS가 권한을 묻습니다.
+- 터미널 추가는 셸 파일 하나면 됩니다. [terminals/README.md](terminals/README.md) 참고.
 
 ## 요구 사항
 
-macOS, Claude Code, `jq`, `curl`, `/usr/bin/python3`(3.9 이상, 표준 라이브러리만 사용. `xcode-select --install`로 설치됨), zsh.
+- macOS
+- Claude Code 2.1.275 이상
+- `jq`, `curl`
+- `/usr/bin/python3` 3.9 이상 (`xcode-select --install`)
 
 ## 설치
 
-```sh
-git clone https://github.com/wonjoonSeol-WS/claude-side-insights.git ~/.claude/activity-panel
-~/.claude/activity-panel/install.sh
+Claude Code 안에서:
+
+```
+/plugin marketplace add wonjoonSeol-WS/claude-side-insights
+/plugin install side-insights@claude-side-insights
+/reload-plugins
 ```
 
-`install.sh`가 하는 일은 세 가지입니다.
+업데이트:
 
-- `~/.claude/settings.json`에 hook을 추가합니다(빠진 것이 있을 때만, 먼저 옆에 백업을 남김).
-- `~/.zshrc` 끝에 표시를 단 블록을 붙입니다.
-- `claude-panel`, `claude-flow`, `claude-qa`, `claude-activity`를 `~/.local/bin`에 넣습니다.
+```
+/plugin marketplace update claude-side-insights
+/plugin update side-insights@claude-side-insights
+```
 
-여러 번 실행해도 바뀌는 것은 없습니다.
+`/plugin` > Marketplaces에서 자동 업데이트를 켜도 됩니다.
 
 ## 명령
 
-터미널에서 실행하거나, Claude Code 안에서는 앞에 `!`를 붙여 실행합니다(예: `! claude-panel`).
+Claude Code 안에서 앞에 `!`를 붙여 실행합니다. 예: `! claude-panel`
 
 | 명령 | 하는 일 |
 |---|---|
-| `claude-panel` | 이 창의 패널 보이기 / 숨기기 ([지원하는 터미널](#지원하는-터미널) 참고) |
-| `claude-flow` / `claude-flow all` | 이 창의 패널 / 모든 패널 목록을 기본 브라우저에서 크게 열기 |
-| `claude-qa list [--open]` | 현재 세션의 질문을 id, 상태와 함께 보기 |
-| `claude-qa set <id> answered\|partial\|unanswered\|auto` | 상태 직접 지정 (`auto`는 모델 판정으로 되돌리기) |
-| `claude-qa archive <id>` / `restore <id>` | 항목 보관 / 복원 |
-| `claude-activity` | 실시간 활동을 이 창에서 터미널 UI로 보기 |
+| `claude-panel` | 이 창의 패널 보이기 / 숨기기 |
+| `claude-flow` | 전체 패널을 브라우저로 열기 (`all`은 모든 창 목록) |
+| `claude-qa list [--open]` | 이 세션의 질문 목록 |
+| `claude-qa set <id> answered\|partial\|unanswered\|auto` | 상태 직접 바꾸기 |
+| `claude-qa archive <id>` / `restore <id>` | 항목 숨기기 / 되돌리기 |
+| `claude-activity` | 실시간 활동을 터미널 화면으로 |
 
-패널 단축키: `1` `2` `3`은 Flow, 실시간, Q&A 탭 전환, `←` `→`는 Flow 단계 이동, `?`는 모든 명령과 설정을 정리한 도움말 열기, `Esc`는 닫기입니다.
+패널 단축키:
+
+- `1` `2` `3`: Flow, 실시간, Q&A
+- `←` `→`: Flow 단계 이동
+- `?`: 도움말, `Esc`: 닫기
 
 ## 설정
 
-패널 오른쪽 위의 **⚙ 설정**을 누릅니다. 바꾼 값은 `~/.claude/activity-panel/config.json`에 저장되고 다음 분석부터 적용됩니다. 다시 시작할 필요는 없습니다.
-
-**적용 범위**에서 **모든 패널**을 고르면 기본값이 바뀌고, **이 패널만**을 고르면 이 창(과 그 안에서 도는 Claude 세션)에만 따로 적용됩니다. 예를 들어 한 창은 일본어, 다른 창은 한국어로 쓸 수 있습니다. 패널별로 지정한 값은 설정 화면에 표시되고, 전체 설정을 따르도록 되돌릴 수 있습니다.
+- 오른쪽 위 **⚙**로 엽니다. 다음 분석부터 바로 적용되고 재시작은 필요 없습니다.
+- **적용 범위**: **모든 패널** 또는 **이 패널만** (예: 한 창은 일본어, 다른 창은 한국어).
+- 저장 위치: `~/.claude/side-insights/config.json`
 
 | 설정 | 기본값 | 설명 |
 |---|---|---|
@@ -100,66 +103,67 @@ git clone https://github.com/wonjoonSeol-WS/claude-side-insights.git ~/.claude/a
 
 ## 자주 묻는 질문
 
-**Claude를 몇 번 더 호출하나요?**
-턴이 끝날 때마다 많아야 2번입니다. 매 턴 Q&A 점검 1번, 그 턴에 파일을 고쳤다면 Flow 1번이 더해집니다. 실시간 화면, 상태 변경, 보관은 호출하지 않습니다. `!` 셸 명령은 턴이 아니라서 아무것도 실행하지 않습니다. ↻ 버튼은 누를 때마다 1번 호출합니다.
+**비용** (Claude Code 정가 기준 추정)
 
-**비용은 얼마나 드나요?**
-지금까지 측정한 값은 Q&A 점검이 Opus 기준 $0.04 ~ $0.11, Flow가 Sonnet 기준 $0.16 ~ $0.17입니다(Opus는 아직 측정하지 않음). Flow는 읽는 코드가 많을수록 비싸집니다. 이 금액은 Claude Code가 정가로 계산한 추정치이고, 구독 요금제에서는 금액 대신 사용량 한도에서 차감될 것으로 보이지만 확인하지는 않았습니다. 비용을 줄이려면 모델을 `sonnet`이나 `haiku`로 바꾸거나 자동 실행을 끄세요.
+| 무엇 | Claude 호출 | 비용 |
+|---|---|---|
+| 실시간 화면, 상태 변경, 보관 | 0 | 무료 |
+| Q&A 점검, 매 턴 | 1 | Opus 기준 $0.04 ~ $0.11 |
+| Flow, 파일을 고친 턴만 | 1 | Sonnet 기준 $0.16 ~ $0.17 |
+| ↻ 버튼 한 번 | 1 | 위와 같음 |
 
-**Claude가 턴마다 HTML을 만드나요?**
-아닙니다. 페이지 템플릿은 하나뿐입니다. 분석은 JSON을 돌려주고 페이지가 그것을 그립니다.
+구독 요금제라면 사용량 한도에서 차감될 가능성이 큽니다 (확인 안 됨). 줄이려면 모델을 `sonnet`이나 `haiku`로 바꾸거나 ⚙ 설정에서 자동 실행을 끄세요.
 
-**↻ Flow 다시 만들기, ↻ 미해결 다시 점검, ↻ 이 질문 다시 점검도 에이전트를 호출하나요?**
-네. 자동 실행과 똑같은 headless `claude -p`를 띄우고 비용도 같습니다. 이 실행은 파일을 읽기만 하고, 고치거나 명령을 실행하지는 못합니다.
+**자주 나오는 질문**
 
-**작업 중인 세션이 느려지거나 컨텍스트가 늘어나나요?**
-아닙니다. 분석은 턴이 끝난 뒤 별도 프로세스에서 돌고, 세션 컨텍스트에는 아무것도 더하지 않습니다.
+| 질문 | 답 |
+|---|---|
+| 세션이 느려지거나 컨텍스트를 쓰나요? | 아니요. 턴이 끝난 뒤 별도 프로세스로 돕니다. |
+| ↻ 실행이 파일을 고칠 수 있나요? | 아니요. 읽기 전용 도구만 씁니다. |
+| 이번 턴에 Flow가 없어요 | 파일을 고친 턴에만 자동으로 만듭니다. **↻ Flow 다시 만들기**를 누르세요. |
+| 나중에 답했는데 미해결로 남아요 | 보통 다음 점검에서 풀립니다. 아니면 **↻ 미해결 다시 점검**, **↻ 이 질문 다시 점검**을 누르거나 상태를 직접 누르세요. 점검이 실패한 턴에는 **↻ 이 턴 다시 점검**이 나옵니다. |
+| 패널을 숨기려면? | `! claude-panel`로 숨기고 다시 엽니다. 자동으로 열리지 않게 하려면 "세션이 시작되면 패널 열기"를 끄세요. |
 
-**Flow가 코드 로직 설명에도 쓸 만한가요?**
-바로 그 용도입니다. 바뀐 기능을 실행 단계로 나눠 보여 주고, 현재 파일에서 실제 코드를 가져와 보여 줍니다. 자동으로는 파일을 고친 턴에만 돌기 때문에, 설명만 한 턴이라면 ↻를 누르세요.
+**데이터 위치**: `~/.claude/side-insights/`
 
-**나중 턴에서 답을 받았는데 아직 '일부 답변'으로 나옵니다.**
-점검은 지난 점검 이후의 대화를 모두 봅니다. Claude가 작업하는 중에 보낸 메시지도 포함됩니다. 같은 세션의 이전 턴에 남은 미해결 항목(최대 60개)도 새 답변과 다시 대조하고, 답이 나왔으면 상태를 올립니다. 그보다 오래된 항목은 위쪽의 **↻ 미해결 다시 점검**(현재 페이지에 있는 턴의 미해결 질문을 최대 40개까지 한 번에 다시 판정)이나 항목의 **↻ 이 질문 다시 점검**을 누르거나, 상태를 직접 바꾸세요. 점검에 실패한 턴에는 **↻ 이 턴 다시 점검** 버튼이 나옵니다.
-
-**패널을 숨기거나 끄려면 어떻게 하나요?**
-`claude-panel`로 숨기거나 다시 보이게 합니다. 저절로 열리지 않게 하려면 "세션이 시작되면 패널 열기"를 끄세요. 완전히 지우려면 `uninstall.sh`를 실행합니다(`--purge`를 붙이면 기록한 데이터와 설정까지 지움).
-
-**데이터는 어디에 저장되나요?**
-`~/.claude/activity-panel/` 아래에 있습니다.
-
-- `config.json`: 설정
-- `token`: 패널 페이지와 `claude-qa`가 서버에 보내는 비밀값
-- `logs/`: 도구 활동
-- `turns/`: 패널별로 지금 턴이 시작된 위치
-- `flows/`: Flow
-- `qa/<패널>/<세션>/`: Q&A (세션별로 보관)
-- `qa/<패널>/overrides.json`: 직접 바꾼 상태
-
-모두 git에 커밋되지 않습니다. 창별 패널 페이지는 `http://127.0.0.1:47821/p/<패널>?t=<토큰>`, 모든 패널 목록은 `http://127.0.0.1:47821/?t=<토큰>`에 있습니다. `claude-flow`로 열면 토큰이 자동으로 붙습니다.
+| 경로 | 내용 |
+|---|---|
+| `config.json` | 설정 |
+| `token` | 페이지와 `claude-qa`가 쓰는 비밀값 |
+| `logs/` | 도구 활동 |
+| `turns/` | 창별 턴 시작 위치 |
+| `flows/` | Flow |
+| `qa/<창>/<세션>/` | Q&A, 세션별 |
+| `qa/<창>/overrides.json` | 직접 바꾼 상태 |
 
 ## 동작 방식
 
-```
-Claude Code hooks ──► record.sh ──► logs/<pane>.jsonl ──┐
-   (도구 호출, 요청, 턴 종료)                           ├─► server.py (127.0.0.1:47821) ──► 브라우저 패널의 app.html
-Stop hook ──► flow.py / qa.py ──► flows/, qa/ (JSON) ───┘
-                 └─ headless `claude -p` (읽기 전용 도구, MCP 서버와 hook 없음)
+```mermaid
+flowchart LR
+  hooks["Claude Code hook"] --> rec["record.sh"] --> logs[("logs")]
+  stop["턴 종료"] --> runs["Flow, Q&A<br/>headless claude -p"] --> results[("flows, qa")]
+  logs --> server["로컬 서버<br/>127.0.0.1:47821"]
+  results --> server --> page["패널 페이지"]
 ```
 
-- 실시간 화면은 비용이 들지 않습니다. hook이 JSON을 한 줄씩 기록하고, 페이지가 1초마다 로컬 서버에서 읽어 옵니다.
-- Flow와 Q&A는 턴이 끝난 뒤 각각 별도의 headless `claude -p`로 돌기 때문에 작업 중인 세션의 컨텍스트를 건드리지 않습니다. Flow는 파일을 고친 턴(Edit/Write나 파일을 쓰는 셸 명령)에만 돌고, Read/Grep/Glob로 코드를 읽을 수 있습니다. Q&A는 대화 텍스트와 Claude가 쓴 도구 목록만 읽고, 파일은 읽지 않습니다.
-- 패널 키는 터미널이 주는 창 id이고([지원하는 터미널](#지원하는-터미널) 참고), 없으면 세션 id입니다. Q&A는 세션별로 저장되고 현재 세션 것만 보여 줍니다.
+- 실시간 화면: hook이 이벤트마다 한 줄씩 기록합니다. 비용 없음.
+- Flow, Q&A: 턴이 끝난 뒤 별도의 `claude -p`로 돕니다. 읽기 전용 도구만 쓰고 MCP와 hook은 없습니다. 작업 중인 세션의 컨텍스트는 건드리지 않습니다.
+- Flow는 파일을 고친 턴에만 돕니다. Q&A는 대화와 도구 목록만 읽고 파일은 읽지 않습니다.
+- 패널은 터미널의 창 id로, 없으면 세션 id로 구분합니다.
 
 ## 데이터와 개인정보
 
-모든 데이터는 내 컴퓨터 안에, 내 계정만 읽을 수 있는 파일로 저장됩니다. 서버는 127.0.0.1에서만 열리고, 주소가 `127.0.0.1`이나 `localhost`인 요청만 받습니다. 그래서 웹 페이지가 DNS rebinding으로 서버에 접근할 수 없습니다. 모든 페이지는 URL에, 모든 API 요청은 `X-Claude-Panel` 헤더에 `~/.claude/activity-panel/token`의 토큰이 있어야 합니다. 그래서 다른 웹 페이지나 같은 컴퓨터의 다른 사용자가 활동 기록을 읽거나, 설정을 바꾸거나, 유료 분석을 실행할 수 없습니다.
+- 모든 데이터는 `~/.claude/side-insights/`에 있고 내 계정만 읽을 수 있습니다.
+- 서버는 127.0.0.1에서만 열리고, 호스트가 `127.0.0.1`이나 `localhost`인 요청만 받습니다 (DNS rebinding 차단).
+- 페이지는 `?t=<토큰>`, API는 `X-Claude-Panel` 헤더가 필요합니다. 토큰은 `~/.claude/side-insights/token`에 있습니다.
 
 ## 제거
 
-```sh
-~/.claude/activity-panel/uninstall.sh          # 기록한 데이터와 설정은 남김
-~/.claude/activity-panel/uninstall.sh --purge  # 그것까지 삭제
 ```
+/plugin uninstall side-insights@claude-side-insights
+```
+
+기록한 데이터는 `~/.claude/side-insights/`에 남습니다. 지우려면 그 폴더를 삭제하세요.
 
 ## 라이선스
 

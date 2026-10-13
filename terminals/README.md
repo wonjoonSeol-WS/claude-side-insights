@@ -22,4 +22,4 @@ Every name it can define:
 | `PANE_ENV=<VAR>` | no | An environment variable that names this pane. Without it panels are keyed by the Claude session id |
 | `CHILD_ENV_PREFIX=<PREFIX>` | no | Variables with this prefix are removed before the background analysis runs |
 
-A split that runs `panel_view_command` sets its title to `$(panel_view_title <key>)`, so `term_find` can look for that title. Test with `bash -c '. ./key.sh; panel_terminal; panel_term find "$(panel_key "{}")"'`.
+A split that runs `panel_view_command` sets its title to `$(panel_view_title <key>)`, so `term_find` can look for that title. Test with `bash -c '. shell/key.sh; panel_terminal; panel_term find "$(panel_key "{}")"'`.

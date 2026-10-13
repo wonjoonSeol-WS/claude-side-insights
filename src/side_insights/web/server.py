@@ -10,13 +10,14 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
 
-import config
-import qa_store
-from activity import ActivityTail, log_path
-from claude_run import Pending
-from common import BASE, ITEM_ID_RE, KEY_RE, PORT, TURN_ID_RE, api_token, json_files, read_json
-from i18n import current, messages, t
-from language import DEFAULT, Language
+from side_insights import config
+from side_insights.analysis import qa_store
+from side_insights.live.activity import ActivityTail, log_path
+from side_insights.analysis.runner import Pending
+from side_insights.__main__ import child_env, command_line
+from side_insights.paths import DATA, ITEM_ID_RE, KEY_RE, PORT, TURN_ID_RE, api_token, json_files, read_json
+from side_insights.i18n import current, messages, t
+from side_insights.language import DEFAULT, Language
 
 MAX_BODY = 64 * 1024
 MAX_INDEX_PANES = 40
@@ -47,7 +48,7 @@ def snapshot(pane):
 
 
 def flows(pane):
-    directory = os.path.join(BASE, "flows", pane)
+    directory = os.path.join(DATA, "flows", pane)
     found = []
     for path in sorted(json_files(directory), reverse=True):
         rec = read_json(path)
@@ -60,7 +61,7 @@ def flows(pane):
 def known_panes():
     stamps = {}
     for sub, suffix in (("logs", ".jsonl"), ("flows", "")):
-        directory = os.path.join(BASE, sub)
+        directory = os.path.join(DATA, sub)
         try:
             names = os.listdir(directory)
         except OSError:
@@ -139,7 +140,7 @@ class Handler(BaseHTTPRequestHandler):
         return (self.params.get(name) or [None])[0]
 
     def get_page(self, pane=None):
-        with open(os.path.join(BASE, "app.html"), encoding="utf-8") as fh:
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.html"), encoding="utf-8") as fh:
             html = fh.read()
         lang = Language.from_code(self.param("lang"), current(pane))
         values = {"KEY": pane, "I18N": {"lang": lang.code, "messages": messages(lang), "fallback": messages(DEFAULT)}, "TOKEN": TOKEN}
@@ -181,7 +182,7 @@ class Handler(BaseHTTPRequestHandler):
                    "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending)}})
 
     def get_flow(self, pane, flow_id):
-        rec = read_json(os.path.join(BASE, "flows", pane, f"{flow_id}.json"))
+        rec = read_json(os.path.join(DATA, "flows", pane, f"{flow_id}.json"))
         if not isinstance(rec, dict):
             return self.error(404, "err_not_found", pane=pane)
         self.json(rec)
@@ -235,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
         self.json({"ok": True})
 
     def post_regen(self, pane):
-        last = read_json(os.path.join(BASE, "turns", f"{pane}.json"))
+        last = read_json(os.path.join(DATA, "turns", f"{pane}.json"))
         if not isinstance(last, dict) or not last.get("transcript"):
             return self.error(409, "err_no_turn", pane=pane)
         with _spawn_lock:
@@ -257,20 +258,20 @@ class Handler(BaseHTTPRequestHandler):
                 return
             turn_id = found[0].get("turn_id")
             last = {**last, "transcript": found[0].get("transcript") or last["transcript"]}
-        marker = qa_store.pending_path(pane) if target == "qa" else os.path.join(BASE, "flows", pane, "pending")
+        marker = qa_store.pending_path(pane) if target == "qa" else os.path.join(DATA, "flows", pane, "pending")
         if Pending.active(marker):
             return self.error(409, "err_running", pane=pane)
         if target == "flow":
-            args = ["flow.py", pane, last["transcript"], last.get("cwd") or ""]
+            command, args = "flow", [pane, last["transcript"], last.get("cwd") or ""]
         else:
-            args = ["qa.py", pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
+            command, args = "qa", [pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
             if scope == "open":
                 only = [tid for tid in (self.param("turns") or "").split(",") if tid]
                 if not all(TURN_ID_RE.match(tid) for tid in only):
                     return self.error(400, "err_bad_request", pane=pane)
                 args.append("--open-items" + (f"={','.join(only)}" if only else ""))
-        with open(os.path.join(BASE, "flow.log"), "a") as log:
-            child = subprocess.Popen([sys.executable, os.path.join(BASE, args[0]), *args[1:], "--force"],
+        with open(os.path.join(DATA, "flow.log"), "a") as log:
+            child = subprocess.Popen(command_line(command, [*args, "--force"]), env=child_env(),
                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
         Pending.claim(marker, child.pid)
         threading.Thread(target=child.wait, daemon=True).start()

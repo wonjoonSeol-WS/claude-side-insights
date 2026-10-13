@@ -1,6 +1,6 @@
 """Panel settings, stored in config.json and edited from the panel's settings dialog.
 
-usage: config.py get <name> [pane]   prints the value (booleans as 1/0), for shell scripts
+usage: python3 -m side_insights config get <name> [pane]   prints the value (booleans as 1/0), for shell scripts
 """
 import os
 import re
@@ -8,10 +8,10 @@ import sys
 import threading
 from enum import Enum
 
-from common import BASE, atomic_write_json, read_json
-from language import DEFAULT as DEFAULT_LANGUAGE, Language
+from side_insights.paths import DATA, atomic_write_json, read_json
+from side_insights.language import DEFAULT as DEFAULT_LANGUAGE, Language
 
-PATH = os.path.join(BASE, "config.json")
+PATH = os.path.join(DATA, "config.json")
 MODELS = ("opus", "sonnet", "haiku")
 _MODEL_RE = re.compile(r"^(%s|claude-[a-z0-9.-]+)$" % "|".join(MODELS))
 _SAVE_LOCK = threading.Lock()

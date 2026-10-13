@@ -1,0 +1,8 @@
+{
+  "name": "claude-side-insights",
+  "owner": { "name": "wonjoonSeol-WS" },
+  "description": "Side panel for Claude Code with a Q&A check, a logic flow and live activity",
+  "plugins": [
+    { "name": "side-insights", "source": "./", "description": "Q&A check, logic flow and live activity next to each Claude Code pane" }
+  ]
+}

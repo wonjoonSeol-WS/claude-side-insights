@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live activity of one pane as a terminal UI.
 
-usage: viewer.py [pane]   (default: this pane)
+usage: python3 -m side_insights activity [pane]   (default: this pane)
 """
 import os
 import signal
@@ -9,9 +9,9 @@ import sys
 import time
 import unicodedata
 
-from activity import ERR, OK, RUN, ActivityTail, tool_label
-from common import EDIT_TOOLS, pane_key
-from i18n import t
+from side_insights.live.activity import ERR, OK, RUN, ActivityTail, tool_label
+from side_insights.paths import EDIT_TOOLS, pane_key
+from side_insights.i18n import t
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 POLL_SECONDS = 0.1

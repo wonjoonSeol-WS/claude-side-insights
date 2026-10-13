@@ -1,0 +1,22 @@
+#!/bin/bash
+# Show or hide this pane's panel.
+set -u
+PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$PANEL_ROOT/shell/key.sh"
+key=$(panel_key "{}")
+[ -n "$key" ] || { panel_py say no_pane >&2; exit 1; }
+handles=$(panel_term find "$key")
+if [ -n "$handles" ] && panel_term_has close; then
+  while IFS= read -r handle; do panel_term close "$handle"; done <<< "$handles"
+  panel_py say panel_hidden
+  exit 0
+fi
+"$PANEL_ROOT/hooks/open-panel.sh" --force </dev/null
+if ! panel_term_has find; then
+  panel_py say panel_requested
+elif [ -n "$(panel_term find "$key")" ]; then
+  panel_py say panel_shown
+else
+  panel_py say panel_failed >&2
+  exit 1
+fi

@@ -4,7 +4,7 @@ import os
 import threading
 from collections import OrderedDict
 
-from common import BASE, EDIT_TOOLS
+from side_insights.paths import DATA, EDIT_TOOLS
 
 MAX_TOOLS = 500
 RUN, OK, ERR, LOST = "run", "ok", "err", "lost"
@@ -13,7 +13,7 @@ _ENDS_TOOL = ("PostToolUse", "PostToolUseFailure")
 
 
 def log_path(pane):
-    return os.path.join(BASE, "logs", f"{pane}.jsonl")
+    return os.path.join(DATA, "logs", f"{pane}.jsonl")
 
 
 def tool_label(name):

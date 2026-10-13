@@ -1,0 +1,4 @@
+#!/bin/bash
+PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$PANEL_ROOT/shell/key.sh"
+panel_py activity "$@"

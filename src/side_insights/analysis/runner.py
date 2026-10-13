@@ -7,7 +7,7 @@ import time
 
 import fcntl
 
-from common import atomic_write_json, process_alive, read_json, terminal_settings
+from side_insights.paths import atomic_write_json, process_alive, read_json, terminal_settings
 
 STALE_AFTER = 1800
 _PARENT_PREFIXES = ("CLAUDE_CODE_MESSAGING_", *terminal_settings("CHILD_ENV_PREFIX"))

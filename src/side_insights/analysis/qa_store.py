@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from enum import Enum
 
-from common import BASE, atomic_write_json, json_files, read_json, safe_name
+from side_insights.paths import DATA, atomic_write_json, json_files, read_json, safe_name
 
 
 class Status(Enum):
@@ -29,7 +29,7 @@ _OVERRIDES_LOCK = threading.Lock()
 
 
 def pane_dir(pane):
-    return os.path.join(BASE, "qa", pane)
+    return os.path.join(DATA, "qa", pane)
 
 
 def session_dir(pane, sid):

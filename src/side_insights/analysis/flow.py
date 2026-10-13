@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a logic-flow document for the last Claude turn in a transcript.
 
-usage: flow.py <pane> <transcript_path> <cwd> [--force]
+usage: python3 -m side_insights flow <pane> <transcript_path> <cwd> [--force]
 Skips turns that edited no files unless --force.
 """
 import os
@@ -10,11 +10,11 @@ import sys
 import time
 import uuid
 
-import config
-from claude_run import Pending, run_claude
-from i18n import language_instruction
-from common import EDIT_TOOLS, atomic_write_json, data_dir, json_files, read_json
-from transcript import (assistant_blocks, prompt_text, clip, load_entries, queued_prompt, text_of, tool_results, turn_end, turn_start,
+from side_insights import config
+from side_insights.analysis.runner import Pending, run_claude
+from side_insights.i18n import language_instruction
+from side_insights.paths import EDIT_TOOLS, atomic_write_json, data_dir, json_files, read_json
+from side_insights.transcript import (assistant_blocks, prompt_text, clip, load_entries, queued_prompt, text_of, tool_results, turn_end, turn_start,
                         wait_until_written)
 
 KEEP_FLOWS = 30

@@ -1,0 +1,7 @@
+{
+  "name": "side-insights",
+  "description": "A side panel for Claude Code: did Claude answer every question, what did it change, and what is it doing right now",
+  "author": { "name": "wonjoonSeol-WS" },
+  "homepage": "https://github.com/wonjoonSeol-WS/claude-side-insights",
+  "license": "MIT"
+}

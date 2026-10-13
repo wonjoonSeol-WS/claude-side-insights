@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """List every question and request the user sent in a turn and whether Claude answered it.
 
-usage: qa.py <pane> <transcript_path> [turn_id] [--item=<id> | --open-items[=turn,turn...]] [--force]
+usage: python3 -m side_insights qa <pane> <transcript_path> [turn_id] [--item=<id> | --open-items[=turn,turn...]] [--force]
 Without turn_id: everything since the previous check (prompts, messages sent mid-turn and replies), plus a re-check of
 earlier open items against the new replies.
 With turn_id: that turn, judged against every reply up to the end of the transcript.
@@ -11,12 +11,12 @@ With --open-items[=turn,turn...]: every open item of the session (or of those tu
 import sys
 import time
 
-import config
-import qa_store
-from claude_run import Pending, run_claude
-from i18n import language_instruction
-from common import EDIT_TOOLS, atomic_write_json
-from transcript import (assistant_blocks, clip, is_prompt, load_entries, prompt_text, queued_prompt, turn_start,
+from side_insights import config
+from side_insights.analysis import qa_store
+from side_insights.analysis.runner import Pending, run_claude
+from side_insights.i18n import language_instruction
+from side_insights.paths import EDIT_TOOLS, atomic_write_json
+from side_insights.transcript import (assistant_blocks, clip, is_prompt, load_entries, prompt_text, queued_prompt, turn_start,
                         wait_until_written)
 
 MAX_REPLY = 60000

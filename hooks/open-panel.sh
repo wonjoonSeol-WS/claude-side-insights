@@ -5,14 +5,14 @@ set -u
 [ -z "${CLAUDE_ACTIVITY_CHILD:-}" ] || exit 0
 umask 077
 
-base="$HOME/.claude/activity-panel"
+PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+. "$PANEL_ROOT/shell/key.sh"
 input=""
 [ -t 0 ] || input=$(cat)
-. "$base/key.sh"
 key=$(panel_key "$input")
 [ -n "$key" ] || exit 0
 if [ "${1:-}" != "--force" ]; then
-  [ "$(/usr/bin/python3 "$base/config.py" get panel_auto "$key" 2>/dev/null)" != "0" ] || exit 0
+  [ "$(panel_py config get panel_auto "$key" 2>/dev/null)" != "0" ] || exit 0
 fi
 
 {
