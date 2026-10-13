@@ -31,6 +31,11 @@ cmux, Orca, Ghostty, iTerm2에서는 새 세션을 시작하면 자동으로 열
 
 ## 무엇을 보여 주나
 
+![Claude Code 세션 옆의 터미널 패널](docs/full/terminal-flow.png)
+
+![Claude Code 세션 옆의 브라우저 패널](docs/full/browser-flow.png)
+
+
 **Claude가 내 질문에 다 답했나? 무엇을 바꿨나? 지금 뭘 하고 있나?**
 
 [Claude Code](https://claude.com/claude-code) 창 옆에 붙는 패널입니다. 턴이 끝날 때마다 갱신됩니다.

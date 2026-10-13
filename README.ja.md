@@ -31,6 +31,11 @@ cmux、Orca、Ghostty、iTerm2 では新しいセッションを始めると自�
 
 ## 表示されるもの
 
+![Claude Code セッションの横のターミナルパネル](docs/full/terminal-flow.png)
+
+![Claude Code セッションの横のブラウザパネル](docs/full/browser-flow.png)
+
+
 **Claude は質問に全部答えた? 何を変えた? 今何をしている?**
 
 [Claude Code](https://claude.com/claude-code) のペインの横に表示されるパネルです。ターンが終わるたびに更新されます。

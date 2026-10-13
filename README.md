@@ -31,6 +31,11 @@ Or turn on auto-update in `/plugin` > Marketplaces.
 
 ## What it shows
 
+![Terminal panel next to a Claude Code session](docs/full/terminal-flow.png)
+
+![Browser panel next to a Claude Code session](docs/full/browser-flow.png)
+
+
 **Did Claude answer everything I asked? What did it change? What is it doing now?**
 
 A panel next to each [Claude Code](https://claude.com/claude-code) pane, updated after every turn.
