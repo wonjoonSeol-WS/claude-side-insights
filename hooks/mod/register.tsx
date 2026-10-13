@@ -18,6 +18,8 @@ import {
   rowTurn,
   type Env,
   type Io,
+  loadDiff,
+  type FileDiff,
   type FlowRecord,
   type Messages,
   type PanelState,
@@ -90,6 +92,7 @@ type Mod = {
   tick: number
   frames?: { cancel: () => void }
   heroCols?: number
+  diff?: { path: string; loading: boolean; data?: FileDiff }
 }
 
 const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false })
@@ -323,6 +326,7 @@ const reset = () => {
   mod.flows = new Map()
   mod.flowLoading = undefined
   mod.confirm = undefined
+  mod.diff = undefined
   mod.polling = false
   mod.pollAgain = false
   mod.view = { ...freshView(), tab: mod.view.tab }
@@ -357,6 +361,40 @@ const run = async (action: () => Promise<Reply<unknown>>, done: string) => {
   }
 }
 
+const sortedFiles = () => [...(mod.state?.activity.files ?? [])].sort((a, b) => b.last - a.last)
+
+const absolute = (path: string) => {
+  const home = mod.env?.home ?? ''
+  const cwd = mod.state?.activity.cwd ?? ''
+  if (path.startsWith('~/') && home) {
+    return `${home}${path.slice(1)}`
+  }
+  return path.startsWith('/') || !cwd ? path : `${cwd}/${path}`
+}
+
+const showDiff = async (path: string) => {
+  const io = mod.io
+  if (!io) {
+    return
+  }
+  if (mod.diff?.path === path && mod.view.file === path) {
+    mod.diff = undefined
+    mod.view.file = undefined
+    redraw()
+    return
+  }
+  const full = absolute(path)
+  const dir = full.slice(0, full.lastIndexOf('/')) || '/'
+  mod.view.file = path
+  mod.diff = { path, loading: true }
+  redraw()
+  const data = await loadDiff(io, dir, full)
+  if (mod.diff?.path === path) {
+    mod.diff = { path, loading: false, data }
+    redraw()
+  }
+}
+
 const allItems = () => (mod.state?.qa.turns ?? []).flatMap(x => x.items ?? [])
 
 const selectedId = () => (mod.state ? selection(mod.view, mod.state.qa.turns) : undefined)
@@ -378,6 +416,25 @@ const withItem = (act: (item: QaItem, api: Api) => void) => () => {
 }
 
 const actions = (copyText: Copy): Actions => ({
+  openFile: path => {
+    void showDiff(path)
+  },
+  fileBy: delta => {
+    const files = sortedFiles()
+    if (!files.length) {
+      return
+    }
+    const at = files.findIndex(f => f.path === mod.view.file)
+    const next = files[at < 0 ? 0 : Math.max(0, Math.min(files.length - 1, at + delta))]
+    if (next) {
+      void showDiff(next.path)
+    }
+  },
+  closeDiff: () => {
+    mod.diff = undefined
+    mod.view.file = undefined
+    redraw()
+  },
   unusedKey: key => {
     void say(t('mod_key_unused', key), 'suggestion')
   },
@@ -636,6 +693,7 @@ export const register: Register = on => {
       act: actions((text, surface) => $.ui.copy({ text, surface })),
       pageUrl: mod.api?.pageUrl() ?? '',
       problem: problem(),
+      diff: mod.diff,
     }
     const body = mod.view.help ? help(c) : mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
     return (

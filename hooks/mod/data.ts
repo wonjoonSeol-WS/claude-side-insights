@@ -290,3 +290,63 @@ export const duration = (seconds: number): string => {
 }
 
 export const highlight = (text: string): string => text.replace(/==([^=\n]+)==/g, '**$1**')
+
+export const DiffSource = { WORKING: 'working', NEW: 'new', COMMIT: 'commit', NONE: 'none' } as const
+export type DiffSourceValue = (typeof DiffSource)[keyof typeof DiffSource]
+export type FileDiff = { source: DiffSourceValue; hunks: string; cut: number; commit?: string; error?: string }
+
+const MAX_DIFF_LINES = 400
+const GIT_TIMEOUT_MS = 5000
+const HUNK = /^@@ /
+
+export const trimHunks = (text: string, max = MAX_DIFF_LINES): { hunks: string; cut: number } => {
+  const lines = text.split('\n')
+  const start = lines.findIndex(l => HUNK.test(l))
+  if (start < 0) {
+    return { hunks: '', cut: 0 }
+  }
+  const body = lines.slice(start)
+  while (body.length && body[body.length - 1] === '') {
+    body.pop()
+  }
+  if (body.length <= max) {
+    return { hunks: body.join('\n'), cut: 0 }
+  }
+  let end = max
+  for (let i = max; i > 0; i--) {
+    if (HUNK.test(body[i] ?? '')) {
+      end = i
+      break
+    }
+  }
+  return { hunks: body.slice(0, end).join('\n'), cut: body.length - end }
+}
+
+const git = async (io: Io, cwd: string, args: string[]) =>
+  io.run(['git', '-C', cwd, '-c', 'color.ui=never', '-c', 'core.quotepath=off', ...args], { timeoutMs: GIT_TIMEOUT_MS })
+
+export const loadDiff = async (io: Io, cwd: string, path: string): Promise<FileDiff> => {
+  try {
+    const working = await git(io, cwd, ['diff', '--no-ext-diff', 'HEAD', '--', path])
+    const fromWorking = trimHunks(working.stdout)
+    if (working.exitCode === 0 && fromWorking.hunks) {
+      return { source: DiffSource.WORKING, ...fromWorking }
+    }
+    const tracked = await git(io, cwd, ['ls-files', '--error-unmatch', '--', path])
+    if (tracked.exitCode !== 0) {
+      const added = await git(io, cwd, ['diff', '--no-ext-diff', '--no-index', '--', '/dev/null', path])
+      const fromNew = trimHunks(added.stdout)
+      if (fromNew.hunks) {
+        return { source: DiffSource.NEW, ...fromNew }
+      }
+    }
+    const shown = await git(io, cwd, ['log', '-1', '--no-ext-diff', '-p', '--format=%h %s', '--', path])
+    const fromCommit = trimHunks(shown.stdout)
+    if (shown.exitCode === 0 && fromCommit.hunks) {
+      return { source: DiffSource.COMMIT, commit: shown.stdout.split('\n')[0]?.trim(), ...fromCommit }
+    }
+    return { source: DiffSource.NONE, hunks: '', cut: 0, error: (working.stderr || shown.stderr).trim().split('\n')[0] || undefined }
+  } catch (err) {
+    return { source: DiffSource.NONE, hunks: '', cut: 0, error: err instanceof Error ? err.message : String(err) }
+  }
+}

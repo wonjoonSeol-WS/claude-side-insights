@@ -2,18 +2,19 @@ import type { Elements, RenderChildren, RenderSurface, UiPressArgument } from 'c
 
 import {
   CheckStatus,
+  DiffSource,
   Kind,
   RecordStatus,
   Source,
   Status,
   ToolState,
-  cells,
   clock,
   counts,
   duration,
   fit,
   highlight,
   turnRow,
+  type FileDiff,
   type FlowRecord,
   type FlowRef,
   type FlowStep,
@@ -43,6 +44,7 @@ export type View = {
   openOnly: boolean
   showArchived: boolean
   help: boolean
+  file?: string
   note?: { text: string; color: string }
 }
 
@@ -62,6 +64,9 @@ export type Actions = {
   openBrowser: () => void
   toggleHelp: () => void
   unusedKey: (key: string) => void
+  openFile: (path: string) => void
+  fileBy: (delta: number) => void
+  closeDiff: () => void
 }
 
 export type Ctx = {
@@ -80,6 +85,7 @@ export type Ctx = {
   act: Actions
   pageUrl: string
   problem?: string
+  diff?: { path: string; loading: boolean; data?: FileDiff }
 }
 
 export const HERO_KEY = 'hero'
@@ -121,6 +127,8 @@ const HINTS: Record<TabValue, [string, string][]> = {
   ],
   [Tab.LIVE]: [
     ['1-3', 'term_k_tabs'],
+    ['k j', 'mod_k_files'],
+    ['x', 'mod_k_close_diff'],
     ['o', 'term_k_open'],
   ],
   [Tab.QA]: [
@@ -431,6 +439,64 @@ const relative = (c: Ctx, path: string) => {
   return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
 }
 
+const diffSourceLabel = (c: Ctx, data: FileDiff) =>
+  data.source === DiffSource.WORKING
+    ? c.t('mod_diff_working')
+    : data.source === DiffSource.NEW
+      ? c.t('mod_diff_new')
+      : data.source === DiffSource.COMMIT
+        ? c.t('mod_diff_commit', data.commit ?? '')
+        : c.t('mod_diff_none')
+
+const diffCard = (c: Ctx) => {
+  const { Box, Text, Button, Code } = c.ui
+  const d = c.diff
+  if (!d) {
+    return null
+  }
+  const body: RenderChildren[] = []
+  if (d.loading || !d.data) {
+    body.push(
+      <Text key="diff-loading" color={hex(c.p.faint)}>
+        {c.t('mod_diff_loading')}
+      </Text>,
+    )
+  } else {
+    body.push(
+      <Text key="diff-source" color={hex(d.data.source === DiffSource.NONE ? c.p.orange : c.p.muted)}>
+        {diffSourceLabel(c, d.data)}
+      </Text>,
+    )
+    if (d.data.error) {
+      body.push(
+        <Text key="diff-error" color={hex(c.p.faint)}>
+          {d.data.error}
+        </Text>,
+      )
+    }
+    if (d.data.hunks) {
+      body.push(
+        <Box key="diff-code" marginTop={1}>
+          <Code source={d.data.hunks} format="diff" path={d.path} />
+        </Box>,
+      )
+    }
+    if (d.data.cut) {
+      body.push(
+        <Text key="diff-cut" color={hex(c.p.faint)}>
+          {c.t('mod_diff_cut', d.data.cut)}
+        </Text>,
+      )
+    }
+  }
+  body.push(
+    <Box key="diff-keys" marginTop={1}>
+      <Button key="diff-close" plain hotkey="x" label={c.t('mod_k_close_diff')} dimColor onPress={() => c.act.closeDiff()} />
+    </Box>,
+  )
+  return card(c, 'diff', c.t('mod_diff_title', relative(c, d.path)), body, c.p.teal)
+}
+
 const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
   const { Text } = c.ui
   const [mark, color] =
@@ -461,19 +527,26 @@ const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
 }
 
 export const live = (c: Ctx) => {
-  const { Box, Text } = c.ui
+  const { Box, Text, Button } = c.ui
   const tools = c.s?.activity.tools ?? []
   const files = [...(c.s?.activity.files ?? [])].sort((a, b) => b.last - a.last)
   const ok = tools.filter(x => x.state === ToolState.OK).length
   const failed = tools.filter(x => x.state === ToolState.ERR).length
   const running = tools.filter(x => x.state === ToolState.RUN).length
   const now = Date.now() / 1000
-  const fileLines = files.slice(0, MAX_FILES).map((f, i) => (
-    <Text key={`file-${i}`} wrap="truncate-start">
-      {pill(c, `file-mark-${i}`, f.created ? 'A' : 'M', f.created ? c.p.green : c.p.orange)} <Text color={hex(c.p.text)}>{relative(c, f.path)}</Text>
-      <Text color={hex(c.p.faint)}>{f.count > 1 ? ` ×${f.count}` : ''}</Text>
-    </Text>
-  ))
+  const fileLines = files.slice(0, MAX_FILES).map((f, i) => {
+    const on = c.view.file === f.path
+    return (
+      <Box key={`file-row-${i}`} flexDirection="row" columnGap={1} backgroundColor={on ? hex(c.p.selected) : undefined}>
+        <Text color={hex(c.p.yellow)}>{on ? '▶' : ' '}</Text>
+        <Button key={`file-${i}`} plain onPress={() => c.act.openFile(f.path)}>
+          {pill(c, `file-mark-${i}`, f.created ? 'A' : 'M', f.created ? c.p.green : c.p.orange)}
+          <Text color={hex(c.p.text)}>{` ${relative(c, f.path)}`}</Text>
+          <Text color={hex(c.p.faint)}>{f.count > 1 ? ` ×${f.count}` : ''}</Text>
+        </Button>
+      </Box>
+    )
+  })
   if (files.length > MAX_FILES) {
     fileLines.push(
       <Text key="files-more" color={hex(c.p.faint)}>
@@ -485,10 +558,19 @@ export const live = (c: Ctx) => {
     .reverse()
     .slice(0, MAX_TOOLS)
     .map((tool, i) => toolLine(c, tool, i, now))
+  if (files.length) {
+    fileLines.push(
+      <Box key="file-keys" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
+        <Button key="file-prev" plain hotkey="k" label={`↑ ${c.t('mod_prev_file')}`} onPress={() => c.act.fileBy(-1)} />
+        <Button key="file-next" plain hotkey="j" label={`↓ ${c.t('mod_next_file')}`} onPress={() => c.act.fileBy(1)} />
+      </Box>,
+    )
+  }
   const filesCard = card(c, 'files', c.t('term_files', files.length), fileLines.length ? fileLines : [<Text key="files-none" color={hex(c.p.faint)}>{c.t('term_none')}</Text>], files.length ? c.p.purple : undefined)
   const toolsCard = card(c, 'tools', c.t('term_tools', tools.length), toolLines.length ? toolLines : [<Text key="tools-none" color={hex(c.p.faint)}>{c.t('term_not_yet')}</Text>], tools.length ? c.p.blue : undefined)
   const wide = split(c.cols)
   const layout = wide ? twoColumns(c, 'live-cols', [filesCard], [toolsCard], wide.left) : [filesCard, toolsCard]
+  const diff = diffCard(c)
   return (
     <Box flexDirection="column">
       {tiles(c, 'live-tiles', [
@@ -510,6 +592,7 @@ export const live = (c: Ctx) => {
           innerCols(c.cols),
         )}
       </Box>
+      {diff}
       {layout}
     </Box>
   )
@@ -579,23 +662,36 @@ const stepCard = (c: Ctx, s: FlowStep, step: number, total: number) => {
   ]
   if (s.code) {
     body.push(
-      <Box key="code" marginTop={1}>
-        <Code source={s.code} {...(lang ? { language: lang } : {})} />
+      <Box key="code" marginTop={1} flexDirection="column" backgroundColor={hex(c.p.code)} paddingX={1} paddingY={1}>
+        <Code source={s.code} startLine={1} {...(lang ? { language: lang } : {})} />
       </Box>,
     )
   }
   if (hits.length) {
+    const lines = (s.code ?? '').split('\n')
     body.push(
-      <Text key="hits" color={hex(c.p.yellow)}>
-        ▌ {hits.join(', ')}
-      </Text>,
+      <Box key="hits" flexDirection="column" marginTop={1}>
+        <Text color={hex(c.p.yellow)} bold>
+          {c.t('mod_key_lines')}
+        </Text>
+        {hits.map((hit, i) => {
+          const at = lines.findIndex(l => l.includes(hit))
+          return (
+            <Text key={`hit-${i}`} wrap="truncate-end">
+              <Text color={hex(c.p.yellow)}>{'▌ '}</Text>
+              <Text color={hex(c.p.faint)}>{at < 0 ? '  ' : String(at + 1).padStart(2, ' ')}</Text>
+              <Text color={hex(c.p.text)}>{`  ${hit.trim()}`}</Text>
+            </Text>
+          )
+        })}
+      </Box>,
     )
   }
   return card(c, 'step', `${step + 1}. ${s.title ?? ''}`, body, color)
 }
 
 const flowCards = (c: Ctx, rec: FlowRecord) => {
-  const { Box, Text, Markdown } = c.ui
+  const { Box, Text, Button, Markdown } = c.ui
   const flow = rec.flow ?? {}
   const out: RenderChildren[] = []
   const changes = flow.changes ?? []
@@ -606,10 +702,11 @@ const flowCards = (c: Ctx, rec: FlowRecord) => {
         'changes',
         c.t('changes', changes.length),
         changes.map((ch, i) => (
-          <Box key={`chg-${i}`} flexDirection="column" marginTop={i ? 1 : 0}>
-            <Text wrap="truncate-start">
-              {pill(c, `chg-mark-${i}`, 'M', c.p.orange)} <Text color={hex(c.p.text)}>{ch.file ?? ''}</Text>
-            </Text>
+          <Box key={`chg-${i}`} flexDirection="column" marginTop={i ? 1 : 0} backgroundColor={ch.file && c.view.file === ch.file ? hex(c.p.selected) : undefined}>
+            <Button key={`change-${i}`} plain onPress={() => ch.file && c.act.openFile(ch.file)}>
+              {pill(c, `chg-mark-${i}`, 'M', c.p.orange)}
+              <Text color={hex(c.p.text)}>{` ${ch.file ?? ''}`}</Text>
+            </Button>
             <Box paddingLeft={4}>
               <Text color={hex(c.p.muted)}>{ch.what ?? ''}</Text>
             </Box>
@@ -618,6 +715,10 @@ const flowCards = (c: Ctx, rec: FlowRecord) => {
         c.p.orange,
       ),
     )
+    const diff = diffCard(c)
+    if (diff) {
+      out.push(diff)
+    }
   }
   const checks = flow.checks ?? []
   if (checks.length) {
@@ -718,7 +819,6 @@ export const flow = (c: Ctx) => {
   const kinds = [...new Set(steps.map(s => (s.kind && KNOWN_KINDS.has(s.kind) ? s.kind : Kind.LOGIC)))]
   const wide = split(c.cols)
   const width = wide ? Math.max(8, wide.left - CARD_CHROME) : cardCols(c)
-  const changedCells = wide ? 2 : cells(c.t('changed_short')) + 3
   const pipeline = card(c, 'pipeline', c.t('pipeline'), [
         <Box key="legend" flexDirection="row" flexWrap="wrap" columnGap={3} marginBottom={1}>
           {kinds.map(k => (
@@ -744,8 +844,12 @@ export const flow = (c: Ctx) => {
               <Text backgroundColor={tint(c.p, color, on ? 0.6 : 0.22)} color={hex(on ? c.p.text : color)} bold>
                 {` ${i + 1} `}
               </Text>
-              <Button key={`step-${i}`} plain dimColor={!on} label={fit(s.title ?? '', Math.max(6, width - 7 - (s.changed ? changedCells : 0)))} onPress={() => c.act.stepTo(i)} />
-              {s.changed ? (wide ? <Text key={`changed-${i}`} color={hex(c.p.yellow)}>●</Text> : pill(c, `changed-${i}`, c.t('changed_short'), c.p.yellow)) : null}
+              <Text key={`changed-${i}`} color={hex(c.p.yellow)}>
+                {s.changed ? '●' : ' '}
+              </Text>
+              <Box flexGrow={1} flexShrink={1}>
+                <Button key={`step-${i}`} plain dimColor={!on} label={s.title ?? ''} onPress={() => c.act.stepTo(i)} />
+              </Box>
             </Box>
           )
         }),

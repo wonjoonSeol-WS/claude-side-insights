@@ -12,6 +12,9 @@ const EN: Record<string, string> = {
   ask_message: 'Please answer: {0}',
   flow_started: 'Rebuilding the flow',
   mod_band_flow: 'Flow: {0}',
+  mod_diff_working: 'Not committed yet (git diff HEAD)',
+  mod_diff_new: 'New file, not in git yet',
+  mod_diff_commit: 'Already committed, showing {0} (git show)',
   mod_key_unused: '{0} does nothing here. Press h to see the keys.',
   mod_band_hint: '/si to open',
   mod_band_waiting: '{0} waiting, checked ~{1}s after the turn',
@@ -108,6 +111,7 @@ type World = {
   sid?: string
   env?: Record<string, string>
   taken?: string[]
+  git?: (args: string[]) => { exitCode: number; stdout: string }
 }
 
 const reply = (status: number, data: unknown): { value: HttpResponse } => ({
@@ -163,7 +167,8 @@ const setup = (on: On, world: World) => {
   })
   on('process.run', async ($, e) => {
     runs.push([...e.argv])
-    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    const out = e.argv[0] === 'git' && world.git ? world.git([...e.argv]) : { exitCode: 0, stdout: '' }
+    return { value: { ...out, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.toast', async ($, e) => {
     toasts.push(e.text)
@@ -578,3 +583,30 @@ test('the undo key shows only for a question whose status was set by hand', asyn
     await ui.unmount()
   }
 })
+
+const HUNK_TEXT = '@@ -1,2 +1,2 @@\n-old line\n+new line\n same'
+
+const DIFF_CASES = [
+    { name: 'uncommitted', git: (a: string[]) => (a.includes('diff') && a.includes('HEAD') ? { exitCode: 0, stdout: `diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }), label: /git diff HEAD/ },
+    { name: 'new', git: (a: string[]) => (a.includes('ls-files') ? { exitCode: 1, stdout: '' } : a.includes('--no-index') ? { exitCode: 1, stdout: `--- /dev/null\n+++ b/x\n${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }), label: /New file/ },
+    { name: 'committed', git: (a: string[]) => (a.includes('log') ? { exitCode: 0, stdout: `abc1234 Add retries\n\ndiff --git a/x b/x\n${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }), label: /abc1234 Add retries/ },
+]
+
+for (const k of DIFF_CASES) {
+  test(`pressing a changed file shows its diff: ${k.name}`, async ($, on) => {
+    const world: World = { current: STATE, up: true, git: k.git }
+    const { clock } = setup(on, world)
+    await start($, clock)
+    await $.command.run(RUN_SI)
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+    await ui.press({ key: 'tab-live' })
+    await ui.press({ key: 'file-0' })
+    expect(await ui.find({ type: 'Text', text: k.label }), `${k.name}: source label`).toBeDefined()
+    const code = await ui.find({ type: 'Code' })
+    expect(code?.props.format, `${k.name}: drawn as a diff`).toBe('diff')
+    expect(String(code?.props.source).startsWith('@@ '), `${k.name}: only hunks reach the Code`).toBe(true)
+    await ui.press({ key: 'diff-close' })
+    expect(await ui.find({ key: 'diff' }), `${k.name}: closed`).toBeUndefined()
+    await ui.unmount()
+  })
+}

@@ -4,6 +4,7 @@ export type Palette = {
   dark: boolean
   base: Rgb
   card: Rgb
+  code: Rgb
   line: Rgb
   text: Rgb
   muted: Rgb
@@ -27,6 +28,7 @@ export const DARK: Palette = {
   dark: true,
   base: [22, 24, 29],
   card: [28, 31, 38],
+  code: [17, 19, 23],
   line: [58, 63, 75],
   text: [225, 228, 234],
   muted: [150, 156, 168],
@@ -55,6 +57,7 @@ export const LIGHT: Palette = {
   dark: false,
   base: [251, 251, 253],
   card: [244, 245, 248],
+  code: [234, 236, 241],
   line: [213, 216, 223],
   text: [31, 35, 40],
   muted: [91, 98, 112],
