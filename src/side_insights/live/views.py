@@ -23,7 +23,8 @@ CODE_LINES = 12
 MAX_FILES = 30
 TOOLS_IN_FLOW = 12
 CHECK_MARK = {"pass": ("✓", GREEN), "fail": ("✗", RED)}
-WIDE_COLS = 110
+WIDE_COLS = 88
+LEFT_MIN, LEFT_MAX = 30, 42
 GAP = 2
 NAME_MIN, NAME_MAX = 6, 14
 CLOCK_COLS = 9
@@ -113,7 +114,7 @@ def _legend(pane, cols):
 
 
 def _split(cols):
-    left = (cols - GAP) * 2 // 5
+    left = max(LEFT_MIN, min(LEFT_MAX, (cols - GAP) * 2 // 5))
     return left, cols - left - GAP
 
 
