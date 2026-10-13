@@ -28,7 +28,7 @@ import {
   type QaItem,
   type Reply,
 } from './data'
-import { DARK, LIGHT, hex, type Palette } from './theme'
+import { DARK, hex, resolvePalette, type Palette } from './theme'
 import {
   HERO_KEY,
   PAD,
@@ -163,8 +163,8 @@ const animate = (on: boolean) => {
 }
 
 const loadTheme = async (io: Io) => {
-  const theme = await io.theme().catch(() => undefined)
-  mod.palette = (theme ?? '').toLowerCase().includes('light') ? LIGHT : DARK
+  const [claudeTheme, systemDark] = await Promise.all([io.theme().catch(() => undefined), io.systemDark().catch(() => undefined)])
+  mod.palette = resolvePalette(mod.config?.effective?.theme, claudeTheme, systemDark)
 }
 
 const now = async () => (mod.io ? mod.io.now() : 0)
@@ -247,6 +247,13 @@ const loadFlow = async () => {
 
 const loadConfig = async (io: Io, api: Api) => {
   const config = await api.config()
+  if (config.data) {
+    const before = mod.config?.effective?.theme
+    mod.config = config.data
+    if (before !== config.data.effective?.theme) {
+      await loadTheme(io)
+    }
+  }
   const lang = config.data ? langCode(config.data.effective?.lang) : (mod.lang ?? langCode(undefined))
   if (lang === mod.lang && Object.keys(mod.messages).length) {
     return
@@ -402,6 +409,9 @@ const refreshConfig = async () => {
   const reply = await mod.api?.config()
   if (reply?.data) {
     mod.config = reply.data
+    if (mod.io) {
+      await loadTheme(mod.io)
+    }
     redraw()
   }
 }
@@ -530,6 +540,7 @@ const actions = (copyText: Copy): Actions => ({
       }
       mod.config = reply.data
       await loadConfig(io, api)
+      await loadTheme(io)
       await say(t('mod_settings_saved'))
     })
   },
@@ -700,6 +711,13 @@ export const register: Register = on => {
         invalidate: () => $.ui.invalidate('ui.render'),
         blit: (key, columns, rows, cells) => $.ui.blit({ requestId: PANE, key, columns, rows, cells }),
         every: (ms, fn) => $.clock.every(ms, fn),
+        systemDark: async () => {
+          const out = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: 2000 }).catch(() => undefined)
+          if (out?.stdout.trim().toLowerCase() === 'dark') {
+            return true
+          }
+          return out && /does not exist/.test(out.stderr) ? false : undefined
+        },
         theme: async () => {
           const row = (await $.config.list()).find(r => r.key === 'theme')
           return row?.value === undefined ? undefined : String(row.value)

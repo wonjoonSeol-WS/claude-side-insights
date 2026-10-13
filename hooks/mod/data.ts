@@ -9,6 +9,7 @@ export type Io = {
   blit: (key: string, columns: number, rows: number, cells: string) => Promise<unknown>
   every: (ms: number, fn: () => void) => { cancel: () => void }
   theme: () => Promise<string | undefined>
+  systemDark: () => Promise<boolean | undefined>
   now: () => Promise<number>
   root: string
 }
@@ -68,14 +69,15 @@ export type QaItem = {
 }
 export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[] }
 export type Waiting = { ts?: number; text: string; mid_turn?: boolean }
-export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', PANEL_AUTO: 'panel_auto' } as const
+export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', PANEL_AUTO: 'panel_auto', THEME: 'theme' } as const
 export type SettingKey = (typeof Setting)[keyof typeof Setting]
-export type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean }
+export type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean; theme?: string }
 export type ConfigPayload = {
   global?: Settings
   pane?: Partial<Settings>
   effective?: Settings
   models?: string[]
+  themes?: string[]
   langs?: { code: string; label: string }[]
 }
 export const Scope = { GLOBAL: 'global', PANE: 'pane' } as const

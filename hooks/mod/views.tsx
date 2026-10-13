@@ -15,7 +15,6 @@ import {
   counts,
   duration,
   fit,
-  highlight,
   turnRow,
   type ConfigPayload,
   type DiffViewValue,
@@ -30,7 +29,7 @@ import {
   type QaTurn,
   type Tool,
 } from './data'
-import { CAT, HERO_ROWS, hero, hex, meter, mix, tint, type Canvas, type Palette, type Rgb, type Segment } from './theme'
+import { AUTO_THEME, CAT, HERO_ROWS, THEMES, hero, hex, meter, mix, tint, type Canvas, type Palette, type Rgb, type Segment } from './theme'
 
 export type UI = Pick<Elements['mobile'], 'Box' | 'Text' | 'Button' | 'Link' | 'Code' | 'Markdown' | 'Select'>
 export type RasterTag = Elements['terminal']['Raster']
@@ -235,6 +234,40 @@ const twoColumns = (c: Ctx, key: string, left: RenderChildren[], right: RenderCh
 
 const statusLabel = (c: Ctx, status: string | undefined) => (status && statusColor(c.p, status) ? c.t(`st_${status}`) : '-')
 
+const label = (c: Ctx, text: string) => {
+  const { Text } = c.ui
+  return <Text color={hex(c.p.text)}>{text}</Text>
+}
+
+const RICH = /(`[^`\n]+`|\*\*[^*\n]+\*\*|==[^=\n]+==)/
+
+const rich = (c: Ctx, key: string, text: string, color: Rgb = c.p.text) => {
+  const { Box, Text } = c.ui
+  const lines = text.replace(/\r/g, '').split('\n')
+  return (
+    <Box key={key} flexDirection="column">
+      {lines.map((raw, i) => {
+        const line = raw.replace(/^\s*[-*] /, '• ').replace(/^#+\s*/, '')
+        return (
+          <Text key={`${key}-${i}`} color={hex(color)}>
+            {line.split(RICH).map((part, k) =>
+              part.startsWith('`') && part.endsWith('`') && part.length > 1 ? (
+                <Text key={k} color={hex(c.p.purple)}>{part.slice(1, -1)}</Text>
+              ) : part.startsWith('**') && part.endsWith('**') && part.length > 3 ? (
+                <Text key={k} color={hex(c.p.text)} bold>{part.slice(2, -2)}</Text>
+              ) : part.startsWith('==') && part.endsWith('==') && part.length > 3 ? (
+                <Text key={k} color={hex(c.p.yellow)} bold>{part.slice(2, -2)}</Text>
+              ) : (
+                part
+              ),
+            )}
+          </Text>
+        )
+      })}
+    </Box>
+  )
+}
+
 const pill = (c: Ctx, key: string, text: string, color: Rgb, strong = false) => {
   const { Text } = c.ui
   return (
@@ -333,7 +366,8 @@ export const header = (c: Ctx) => {
         </Text>
       </Box>
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-        <Button key="open" plain hotkey="o" label={c.t('full')} dimColor onPress={() => c.act.openBrowser()} />
+        <Button key="open" plain hotkey="o" dimColor onPress={() => c.act.openBrowser()}>
+{label(c, c.t('full'))}</Button>
         {c.pageUrl && LINK_SURFACES.has(c.surface) ? <Link href={c.pageUrl} label={c.t('full_title')} /> : null}
       </Box>
       {c.problem ? (
@@ -354,7 +388,8 @@ export const keyCatcher = (c: Ctx) => {
   return (
     <Box key="key-catcher" display="none">
       {ALL_KEYS.map(key => (
-        <Button key={`unused-${key}`} plain hotkey={key} label={key} onPress={() => c.act.unusedKey(key)} />
+        <Button key={`unused-${key}`} plain hotkey={key} onPress={() => c.act.unusedKey(key)}>
+{label(c, key)}</Button>
       ))}
     </Box>
   )
@@ -379,8 +414,10 @@ export const footer = (c: Ctx) => {
           <Text color={hex(c.p.muted)}>{` ${c.t(label)}`}</Text>
         </Text>
       ))}
-      <Button key="help" plain hotkey="h" label={c.t(c.view.help ? 'mod_help_close' : 'term_k_help')} onPress={() => c.act.toggleHelp()} />
-      <Button key="settings" plain hotkey="g" label={c.view.settings ? c.t('mod_settings_close') : c.t('settings')} onPress={() => c.act.toggleSettings()} />
+      <Button key="help" plain hotkey="h" onPress={() => c.act.toggleHelp()}>
+{label(c, c.t(c.view.help ? 'mod_help_close' : 'term_k_help'))}</Button>
+      <Button key="settings" plain hotkey="g" onPress={() => c.act.toggleSettings()}>
+{label(c, c.view.settings ? c.t('mod_settings_close') : c.t('settings'))}</Button>
     </Box>
   )
 }
@@ -457,6 +494,11 @@ export const settings = (c: Ctx) => {
           row(Setting.FLOW_AUTO, c.t('s_flow_auto'), toggle(Setting.FLOW_AUTO)),
           row(Setting.QA_AUTO, c.t('s_qa_auto'), toggle(Setting.QA_AUTO)),
           row(Setting.PANEL_AUTO, c.t('s_panel_auto'), toggle(Setting.PANEL_AUTO)),
+          row(
+            Setting.THEME,
+            c.t('s_theme'),
+            <Select key="set-theme" options={(cfg.themes?.length ? cfg.themes : [AUTO_THEME, ...Object.keys(THEMES)]).map(th => ({ value: th, label: c.t(`theme_${th}`) }))} value={values.theme ?? AUTO_THEME} onSelect={v => c.act.saveSetting(Setting.THEME, v)} />,
+          ),
           <Box key="settings-note" marginTop={1}>
             <Text color={hex(c.p.muted)}>{c.t('mod_settings_note')}</Text>
           </Box>,
@@ -597,10 +639,14 @@ const diffCard = (c: Ctx) => {
   const shown = d.data?.source === DiffSource.FILE ? DiffView.FILE : d.data?.source === DiffSource.COMMIT ? DiffView.COMMIT : d.data?.source === DiffSource.NONE ? d.view : DiffView.WORKING
   body.push(
     <Box key="diff-keys" marginTop={1} flexDirection="row" flexWrap="wrap" columnGap={2}>
-      <Button key="diff-view-working" plain hotkey="d" label={c.t('mod_view_working')} dimColor={shown !== DiffView.WORKING} onPress={() => c.act.diffView(DiffView.WORKING)} />
-      <Button key="diff-view-commit" plain hotkey="s" label={c.t('mod_view_commit')} dimColor={shown !== DiffView.COMMIT} onPress={() => c.act.diffView(DiffView.COMMIT)} />
-      <Button key="diff-view-file" plain hotkey="f" label={c.t('mod_view_file')} dimColor={shown !== DiffView.FILE} onPress={() => c.act.diffView(DiffView.FILE)} />
-      <Button key="diff-close" plain hotkey="x" label={c.t('mod_k_close_diff')} dimColor onPress={() => c.act.closeDiff()} />
+      <Button key="diff-view-working" plain hotkey="d" dimColor={shown !== DiffView.WORKING} onPress={() => c.act.diffView(DiffView.WORKING)}>
+{label(c, c.t('mod_view_working'))}</Button>
+      <Button key="diff-view-commit" plain hotkey="s" dimColor={shown !== DiffView.COMMIT} onPress={() => c.act.diffView(DiffView.COMMIT)}>
+{label(c, c.t('mod_view_commit'))}</Button>
+      <Button key="diff-view-file" plain hotkey="f" dimColor={shown !== DiffView.FILE} onPress={() => c.act.diffView(DiffView.FILE)}>
+{label(c, c.t('mod_view_file'))}</Button>
+      <Button key="diff-close" plain hotkey="x" dimColor onPress={() => c.act.closeDiff()}>
+{label(c, c.t('mod_k_close_diff'))}</Button>
     </Box>,
   )
   return card(c, 'diff', c.t('mod_diff_title', relative(c, d.path)), body, c.p.teal)
@@ -678,8 +724,10 @@ export const live = (c: Ctx) => {
   if (files.length) {
     fileLines.push(
       <Box key="file-keys" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
-        <Button key="file-prev" plain hotkey="k" label={`↑ ${c.t('mod_prev_file')}`} onPress={() => c.act.fileBy(-1)} />
-        <Button key="file-next" plain hotkey="j" label={`↓ ${c.t('mod_next_file')}`} onPress={() => c.act.fileBy(1)} />
+        <Button key="file-prev" plain hotkey="k" onPress={() => c.act.fileBy(-1)}>
+{label(c, `↑ ${c.t('mod_prev_file')}`)}</Button>
+        <Button key="file-next" plain hotkey="j" onPress={() => c.act.fileBy(1)}>
+{label(c, `↓ ${c.t('mod_next_file')}`)}</Button>
       </Box>,
     )
   }
@@ -819,7 +867,7 @@ const stepChangeList = (c: Ctx, own: Change[]) => {
 }
 
 const stepCard = (c: Ctx, s: FlowStep, step: number, total: number, changes: Change[] = []) => {
-  const { Box, Text, Code, Markdown } = c.ui
+  const { Box, Text, Code } = c.ui
   const color = kindColor(c.p, s.kind)
   const lang = language(s.location)
   const hits = (s.highlight ?? []).filter(Boolean)
@@ -834,7 +882,7 @@ const stepCard = (c: Ctx, s: FlowStep, step: number, total: number, changes: Cha
       {s.location ?? ''}
     </Text>,
     <Box key="explain" marginTop={1}>
-      <Markdown text={highlight(s.explanation ?? '')} />
+      {rich(c, 'explain-text', s.explanation ?? '')}
     </Box>,
   ]
   if (s.code) {
@@ -872,7 +920,7 @@ const stepCard = (c: Ctx, s: FlowStep, step: number, total: number, changes: Cha
 }
 
 const flowCards = (c: Ctx, rec: FlowRecord) => {
-  const { Box, Text, Button, Markdown } = c.ui
+  const { Box, Text, Button } = c.ui
   const flow = rec.flow ?? {}
   const out: RenderChildren[] = []
   const changes = flow.changes ?? []
@@ -920,7 +968,7 @@ const flowCards = (c: Ctx, rec: FlowRecord) => {
   }
   if (rec.prompt) {
     const meta = [rec.model, rec.cost ? `$${rec.cost.toFixed(3)}` : ''].filter(Boolean).join(' / ')
-    out.push(card(c, 'request', c.t('request'), [<Markdown key="prompt" dimColor text={rec.prompt} />, ...(meta ? [<Text key="meta" color={hex(c.p.faint)}>{meta}</Text>] : [])]))
+    out.push(card(c, 'request', c.t('request'), [rich(c, 'prompt', rec.prompt, c.p.muted), ...(meta ? [<Text key="meta" color={hex(c.p.faint)}>{meta}</Text>] : [])]))
   }
   const now = Date.now() / 1000
   const tools = (c.s?.activity.tools ?? []).filter(x => !rec.ts || (x.start ?? 0) <= rec.ts).slice(-TOOLS_IN_FLOW)
@@ -970,8 +1018,10 @@ const flowList = (c: Ctx, flows: FlowRef[], index: number) => {
         <Text color={hex(c.p.text)} bold>
           {c.t('mod_flows', flows.length)}
         </Text>
-        <Button key="flow-prev" plain hotkey="p" label={`‹ ${c.t('mod_prev_flow')}`} dimColor={index === 0} onPress={() => c.act.flowBy(-1)} />
-        <Button key="flow-next" plain hotkey="n" label={`${c.t('mod_next_flow')} ›`} dimColor={index === flows.length - 1} onPress={() => c.act.flowBy(1)} />
+        <Button key="flow-prev" plain hotkey="p" dimColor={index === 0} onPress={() => c.act.flowBy(-1)}>
+{label(c, `‹ ${c.t('mod_prev_flow')}`)}</Button>
+        <Button key="flow-next" plain hotkey="n" dimColor={index === flows.length - 1} onPress={() => c.act.flowBy(1)}>
+{label(c, `${c.t('mod_next_flow')} ›`)}</Button>
       </Box>
       {first > 0 ? <Text key="flow-list-before" color={hex(c.p.faint)}>{`   ${c.t('mod_flows_newer', first)}`}</Text> : null}
       {flows.slice(first, last + 1).map((f, i) => {
@@ -996,7 +1046,7 @@ const flowList = (c: Ctx, flows: FlowRef[], index: number) => {
 }
 
 export const flow = (c: Ctx) => {
-  const { Box, Text, Button, Markdown } = c.ui
+  const { Box, Text, Button } = c.ui
   const flows = c.s?.flows ?? []
   const top: RenderChildren[] = []
   if (c.s?.pending) {
@@ -1062,15 +1112,19 @@ export const flow = (c: Ctx) => {
                 {s.changed ? '●' : ' '}
               </Text>
               <Box flexGrow={1} flexShrink={1}>
-                <Button key={`step-${i}`} plain dimColor={!on} label={s.title ?? ''} onPress={() => c.act.stepTo(i)} />
+                <Button key={`step-${i}`} plain dimColor={!on} onPress={() => c.act.stepTo(i)}>
+{label(c, s.title ?? '')}</Button>
               </Box>
             </Box>
           )
         }),
         <Box key="step-keys" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
-          <Button key="step-prev" plain hotkey="k" label={`↑ ${c.t('prev_step')}`} dimColor={step === 0} onPress={() => c.act.stepTo(step - 1)} />
-          <Button key="step-next" plain hotkey="j" label={`↓ ${c.t('next_step')}`} dimColor={step >= steps.length - 1} onPress={() => c.act.stepTo(step + 1)} />
-          <Button key="rebuild" plain hotkey="r" label={c.t('regen')} dimColor onPress={() => c.act.rebuild()} />
+          <Button key="step-prev" plain hotkey="k" dimColor={step === 0} onPress={() => c.act.stepTo(step - 1)}>
+{label(c, `↑ ${c.t('prev_step')}`)}</Button>
+          <Button key="step-next" plain hotkey="j" dimColor={step >= steps.length - 1} onPress={() => c.act.stepTo(step + 1)}>
+{label(c, `↓ ${c.t('next_step')}`)}</Button>
+          <Button key="rebuild" plain hotkey="r" dimColor onPress={() => c.act.rebuild()}>
+{label(c, c.t('regen'))}</Button>
         </Box>,
       ])
   const detail = [...(steps[step] ? [stepCard(c, steps[step], step, steps.length, f.changes ?? [])] : []), ...(steps.length > 0 ? [stateCard(c, steps, step)] : [])]
@@ -1091,7 +1145,7 @@ export const flow = (c: Ctx) => {
         ) : null}
         {f.summary ? (
           <Box marginTop={1}>
-            <Markdown text={highlight(f.summary)} />
+            {rich(c, 'summary', f.summary)}
           </Box>
         ) : null}
       </Box>
@@ -1143,7 +1197,7 @@ const itemNote = (c: Ctx, item: QaItem) => {
 }
 
 const itemView = (c: Ctx, item: QaItem, n: number) => {
-  const { Box, Text, Button, Markdown } = c.ui
+  const { Box, Text, Button } = c.ui
   const color = statusColor(c.p, item.status) ?? c.p.faint
   const on = c.selected === item.id
   const tags = [
@@ -1162,12 +1216,13 @@ const itemView = (c: Ctx, item: QaItem, n: number) => {
         {tags.length ? <Text color={hex(c.p.faint)}>{tags.join('  ')}</Text> : null}
       </Box>
       <Box flexDirection="row" paddingLeft={2}>
-        <Button key={`item-${n}-${item.id}`} plain dimColor={!!item.archived} label={item.question ?? ''} onPress={() => c.act.select(item.id)} />
+        <Button key={`item-${n}-${item.id}`} plain dimColor={!!item.archived} onPress={() => c.act.select(item.id)}>
+{label(c, item.question ?? '')}</Button>
       </Box>
       {item.answer ? (
         <Box flexDirection="row" paddingLeft={2} columnGap={1} marginTop={1}>
           <Text color={hex(mix(c.p.base, color, 0.6))}>│</Text>
-          <Markdown dimColor text={highlight(item.answer)} />
+          {rich(c, `answer-${n}`, item.answer, c.p.muted)}
         </Box>
       ) : null}
       {note ? <Text color={hex(c.p.green)}>{`    ↺ ${note}`}</Text> : null}
@@ -1206,11 +1261,16 @@ export const qa = (c: Ctx) => {
       <Text color={hex(n.total && n.answered === n.total ? c.p.green : c.p.text)} bold>{`${percent}%`}</Text>
     </Box>,
     <Box key="qa-keys" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
-      <Button key="archive" plain hotkey="a" label={c.t('term_k_archive')} onPress={() => c.act.archive()} />
-      {canCopy(selectedItem) ? <Button key="copy" plain hotkey="c" label={c.t('term_k_copy')} onPress={press => c.act.copy(press)} /> : null}
-      <Button key="recheck" plain hotkey="r" label={c.t('term_k_recheck')} onPress={() => c.act.recheck()} />
-      <Button key="open-only" plain hotkey="f" label={`${c.view.openOnly ? '◉' : '○'} ${c.t('qa_open_only')}`} dimColor={!c.view.openOnly} onPress={() => c.act.toggleOpenOnly()} />
-      <Button key="archived" plain hotkey="v" label={`${c.view.showArchived ? '◉' : '○'} ${c.t('qa_archived')}`} dimColor={!c.view.showArchived} onPress={() => c.act.toggleArchived()} />
+      <Button key="archive" plain hotkey="a" onPress={() => c.act.archive()}>
+{label(c, c.t('term_k_archive'))}</Button>
+      {canCopy(selectedItem) ? <Button key="copy" plain hotkey="c" onPress={press => c.act.copy(press)}>
+{label(c, c.t('term_k_copy'))}</Button> : null}
+      <Button key="recheck" plain hotkey="r" onPress={() => c.act.recheck()}>
+{label(c, c.t('term_k_recheck'))}</Button>
+      <Button key="open-only" plain hotkey="f" dimColor={!c.view.openOnly} onPress={() => c.act.toggleOpenOnly()}>
+{label(c, `${c.view.openOnly ? '◉' : '○'} ${c.t('qa_open_only')}`)}</Button>
+      <Button key="archived" plain hotkey="v" dimColor={!c.view.showArchived} onPress={() => c.act.toggleArchived()}>
+{label(c, `${c.view.showArchived ? '◉' : '○'} ${c.t('qa_archived')}`)}</Button>
     </Box>,
   ]
   if (q?.pending) {
@@ -1262,7 +1322,8 @@ export const qa = (c: Ctx) => {
         <Box key={`fail-row-${ti}`} flexDirection="row" columnGap={1} backgroundColor={c.selected === rowId ? hex(c.p.selected) : undefined}>
           <Text color={hex(c.p.yellow)}>{c.selected === rowId ? '▶' : ' '}</Text>
           {pill(c, `fail-chip-${ti}`, c.t('qa_fail'), c.p.red)}
-          <Button key={`fail-${ti}-${turn.turn_id}`} plain dimColor label={c.t('recheck_title')} onPress={() => c.act.select(rowId)} />
+          <Button key={`fail-${ti}-${turn.turn_id}`} plain dimColor onPress={() => c.act.select(rowId)}>
+{label(c, c.t('recheck_title'))}</Button>
         </Box>,
       )
     }

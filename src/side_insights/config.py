@@ -13,6 +13,7 @@ from side_insights.language import DEFAULT as DEFAULT_LANGUAGE, Language, system
 
 PATH = os.path.join(DATA, "config.json")
 MODELS = ("opus", "sonnet", "haiku")
+THEMES = ("auto", "dark", "light")
 _MODEL_RE = re.compile(r"^(%s|claude-[a-z0-9.-]+)$" % "|".join(MODELS))
 _SAVE_LOCK = threading.Lock()
 
@@ -23,6 +24,7 @@ class Setting(Enum):
     FLOW_AUTO = ("flow_auto", True)
     QA_AUTO = ("qa_auto", True)
     PANEL_AUTO = ("panel_auto", False)
+    THEME = ("theme", "auto")
 
     def __init__(self, key, default):
         self.key = key
@@ -33,6 +35,8 @@ class Setting(Enum):
             return isinstance(value, str) and bool(_MODEL_RE.match(value))
         if self is Setting.LANG:
             return Language.from_code(value) is not None
+        if self is Setting.THEME:
+            return value in THEMES
         return isinstance(value, bool)
 
 
@@ -90,7 +94,7 @@ def save(update, pane=None):
 
 
 def payload(pane=None):
-    return {"global": load(), "pane": overrides(pane), "effective": load(pane), "models": list(MODELS),
+    return {"global": load(), "pane": overrides(pane), "effective": load(pane), "models": list(MODELS), "themes": list(THEMES),
             "langs": [{"code": lang.code, "label": lang.label} for lang in Language]}
 
 

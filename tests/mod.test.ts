@@ -3,6 +3,7 @@ import type { HttpResponse, On } from 'claude-code'
 
 import { cells, connect } from '../hooks/mod/data'
 import { changeFiles } from '../hooks/mod/views'
+import { DARK, LIGHT, resolvePalette } from '../hooks/mod/theme'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const KEY = 'demo'
@@ -311,7 +312,9 @@ test('pane draws the three tabs and its keys act on the server', async ($, on) =
     expect(await ui.find({ key: 'tab-flow' }), "{ key: 'tab-flow' }").toBeDefined()
     await ui.press({ key: 'item-1-i2' })
     expect((await ui.find({ key: 'row-1-i2' }))?.text).toContain('▶')
-    expect(await ui.find({ type: 'Markdown', text: /\*\*Answer\*\*/ }), "{ type: 'Markdown', text: /\\*\\*Answer\\*\\*/ }").toBeDefined()
+    const answer = await ui.find({ type: 'Text', text: /^Answer to Does it retry\?$/ })
+    const marked = (answer?.children ?? []).find(child => typeof child === 'object' && child.children?.[0] === 'Answer')
+    expect(typeof marked === 'object' && marked.props.bold, 'the ==highlight== in an answer is drawn bold').toBe(true)
     expect((await ui.find({ type: 'Link' }))?.props.href).toBe(surface === 'desktop' ? 'http://localhost:47821/p/demo?t=tok&full=1' : undefined)
 
     expect(await ui.find({ key: 'status' }), 'no manual status key').toBeUndefined()
@@ -756,4 +759,28 @@ test('the diff card switches between the uncommitted diff, the last commit and t
   expect(code?.props.startLine).toBe(1)
   expect(runs.some(r => r.includes('log')), 'git log ran for the commit view').toBe(true)
   await ui.unmount()
+})
+
+test('the theme setting is offered even when the server does not list themes, and saving it posts the choice', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'settings' })
+  expect((await ui.find({ key: 'set-theme' }))?.props.options.map((o: { value: string }) => o.value)).toEqual(['auto', 'dark', 'light'])
+  calls.length = 0
+  await ui.select({ key: 'set-theme', value: 'light' })
+  expect(JSON.parse(calls.find(c => c.method === 'POST' && c.url.includes('/api/config'))?.body ?? '{}')).toEqual({ theme: 'light' })
+  await ui.unmount()
+})
+
+test('the palette follows the setting first, then Claude Code\'s theme, then the system appearance, else dark', () => {
+  expect(resolvePalette('light', 'dark', true).base, 'an explicit setting wins over both').toEqual(LIGHT.base)
+  expect(resolvePalette('dark', 'light', false).base).toEqual(DARK.base)
+  expect(resolvePalette('auto', 'light-daltonized', true).base, 'auto follows Claude Code over the system').toEqual(LIGHT.base)
+  expect(resolvePalette('auto', 'dark-ansi', false).base).toEqual(DARK.base)
+  expect(resolvePalette('auto', 'auto', false).base, 'a theme name with no light or dark falls to the system').toEqual(LIGHT.base)
+  expect(resolvePalette(undefined, undefined, undefined).base, 'nothing known').toEqual(DARK.base)
+  expect(resolvePalette('light', 'dark', true).code, 'code keeps the background its syntax colors were made for').toEqual(DARK.code)
+  expect(resolvePalette('dark', 'light', false).code).toEqual(LIGHT.code)
 })

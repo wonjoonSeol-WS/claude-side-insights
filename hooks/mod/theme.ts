@@ -82,6 +82,22 @@ export const LIGHT: Palette = {
   cat: [255, 214, 130],
 }
 
+export const THEMES = { dark: DARK, light: LIGHT } as const satisfies Record<string, Palette>
+export type ThemeName = keyof typeof THEMES
+export const AUTO_THEME = 'auto'
+
+const themeOf = (name: string | undefined): ThemeName | undefined =>
+  Object.keys(THEMES).find(t => (name ?? '').toLowerCase().includes(t)) as ThemeName | undefined
+
+const systemTheme = (systemDark: boolean | undefined): ThemeName | undefined => (systemDark === undefined ? undefined : systemDark ? 'dark' : 'light')
+
+export const resolvePalette = (setting: string | undefined, claudeTheme: string | undefined, systemDark: boolean | undefined): Palette => {
+  const chosen = setting && setting !== AUTO_THEME ? themeOf(setting) : undefined
+  const claude = themeOf(claudeTheme) ?? systemTheme(systemDark) ?? 'dark'
+  const palette = THEMES[chosen ?? claude]
+  return { ...palette, code: THEMES[claude].code }
+}
+
 export const hex = ([r, g, b]: Rgb): string => `#${[r, g, b].map(v => Math.round(v).toString(16).padStart(2, '0')).join('')}`
 
 export const mix = (a: Rgb, b: Rgb, amount: number): Rgb => [
