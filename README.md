@@ -18,7 +18,9 @@ Then open the panel inside Claude Code:
 /si
 ```
 
-For the full panel in a browser, run `/si-browser`. It opens as a browser split in cmux and in your default browser elsewhere. Run it again to hide it.
+Close the pane with `ctrl+x x`.
+
+For the full panel in a browser, run `/si-browser`. In cmux it opens a browser split, and running it again hides it. Elsewhere it opens your default browser.
 
 Update:
 
@@ -45,8 +47,8 @@ A panel next to each [Claude Code](https://claude.com/claude-code) pane. Live up
 
 | Tab | What you see |
 |---|---|
-| **Q&A** | Every question you asked, even mid-turn: ✓ answered, ◐ partial, ✗ unanswered. The missing part is highlighted. **⧉ Copy question** asks it again. |
-| **Flow** | After a turn that edited files: the changed feature step by step, with real code and the changed lines highlighted. |
+| **Q&A** | Every question you asked, even mid-turn: ✓ answered, ◐ partial, ✗ unanswered. The missing part is highlighted. **⧉ Copy question** copies a message that asks the question again, ready to paste. |
+| **Flow** | After a turn that changed files (edits, or shell commands that write files): the changed feature step by step, with real code and the changed lines highlighted. |
 | **Live** | Every tool call as it runs, and the files Claude edited with Edit or Write (changes made by shell commands are not listed). |
 
 > [!WARNING]
@@ -58,7 +60,7 @@ Available in English, 한국어 and 日本語.
 
 *Sample data from a made-up project.*
 
-**Browser panel**, opened with `/si-browser`: a browser split in cmux, your own browser anywhere else (`! claude-flow` does the same from the shell):
+**Browser panel**, opened with `/si-browser`: a browser split in cmux, your own browser anywhere else (`! claude-flow` always opens it in your default browser):
 
 | Q&A | Flow |
 |---|---|
@@ -80,7 +82,7 @@ The Flow tab follows one example through every step. Its values are inferred fro
 | Orca | Terminal panel in a split | yes |
 | Ghostty 1.3+ | Terminal panel in a split | yes |
 | iTerm2 | Terminal panel in a split | yes |
-| Anything else | Nothing. Use `/si` or the commands below | yes |
+| Anything else | `! claude-panel` opens the full panel in your browser (it cannot hide it). `/si` works everywhere | yes |
 
 - The terminal panel has the same three tabs (Flow, Live, Q&A). `! claude-flow` opens the browser version.
 - Ghostty and iTerm2 are driven by AppleScript. macOS asks once for permission.
@@ -88,27 +90,28 @@ The Flow tab follows one example through every step. Its values are inferred fro
 
 ## The /si pane
 
-Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, so it looks the same in every terminal. Before using the keys, give the pane focus with `ctrl+x tab` or a click. Keys the pane does not use show a hint and are not sent to the prompt. With a non-Latin keyboard input source (for example 한글), switch to English first: hotkeys only accept Latin letters and digits.
+Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, so it looks the same in every terminal. Before using the keys, give the pane focus with `ctrl+x tab` or a click. A letter or digit the pane does not use shows a hint and is not sent to the prompt. With a non-Latin keyboard input source (for example 한글), switch to English first: hotkeys only accept Latin letters and digits. On Q&A, select a question by clicking it (or Tab to it and press Enter). The first open question is selected by default.
 
 | Key | What it does |
 |---|---|
 | `/si` (or `/side-insights`) | Open the pane. Works while Claude is still running a turn |
 | `/si-browser` | Show or hide the browser panel: a split in cmux, your browser elsewhere |
 | `1` `2` `3` | Flow, Live, Q&A |
-| `p` `n` | Flow: previous / next flow (or click a flow title) |
+| `p` `n` | Flow: newer / older flow (or click a flow title) |
 | `k` `j` | Flow: previous / next step. Live: previous / next changed file, with its diff |
 | `x` | Close the diff (`git diff`, the new file, or the last commit that touched it) |
-| `r` | Flow: rebuild the flow. Q&A: re-check the selected question |
-| `a` `c` | Q&A: archive the selected question, copy an open one |
+| `r` | Flow: rebuild the flow. Q&A: re-check the selected question (or a failed turn). Press it twice. It uses one Claude call |
+| `a` `c` | Q&A: archive or restore the selected question. Copy it while it is still open |
 | `f` `v` | Q&A: show open questions only, show archived ones |
 | `o` | The full page in your browser |
-| `g` | Settings: language, model, automatic runs |
+| `g` | Settings: apply to all panels or this one, language, model, automatic runs, open on session start |
 | `h` | Every key, including Claude Code's own pane keys |
 | `ctrl+x ←` `ctrl+x →` | Wider / narrower (`↑` `↓` above the prompt). Dragging the divider works too |
 
 Also:
 
 - In Live and Q&A, press a count tile to show only those tool calls or questions. Press it again to clear.
+- Diffs also open when you click a changed file in a Flow step or in the Changes card.
 - From 78 columns wide, Flow and Live show two columns.
 - A line above the prompt shows Q&A counts, waiting questions and the latest flow.
 - The spinner shows how many of your questions are waiting.
@@ -118,34 +121,34 @@ Also:
 ## Requirements
 
 - macOS (the plugin uses `osascript`, `open` and the system Python)
-- Claude Code 2.1.275 or later
+- Claude Code 2.1.275 or later (2.1.287 or later for `/si` and `/si-browser`)
 - `jq`, `curl`
 - `/usr/bin/python3` 3.9+ (`xcode-select --install`)
 
 ## Commands
 
-Run inside Claude Code with a leading `!`, for example `! claude-panel`.
+Run inside Claude Code with a leading `!` (except `claude-activity`), for example `! claude-panel`.
 
 | Command | What it does |
 |---|---|
-| `claude-panel` | Show or hide this pane's panel |
+| `claude-panel` | Show or hide this pane's panel (in terminals without a split, it opens the browser page) |
 | `claude-flow` | Open the full panel in your browser (`all` lists every pane) |
 | `claude-qa list [--open]` | List this session's questions |
 | `claude-qa set <id> answered\|partial\|unanswered\|auto` | Set a status yourself |
 | `claude-qa archive <id>` / `restore <id>` | Hide an item, or bring it back |
-| `claude-activity` | Live activity as a terminal UI |
+| `claude-activity` | Live activity as a terminal UI. Run it in a separate terminal pane, not after `!` |
 
 Keys in the browser panel:
 
 - `1` `2` `3`: Flow, Live, Q&A
 - `←` `→`: flow steps
-- `?`: help, `Esc`: close
+- `?`: help, `Esc`: close the dialog
 
-In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a question, then `s` changes its status, `a` archives it, `c` copies it and `r` re-checks it. On Flow, `[` `]` switch flows and `p` plays the steps.
+In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a question, then `s` changes its status, `a` archives it, `c` copies the selected question and `r` re-checks it (press twice). `R` re-checks every open question (also press twice). On Flow, `[` `]` switch flows and `p` plays the steps.
 
 ## Settings
 
-- Open with **⚙** at the top right. Changes apply from the next analysis, no restart.
+- Open with **⚙ Settings** in the browser panel or `g` in /si. Changes apply from the next analysis, no restart. Changing the language reloads the page.
 - **Apply to**: **All panels**, or **This panel only** (for example Japanese in one pane, Korean in another).
 - Saved to `~/.claude/side-insights/config.json`.
 
@@ -167,7 +170,7 @@ Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`) and `SIDE_INSIGHTS
 |---|---|---|
 | Live view, status changes, archiving | 0 | free |
 | Q&A check, every turn | 1 | $0.04 to $0.11 on Opus |
-| Flow, only after turns that edited files | 1 | $0.16 to $0.17 on Sonnet |
+| Flow, only after turns that changed files | 1 | $0.16 to $0.17, measured on Sonnet. The default, Opus, costs more |
 | Each ↻ button | 1 | same as above |
 
 On a subscription this probably counts toward your usage limit (not confirmed). To spend less, pick `sonnet` or `haiku`, or turn off automatic runs in ⚙ Settings.
@@ -178,8 +181,8 @@ On a subscription this probably counts toward your usage limit (not confirmed). 
 |---|---|
 | Does it slow my session or use its context? | No. It runs in a separate process after the turn. |
 | Can the ↻ runs change my files? | No. They use read-only tools. |
-| Why no flow for this turn? | Flows run only after turns that edited files. Press **↻ Rebuild flow**. |
-| Answered later, but still open? | The next check usually fixes it. Otherwise press **↻ Re-check open**, **↻ Re-check this question**, or click the status. A failed check shows **↻ Re-check this turn**. |
+| Why no flow for this turn? | Flows run only after turns that changed files: edits, or shell commands that write files. Press **↻ Rebuild flow**. |
+| Answered later, but still open? | The next check usually fixes it. Otherwise press **↻ Re-check open** or **↻ Re-check this question** (`r` in /si), or click the status in the browser panel. A failed check shows **↻ Re-check this turn**. |
 | How do I hide the panel? | `! claude-panel` hides and shows it. It opens by itself only if "Open the panel when a session starts" is on. |
 
 **Where data lives**: `~/.claude/side-insights/`
@@ -192,8 +195,8 @@ On a subscription this probably counts toward your usage limit (not confirmed). 
 | `turns/` | transcript and folder of each pane's last finished turn |
 | `flows/` | flows |
 | `qa/<pane>/<session>/` | Q&A, per session |
-| `qa/<pane>/overrides.json` | statuses you set |
-| `terminals/` | handles of open terminal panels |
+| `qa/<pane>/overrides.json` | statuses you set and archived questions |
+| `terminals/` | handles of open Orca panels |
 | `server.log`, `analysis.log` | output of the local server and of the flow and Q&A runs |
 
 ## How it works
@@ -208,14 +211,14 @@ flowchart LR
 
 - Live view: hooks append a line per event. Free.
 - Flow and Q&A: a separate `claude -p` after the turn. Read-only tools, no MCP, no hooks. Your session's context is untouched.
-- Flow runs only after turns that edited files. Q&A reads the conversation and the tool list, not files.
+- Flow runs only after turns that changed files: edits, or shell commands that write files. Q&A reads the conversation and the tool list, not files.
 - Panels are keyed by the terminal's pane id, else the session id.
 
 ## Data and privacy
 
 - Everything stays in `~/.claude/side-insights/`, readable only by you.
 - The server listens on 127.0.0.1 and only accepts `127.0.0.1` or `localhost` as host (no DNS rebinding).
-- A secret token guards every page and API call. It is created and added to every link for you (`claude-panel`, `claude-flow`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs. The link `claude-panel` prints contains the token and is saved in your session transcript. Treat it like a password.
+- A secret token guards every page and API call except `/health`. It is created and added to every link for you (`claude-panel`, `claude-flow`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs. The links `claude-panel` and `/si-browser` print contain the token and end up in your session transcript. Treat them like a password.
 
 ## Uninstall
 
