@@ -23,8 +23,8 @@ CODE_LINES = 12
 MAX_FILES = 30
 TOOLS_IN_FLOW = 12
 CHECK_MARK = {"pass": ("✓", GREEN), "fail": ("✗", RED)}
-WIDE_COLS = 88
-LEFT_MIN, LEFT_MAX = 30, 42
+WIDE_COLS = 78
+LEFT_MIN, LEFT_MAX = 28, 42
 GAP = 2
 NAME_MIN, NAME_MAX = 6, 14
 CLOCK_COLS = 9
@@ -81,7 +81,7 @@ def header(tab_keys, current, st, tick, cols):
 
 
 def footer(pane, cols):
-    keys = [("1 2 3", "term_k_tabs"), ("←→", "term_k_steps"), ("↑↓", "term_k_scroll"), ("o", "term_k_open"), ("q", "term_k_quit")]
+    keys = [("1 2 3", "term_k_tabs"), ("[ ]", "term_k_flows"), ("←→", "term_k_steps"), ("↑↓", "term_k_scroll"), ("o", "term_k_open"), ("q", "term_k_quit")]
     labelled = " ".join(f"{key_cap(k)} {paint(t(label, pane=pane), MUTED)}" for k, label in keys)
     for line in (paint(t("term_click", pane=pane), FAINT) + " " + labelled, labelled, " ".join(key_cap(k) for k, _ in keys)):
         if visible_width(line) <= cols:
@@ -286,20 +286,42 @@ def _flow_cards(st, rec, flow, tick, cols):
     return cards
 
 
-def flow_lines(st, step, tick, cols):
+def _flow_tabs(records, index, cols):
+    """One pill per flow, newest first; the selected one stays in view when they do not all fit."""
+    pills = [paint(f" {fit(rec.get('flow', {}).get('title') or rec.get('prompt') or '-', 24).rstrip()} {clock(rec.get('ts'))} ",
+                   TEXT if i == index else MUTED, tint(BLUE, 0.55) if i == index else tint(LINE, 0.6), bold=i == index)
+             for i, rec in enumerate(records)]
+    start = index
+    while start > 0 and visible_width(" ".join(pills[start - 1:index + 1])) <= cols:
+        start -= 1
+    shown = []
+    for pill in pills[start:]:
+        if visible_width(" ".join(shown + [pill])) > cols - 4:
+            break
+        shown.append(pill)
+    more = paint(f" +{len(pills) - start - len(shown)}", FAINT) if start + len(shown) < len(pills) else ""
+    return (paint("‹ ", FAINT) if start else "") + " ".join(shown or [pills[index]]) + more
+
+
+def flow_lines(st, flow_index, step, tick, cols):
     pane = st.pane
     lines = []
     if Pending.active(flow_store.pending_path(pane)):
         lines += [paint(f"{SPINNER[tick % len(SPINNER)]} {t('flow_gen', pane=pane)}", ORANGE), ""]
-    rec = flow_store.latest(pane)
+    records = flow_store.records(pane)
+    flow_index = max(0, min(flow_index, len(records) - 1))
+    rec = records[flow_index] if records else None
+    if len(records) > 1:
+        lines += [_flow_tabs(records, flow_index, cols), ""]
     if not rec:
-        return lines + [paint(t("flow_empty_t", pane=pane), TEXT, bold=True), *styled(t("flow_empty_d", pane=pane), cols, MUTED)], 0
+        return lines + [paint(t("flow_empty_t", pane=pane), TEXT, bold=True), *styled(t("flow_empty_d", pane=pane), cols, MUTED)], 0, 0
     if rec.get("status") != RecordStatus.OK.value:
-        return lines + [badge(t("flow_fail", pane=pane), RED), *styled(rec.get("error"), cols, MUTED)], 0
+        return lines + [badge(t("flow_fail", pane=pane), RED), *styled(rec.get("error"), cols, MUTED)], flow_index, 0
     flow = rec.get("flow") or {}
     steps = flow.get("steps") or []
     step = max(0, min(step, len(steps) - 1))
-    lines.append(f"{paint(flow.get('title') or '', TEXT, bold=True)}  {paint(clock(rec.get('ts')), FAINT)}")
+    stamp = clock(rec.get("ts"))
+    lines.append(f"{paint(fit(flow.get('title') or '', cols - width(stamp) - 2).rstrip(), TEXT, bold=True)}  {paint(stamp, FAINT)}")
     if steps:
         lines.append(f"{progress(step + 1, len(steps), BLUE)} {paint(f'{step + 1}/{len(steps)}', MUTED)}")
     if flow.get("example"):
@@ -323,4 +345,4 @@ def flow_lines(st, step, tick, cols):
         detail += [""] + _state_box(steps, step, detail_w, pane)
     detail += _flow_cards(st, rec, flow, tick, detail_w)
     lines += [""] + (_side_by_side(pipeline, detail, pipe_w) if wide else pipeline + [""] + detail)
-    return lines, step
+    return lines, flow_index, step

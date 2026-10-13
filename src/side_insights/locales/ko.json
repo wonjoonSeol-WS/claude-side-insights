@@ -135,6 +135,7 @@
   "term_click": "클릭 후",
   "term_err": "실패",
   "term_files": "바뀐 파일 {0}",
+  "term_k_flows": "Flow 전환",
   "term_k_open": "브라우저",
   "term_k_quit": "종료",
   "term_k_scroll": "스크롤",

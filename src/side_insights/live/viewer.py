@@ -2,7 +2,7 @@
 """Flow, live activity and Q&A of one pane as a terminal UI.
 
 usage: python3 -m side_insights activity [pane]   (default: this pane)
-keys: 1 Flow, 2 Live, 3 Q&A, ←/→ flow steps, ↑/↓ scroll, o open the full panel in the browser, q quit
+keys: 1 Flow, 2 Live, 3 Q&A, [ ] flows, ←/→ flow steps, ↑/↓ scroll, o open the full panel in the browser, q quit
 """
 import enum
 import os
@@ -46,6 +46,7 @@ class Screen:
         self.tail = ActivityTail(pane)
         self.tab = Tab.LIVE
         self.step = 0
+        self.flow = 0
         self.scroll = {tab: 0 for tab in Tab}
         self.tick = 0
 
@@ -55,7 +56,7 @@ class Screen:
             return views.live_lines(st, self.tick, cols, rows)
         if self.tab == Tab.QA:
             return views.qa_lines(st, self.tick, cols)
-        lines, self.step = views.flow_lines(st, self.step, self.tick, cols)
+        lines, self.flow, self.step = views.flow_lines(st, self.flow, self.step, self.tick, cols)
         return lines
 
     def draw(self):
@@ -78,6 +79,9 @@ class Screen:
             self.scroll[self.tab] = max(0, self.scroll[self.tab] - SCROLL_STEP)
         elif key in ("down", "j"):
             self.scroll[self.tab] += SCROLL_STEP
+        elif key in ("[", "]") and self.tab == Tab.FLOW:
+            self.flow += 1 if key == "]" else -1
+            self.step, self.scroll[Tab.FLOW] = 0, 0
         elif key in ("left", "right") and self.tab == Tab.FLOW:
             self.step += 1 if key == "right" else -1
             self.scroll[Tab.FLOW] = 0

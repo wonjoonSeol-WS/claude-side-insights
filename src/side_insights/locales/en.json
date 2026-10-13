@@ -135,6 +135,7 @@
   "term_click": "Click, then",
   "term_err": "failed",
   "term_files": "Changed files {0}",
+  "term_k_flows": "flows",
   "term_k_open": "browser",
   "term_k_quit": "quit",
   "term_k_scroll": "scroll",
