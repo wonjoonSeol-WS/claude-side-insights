@@ -33,6 +33,7 @@ import {
   flow,
   footer,
   header,
+  help,
   heroCanvas,
   isOpen,
   isShown,
@@ -90,7 +91,7 @@ type Mod = {
   heroCols?: number
 }
 
-const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false })
+const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false })
 
 const mod: Mod = {
   quiet: false,
@@ -376,8 +377,13 @@ const withItem = (act: (item: QaItem, api: Api) => void) => () => {
 }
 
 const actions = (copyText: Copy): Actions => ({
+  toggleHelp: () => {
+    mod.view.help = !mod.view.help
+    redraw()
+  },
   setTab: (tab: TabValue) => {
     mod.view.tab = tab
+    mod.view.help = false
     redraw()
     if (tab === Tab.FLOW) {
       void loadFlow()
@@ -627,9 +633,9 @@ export const register: Register = on => {
       pageUrl: mod.api?.pageUrl() ?? '',
       problem: problem(),
     }
-    const body = mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
+    const body = mod.view.help ? help(c) : mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
     return (
-      <Box flexDirection="column" width={e.props.bodyColumns} paddingX={PAD} paddingY={1} backgroundColor={hex(mod.palette.base)}>
+      <Box flexDirection="column" width={e.props.bodyColumns} minHeight={e.props.scroll.bodyRows} paddingX={PAD} paddingY={1} backgroundColor={hex(mod.palette.base)}>
         {header(c)}
         {body}
         {footer(c)}

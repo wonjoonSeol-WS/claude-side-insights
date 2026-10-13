@@ -511,3 +511,39 @@ for (const status of [403, 500]) {
     expect(runs).toEqual([])
   })
 }
+
+test('a wide pane puts the pipeline beside the step and files beside tools; a narrow one stacks them', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  for (const [bodyColumns, wide] of [
+    [90, true],
+    [60, false],
+  ] as const) {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS, props: { ...PANE_PROPS.props, bodyColumns } })
+    await ui.press({ key: 'tab-flow' })
+    expect(!!(await ui.find({ key: 'flow-cols' })), `flow columns at ${bodyColumns}`).toBe(wide)
+    expect(await ui.find({ key: 'step' }), 'the step card is drawn either way').toBeDefined()
+    await ui.press({ key: 'tab-live' })
+    expect(!!(await ui.find({ key: 'live-cols' })), `live columns at ${bodyColumns}`).toBe(wide)
+    await ui.press({ key: 'tab-qa' })
+    await ui.unmount()
+  }
+})
+
+test('h opens a help card with the panel keys and the Claude Code pane keys, and a tab closes it', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...PANE_PROPS })
+    await ui.press({ key: 'help' })
+    expect(await ui.find({ key: 'help-cc' }), "{ key: 'help-cc' }").toBeDefined()
+    expect(await ui.find({ type: 'Text', text: / ctrl\+x ← ↑ / }), 'the grow keys').toBeDefined()
+    expect(await ui.find({ type: 'Text', text: / s / }), 'a Q&A key').toBeDefined()
+    expect(await ui.find({ key: 'qa-tiles' }), 'help replaces the tab body').toBeUndefined()
+    await ui.press({ key: 'tab-qa' })
+    expect(await ui.find({ key: 'help-cc' }), 'a tab press leaves help').toBeUndefined()
+    await ui.unmount()
+  }
+})

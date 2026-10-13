@@ -7,6 +7,7 @@ import {
   Source,
   Status,
   ToolState,
+  cells,
   clock,
   counts,
   duration,
@@ -41,6 +42,7 @@ export type View = {
   selected?: string
   openOnly: boolean
   showArchived: boolean
+  help: boolean
   note?: { text: string; color: string }
 }
 
@@ -58,6 +60,7 @@ export type Actions = {
   toggleOpenOnly: () => void
   toggleArchived: () => void
   openBrowser: () => void
+  toggleHelp: () => void
 }
 
 export type Ctx = {
@@ -132,6 +135,16 @@ const HINTS: Record<TabValue, [string, string][]> = {
   ],
 }
 
+const PANE_KEYS: [string, string][] = [
+  ['ctrl+x tab', 'mod_k_focus'],
+  ['tab  shift+tab', 'mod_k_controls'],
+  ['↑ ↓  pgup pgdn', 'mod_k_scroll'],
+  ['ctrl+x ← ↑', 'mod_k_grow'],
+  ['ctrl+x → ↓', 'mod_k_shrink'],
+  ['ctrl+x x', 'mod_k_close'],
+  ['esc', 'mod_k_leave'],
+]
+
 const statusColor = (p: Palette, status: string | undefined): Rgb | undefined =>
   status === Status.ANSWERED ? p.green : status === Status.PARTIAL ? p.orange : status === Status.UNANSWERED ? p.red : undefined
 
@@ -166,6 +179,34 @@ export const currentFlow = (flows: FlowRef[], flowId: string | undefined) => {
 
 export const innerCols = (cols: number) => Math.max(10, cols - 2 * PAD)
 const cardCols = (c: Ctx) => Math.max(8, innerCols(c.cols) - CARD_CHROME)
+
+export const WIDE_COLS = 78
+const LEFT_MIN = 30
+const LEFT_MAX = 48
+const COLUMN_GAP = 2
+
+export const split = (cols: number) => {
+  const inner = innerCols(cols)
+  if (cols < WIDE_COLS) {
+    return undefined
+  }
+  const left = Math.max(LEFT_MIN, Math.min(LEFT_MAX, Math.floor(((inner - COLUMN_GAP) * 2) / 5)))
+  return { left, right: inner - left - COLUMN_GAP }
+}
+
+const twoColumns = (c: Ctx, key: string, left: RenderChildren[], right: RenderChildren[], leftWidth: number) => {
+  const { Box } = c.ui
+  return (
+    <Box key={key} flexDirection="row" columnGap={COLUMN_GAP} alignItems="flex-start">
+      <Box key={`${key}-left`} flexDirection="column" width={leftWidth} flexShrink={0}>
+        {left}
+      </Box>
+      <Box key={`${key}-right`} flexDirection="column" flexGrow={1} flexShrink={1}>
+        {right}
+      </Box>
+    </Box>
+  )
+}
 
 const statusLabel = (c: Ctx, status: string | undefined) => (status && statusColor(c.p, status) ? c.t(`st_${status}`) : '-')
 
@@ -282,7 +323,7 @@ export const header = (c: Ctx) => {
 }
 
 export const footer = (c: Ctx) => {
-  const { Box, Text } = c.ui
+  const { Box, Text, Button } = c.ui
   if (c.view.note) {
     return (
       <Box key="footer" marginTop={1}>
@@ -300,11 +341,36 @@ export const footer = (c: Ctx) => {
           <Text color={hex(c.p.muted)}>{` ${c.t(label)}`}</Text>
         </Text>
       ))}
+      <Button key="help" plain hotkey="h" label={c.t(c.view.help ? 'mod_help_close' : 'term_k_help')} onPress={() => c.act.toggleHelp()} />
     </Box>
   )
 }
 
-export const noteOrHints = footer
+const keyRows = (c: Ctx, rows: [string, string][]) => {
+  const { Box, Text } = c.ui
+  const width = Math.max(...rows.map(([key]) => key.length)) + 2
+  return rows.map(([key, label]) => (
+    <Box key={`help-${key}`} flexDirection="row" columnGap={2}>
+      <Box width={width} flexShrink={0}>
+        {keycap(c, key)}
+      </Box>
+      <Text color={hex(c.p.text)}>{c.t(label)}</Text>
+    </Box>
+  ))
+}
+
+export const help = (c: Ctx) => {
+  const { Box, Text } = c.ui
+  const panel: [string, string][] = [...Object.values(HINTS).flat(), ['h', 'k_help']].filter(
+    ([key, label], i, all) => all.findIndex(([k, l]) => k === key && l === label) === i,
+  )
+  return (
+    <Box key="help-view" flexDirection="column">
+      {card(c, 'help-panel', c.t('mod_help_panel'), keyRows(c, panel), c.p.blue)}
+      {card(c, 'help-cc', c.t('mod_help_cc'), [...keyRows(c, PANE_KEYS), <Box key="help-drag" marginTop={1}><Text color={hex(c.p.muted)}>{c.t('mod_k_drag')}</Text></Box>], c.p.purple)}
+    </Box>
+  )
+}
 
 const card = (c: Ctx, key: string, title: RenderChildren, children: RenderChildren[], color?: Rgb) => {
   const { Box, Text } = c.ui
@@ -405,6 +471,10 @@ export const live = (c: Ctx) => {
     .reverse()
     .slice(0, MAX_TOOLS)
     .map((tool, i) => toolLine(c, tool, i, now))
+  const filesCard = card(c, 'files', c.t('term_files', files.length), fileLines.length ? fileLines : [<Text key="files-none" color={hex(c.p.faint)}>{c.t('term_none')}</Text>], files.length ? c.p.purple : undefined)
+  const toolsCard = card(c, 'tools', c.t('term_tools', tools.length), toolLines.length ? toolLines : [<Text key="tools-none" color={hex(c.p.faint)}>{c.t('term_not_yet')}</Text>], tools.length ? c.p.blue : undefined)
+  const wide = split(c.cols)
+  const layout = wide ? twoColumns(c, 'live-cols', [filesCard], [toolsCard], wide.left) : [filesCard, toolsCard]
   return (
     <Box flexDirection="column">
       {tiles(c, 'live-tiles', [
@@ -426,8 +496,7 @@ export const live = (c: Ctx) => {
           innerCols(c.cols),
         )}
       </Box>
-      {card(c, 'files', c.t('term_files', files.length), fileLines.length ? fileLines : [<Text key="files-none" color={hex(c.p.faint)}>{c.t('term_none')}</Text>], files.length ? c.p.purple : undefined)}
-      {card(c, 'tools', c.t('term_tools', tools.length), toolLines.length ? toolLines : [<Text key="tools-none" color={hex(c.p.faint)}>{c.t('term_not_yet')}</Text>], tools.length ? c.p.blue : undefined)}
+      {layout}
     </Box>
   )
 }
@@ -633,29 +702,10 @@ export const flow = (c: Ctx) => {
   const steps = f.steps ?? []
   const step = Math.max(0, Math.min(c.view.step, steps.length - 1))
   const kinds = [...new Set(steps.map(s => (s.kind && KNOWN_KINDS.has(s.kind) ? s.kind : Kind.LOGIC)))]
-  const width = cardCols(c)
-  return (
-    <Box flexDirection="column">
-      {top}
-      <Box flexDirection="column" marginTop={1}>
-        <Text>
-          <Text color={hex(c.p.text)} bold>
-            {f.title ?? ''}
-          </Text>
-          <Text color={hex(c.p.faint)}>{`  ${clock(rec.ts)}`}</Text>
-        </Text>
-        {f.example ? (
-          <Text key="example-line">
-            {pill(c, 'example', c.t('example_label'), c.p.blue)} <Text color={hex(c.p.muted)}>{f.example}</Text>
-          </Text>
-        ) : null}
-        {f.summary ? (
-          <Box marginTop={1}>
-            <Markdown text={highlight(f.summary)} />
-          </Box>
-        ) : null}
-      </Box>
-      {card(c, 'pipeline', c.t('pipeline'), [
+  const wide = split(c.cols)
+  const width = wide ? Math.max(8, wide.left - CARD_CHROME) : cardCols(c)
+  const changedCells = wide ? 2 : cells(c.t('changed_short')) + 3
+  const pipeline = card(c, 'pipeline', c.t('pipeline'), [
         <Box key="legend" flexDirection="row" flexWrap="wrap" columnGap={3} marginBottom={1}>
           {kinds.map(k => (
             <Text key={`kind-${k}`}>
@@ -680,19 +730,40 @@ export const flow = (c: Ctx) => {
               <Text backgroundColor={tint(c.p, color, on ? 0.6 : 0.22)} color={hex(on ? c.p.text : color)} bold>
                 {` ${i + 1} `}
               </Text>
-              <Button key={`step-${i}`} plain dimColor={!on} label={fit(s.title ?? '', Math.max(8, width - 14))} onPress={() => c.act.stepTo(i)} />
-              {s.changed ? pill(c, `changed-${i}`, c.t('changed_short'), c.p.yellow) : null}
+              <Button key={`step-${i}`} plain dimColor={!on} label={fit(s.title ?? '', Math.max(6, width - 7 - (s.changed ? changedCells : 0)))} onPress={() => c.act.stepTo(i)} />
+              {s.changed ? (wide ? <Text key={`changed-${i}`} color={hex(c.p.yellow)}>●</Text> : pill(c, `changed-${i}`, c.t('changed_short'), c.p.yellow)) : null}
             </Box>
           )
         }),
-        <Box key="step-keys" flexDirection="row" columnGap={2} marginTop={1}>
+        <Box key="step-keys" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
           <Button key="step-prev" plain hotkey="k" label={`↑ ${c.t('prev_step')}`} dimColor={step === 0} onPress={() => c.act.stepTo(step - 1)} />
           <Button key="step-next" plain hotkey="j" label={`↓ ${c.t('next_step')}`} dimColor={step >= steps.length - 1} onPress={() => c.act.stepTo(step + 1)} />
           <Button key="rebuild" plain hotkey="r" label={c.t('regen')} dimColor onPress={() => c.act.rebuild()} />
         </Box>,
-      ])}
-      {steps[step] ? stepCard(c, steps[step], step, steps.length) : null}
-      {steps.length > 0 ? stateCard(c, steps, step) : null}
+      ])
+  const detail = [...(steps[step] ? [stepCard(c, steps[step], step, steps.length)] : []), ...(steps.length > 0 ? [stateCard(c, steps, step)] : [])]
+  return (
+    <Box flexDirection="column">
+      {top}
+      <Box flexDirection="column" marginTop={1}>
+        <Text>
+          <Text color={hex(c.p.text)} bold>
+            {f.title ?? ''}
+          </Text>
+          <Text color={hex(c.p.faint)}>{`  ${clock(rec.ts)}`}</Text>
+        </Text>
+        {f.example ? (
+          <Text key="example-line">
+            {pill(c, 'example', c.t('example_label'), c.p.blue)} <Text color={hex(c.p.muted)}>{f.example}</Text>
+          </Text>
+        ) : null}
+        {f.summary ? (
+          <Box marginTop={1}>
+            <Markdown text={highlight(f.summary)} />
+          </Box>
+        ) : null}
+      </Box>
+      {wide ? twoColumns(c, 'flow-cols', [pipeline], detail, wide.left) : [pipeline, ...detail]}
       {flowCards(c, rec)}
     </Box>
   )
