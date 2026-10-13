@@ -33,7 +33,9 @@ Or turn on auto-update in `/plugin` > Marketplaces.
 
 ## What it shows
 
-![The /si pane next to a Claude Code session](docs/si/full-en.png)
+| `/si` pane, in any terminal | Browser panel, with `/si-browser` |
+|---|---|
+| ![The /si pane next to a Claude Code session](docs/si/full-en.png) | ![The browser panel next to a Claude Code session](docs/si/browser-full-en.png) |
 
 ![The /si pane on the Q&A tab](docs/si/en-qa.png)
 

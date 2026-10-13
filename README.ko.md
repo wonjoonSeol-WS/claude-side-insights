@@ -33,7 +33,9 @@ Claude Code 안에서:
 
 ## 보여 주는 것
 
-![Claude Code 세션 옆에 연 /si 패널](docs/si/full-ko.png)
+| `/si` 패널, 모든 터미널 | 브라우저 패널, `/si-browser` |
+|---|---|
+| ![Claude Code 세션 옆에 연 /si 패널](docs/si/full-ko.png) | ![Claude Code 세션 옆에 연 브라우저 패널](docs/si/browser-full-ko.png) |
 
 ![Q&A 탭을 연 /si 패널](docs/si/ko-qa.png)
 
