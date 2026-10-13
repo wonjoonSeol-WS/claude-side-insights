@@ -6,7 +6,7 @@
 
 In long coding sessions your questions get buried under pages of output, and a "done" message rarely shows how the changed code now works. This panel sits next to each [Claude Code](https://claude.com/claude-code) pane in [cmux](https://cmux.dev) or Orca and answers both, turn by turn:
 
-- **Q&A check**: every question and request you sent in a turn, including messages typed while Claude was working, judged answered / partial / unanswered against what Claude actually said and did, with the missing part highlighted. Open items are re-checked as later turns answer them. You can override a status or archive an item, from the page or with `claude-qa`.
+- **Q&A check**: every question and request you sent in a turn, including messages typed while Claude was working, judged answered / partial / unanswered against what Claude actually said and did, with the missing part highlighted. Open items are re-checked as later turns answer them. You can override a status or archive an item, from the page or with `claude-qa`. For an open item, **↩ Ask again** copies a follow-up message to the clipboard to paste into Claude (it is typed into the pane directly when cmux's socket password mode is on, because cmux otherwise only accepts its own child processes).
 - **Logic flow**: when a turn that edited files ends, a walkthrough of the changed feature in execution order: a step pipeline, what each step does and what changed, real code excerpts with the changed lines highlighted, changed files and the checks that ran.
 - **Live activity**: every tool Claude calls (running, ok, failed, duration) and the files it changed, as it happens.
 

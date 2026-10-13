@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -21,6 +22,8 @@ MAX_BODY = 64 * 1024
 MAX_INDEX_PANES = 40
 FLOW_ID_RE = re.compile(r"^[0-9a-f-]{1,40}$")
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+CMUX = shutil.which("cmux") or "/Applications/cmux.app/Contents/Resources/bin/cmux"
+SEND_TIMEOUT = 5
 
 _tails = {}
 _tails_lock = threading.Lock()
@@ -75,6 +78,20 @@ def known_panes():
                 except OSError:
                     pass
     return sorted(stamps.items(), key=lambda kv: -kv[1])[:MAX_INDEX_PANES]
+
+
+def send_to_cmux(surface, workspace, message):
+    """Type the message into the Claude pane and press Enter. False when the pane is unknown or cmux fails."""
+    if not surface or not os.path.exists(CMUX):
+        return False
+    scope = ["--surface", surface] + (["--workspace", workspace] if workspace else [])
+    try:
+        typed = subprocess.run([CMUX, "send", *scope, "--", message], capture_output=True, timeout=SEND_TIMEOUT)
+        entered = typed.returncode == 0 and subprocess.run([CMUX, "send-key", *scope, "enter"], capture_output=True,
+                                                           timeout=SEND_TIMEOUT).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return entered
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -199,6 +216,22 @@ class Handler(BaseHTTPRequestHandler):
         qa_store.set_override(pane, *found, status=status, archived=archived)
         self.json({"ok": True})
 
+    def post_ask(self, pane):
+        body = self.body()
+        if body is None or not isinstance(body.get("id"), str):
+            return self.error(400, "err_need_id", pane=pane)
+        sid = snapshot(pane)["sid"]
+        found = qa_store.get_item(pane, sid, body["id"]) if sid else None
+        if not found:
+            return self.error(404, "err_no_id", body["id"], pane=pane)
+        question = " ".join(str(found[1].get("question", "")).replace("\\", " ").split())
+        message = t("ask_message", question, pane=pane)
+        last = read_json(os.path.join(BASE, "turns", f"{pane}.json")) or {}
+        if send_to_cmux(last.get("cmux_surface"), last.get("cmux_workspace"), message):
+            return self.json({"sent": True})
+        subprocess.run(["/usr/bin/pbcopy"], input=message.encode("utf-8"), check=False)
+        self.json({"sent": False, "copied": True})
+
     def post_open(self, pane):
         subprocess.Popen(["/usr/bin/open", f"http://127.0.0.1:{PORT}/p/{pane}?full=1"],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -243,6 +276,7 @@ ROUTES = [
     ("POST", ["api", "config"], Handler.post_config),
     ("POST", ["api", KEY_RE, "qa", "override"], Handler.post_override),
     ("POST", ["api", KEY_RE, "open"], Handler.post_open),
+    ("POST", ["api", KEY_RE, "qa", "ask"], Handler.post_ask),
     ("POST", ["api", KEY_RE, "regen"], Handler.post_regen),
 ]
 

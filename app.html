@@ -486,7 +486,8 @@ function renderTurn(turn, items) {
       <div><div class="q">${esc(item.question)}${item.from === "mid-turn" ? `<small>${t("midturn")}</small>` : ""}<span class="qid" title="claude-qa set ${esc(item.id)} answered">${esc(item.id)}</span></div>
       <div class="a">${inline(item.answer)}</div>
       ${item.resolved_in ? `<div class="resolved">${t("resolved", text(`st_${item.first_status}`), text(`st_${item.auto_status}`))} ${clock(item.resolved_at)}</div>` : ""}
-      <div class="qa-tools"><button class="mini" data-qa-recheck="${n}" title="${t("recheck_item_title")}">${t("recheck_item")}</button>
+      <div class="qa-tools">${status !== QA.ANSWERED && !item.archived ? `<button class="mini" data-qa-ask="${n}" title="${t("ask_title")}">${t("ask")}</button>` : ""}
+      <button class="mini" data-qa-recheck="${n}" title="${t("recheck_item_title")}">${t("recheck_item")}</button>
       <button class="mini" data-qa-archive="${n}" data-focus="archive-${esc(item.id)}">${item.archived ? t("restore") : t("archive")}</button>
       ${item.manual ? `<button class="mini" data-qa-reset="${n}">${t("reset_auto")}</button>` : ""}</div></div></div>`;
   }).join("");
@@ -658,7 +659,11 @@ document.addEventListener("click", async e => {
   touch();
   if (d.qaPage) { S.qaPage = Number(d.qaPage); render(); return window.scrollTo(0, 0); }
   if (d.qaTurn) return regen("qa", d.qaTurn);
-  const ref = S.qaRefs[Number(d.qaCycle ?? d.qaArchive ?? d.qaReset ?? d.qaRecheck)];
+  const ref = S.qaRefs[Number(d.qaCycle ?? d.qaArchive ?? d.qaReset ?? d.qaRecheck ?? d.qaAsk)];
+  if (ref && d.qaAsk !== undefined) {
+    const r = await api("POST", `/api/${KEY}/qa/ask`, { id: ref.id });
+    return notify(r.ok ? text(r.data.sent ? "ask_sent" : "ask_copied") : r.error, !r.ok);
+  }
   if (ref && d.qaRecheck !== undefined) return regen("qa", null, ref.id);
   if (ref && d.qaCycle !== undefined) return postOverride(ref, { status: QA_CYCLE[ref.status] || QA.ANSWERED });
   if (ref && d.qaArchive !== undefined) return postOverride(ref, { archived: !ref.archived });

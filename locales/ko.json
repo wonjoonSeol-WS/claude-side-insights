@@ -1,5 +1,10 @@
 {
   "archive": "보관",
+  "ask": "↩ 다시 물어보기",
+  "ask_copied": "클립보드에 복사했습니다. Claude 에 붙여 넣고 Enter 를 누르세요",
+  "ask_message": "[Q&A 패널] 아직 답을 받지 못한 질문입니다. 이 질문에 직접 답해 주세요: {0}",
+  "ask_sent": "Claude 에게 다시 물어봤습니다",
+  "ask_title": "이 질문을 다시 물어보는 문장을 만들어 클립보드에 복사합니다 (cmux 소켓 비밀번호 모드면 패널에 바로 입력)",
   "auto_verdict": " (자동 판정: {0})",
   "busy": "작업 중",
   "changed_short": "변경",

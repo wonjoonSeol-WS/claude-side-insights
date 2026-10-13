@@ -1,5 +1,10 @@
 {
   "archive": "Archive",
+  "ask": "↩ Ask again",
+  "ask_copied": "Copied to the clipboard. Paste it into Claude and press Enter",
+  "ask_message": "[Q&A panel] This question has not been answered yet. Please answer it directly: {0}",
+  "ask_sent": "Asked Claude again",
+  "ask_title": "Copy a follow-up asking this question again (typed straight into the pane when cmux socket password mode is on)",
   "auto_verdict": " (auto verdict: {0})",
   "busy": "Working",
   "changed_short": "changed",
