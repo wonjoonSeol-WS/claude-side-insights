@@ -31,9 +31,15 @@ cmux, Orca, Ghostty, iTerm2에서는 새 세션을 시작하면 자동으로 열
 
 ## 무엇을 보여 주나
 
-![Claude Code 세션 옆의 터미널 패널](docs/full/terminal-flow.png)
+![Claude Code 세션 옆의 터미널 패널](docs/full/ko/terminal-flow.png)
 
-![Claude Code 세션 옆의 브라우저 패널](docs/full/browser-flow.png)
+![Claude Code 세션 옆의 브라우저 패널](docs/full/ko/browser-flow.png)
+
+좁은 사이드 패널로 열었을 때:
+
+| 터미널 | 브라우저 |
+|---|---|
+| ![좁은 사이드 패널로 열었을 때:](docs/full/ko/narrow-terminal-flow.png) | ![좁은 사이드 패널로 열었을 때:](docs/full/ko/narrow-browser-flow.png) |
 
 
 **Claude가 내 질문에 다 답했나? 무엇을 바꿨나? 지금 뭘 하고 있나?**

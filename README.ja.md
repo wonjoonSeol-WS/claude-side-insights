@@ -31,9 +31,15 @@ cmux、Orca、Ghostty、iTerm2 では新しいセッションを始めると自�
 
 ## 表示されるもの
 
-![Claude Code セッションの横のターミナルパネル](docs/full/terminal-flow.png)
+![Claude Code セッションの横のターミナルパネル](docs/full/ja/terminal-flow.png)
 
-![Claude Code セッションの横のブラウザパネル](docs/full/browser-flow.png)
+![Claude Code セッションの横のブラウザパネル](docs/full/ja/browser-flow.png)
+
+細いサイドパネルで開いたとき:
+
+| ターミナル | ブラウザ |
+|---|---|
+| ![細いサイドパネルで開いたとき:](docs/full/ja/narrow-terminal-flow.png) | ![細いサイドパネルで開いたとき:](docs/full/ja/narrow-browser-flow.png) |
 
 
 **Claude は質問に全部答えた? 何を変えた? 今何をしている?**
