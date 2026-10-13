@@ -476,8 +476,9 @@ export const header = (c: Ctx) => {
   return (
     <Box key="header" flexDirection="column">
       {banner(c)}
-      <Box flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         {TAB_KEYS.map(([key, tab]) => tabButton(c, key, tab))}
+        {keyButton(c, 'open', 'o', c.t('full'), () => c.act.openBrowser(), true)}
         <Text color={hex(c.p.faint)}>
           {c.busy ? (
             <Text color={hex(c.p.orange)} bold>
@@ -489,10 +490,7 @@ export const header = (c: Ctx) => {
           <Text color={hex(c.p.faint)}>{`  ${where}`}</Text>
         </Text>
       </Box>
-      <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
-        {keyButton(c, 'open', 'o', c.t('full'), () => c.act.openBrowser(), true)}
-        {c.pageUrl && LINK_SURFACES.has(c.surface) ? <Link href={c.pageUrl} label={c.t('full_title')} /> : null}
-      </Box>
+      {c.pageUrl && LINK_SURFACES.has(c.surface) ? <Link href={c.pageUrl} label={c.t('full_title')} /> : null}
       {c.problem ? (
         <Box marginTop={1} borderStyle="round" borderColor={hex(c.p.red)} paddingX={1}>
           <Text color={hex(c.p.red)} bold>
