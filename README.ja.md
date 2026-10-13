@@ -33,6 +33,8 @@ Claude Code の中で:
 
 ## 表示されるもの
 
+![Claude Code セッションの横に開いた /si パネル](docs/si/full-ja.png)
+
 ![Q&A タブを開いた /si パネル](docs/si/ja-qa.png)
 
 | フロー | リアルタイム |

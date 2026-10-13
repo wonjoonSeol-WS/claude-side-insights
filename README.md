@@ -33,6 +33,8 @@ Or turn on auto-update in `/plugin` > Marketplaces.
 
 ## What it shows
 
+![The /si pane next to a Claude Code session](docs/si/full-en.png)
+
 ![The /si pane on the Q&A tab](docs/si/en-qa.png)
 
 | Flow | Live |

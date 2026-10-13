@@ -33,6 +33,8 @@ Claude Code 안에서:
 
 ## 보여 주는 것
 
+![Claude Code 세션 옆에 연 /si 패널](docs/si/full-ko.png)
+
 ![Q&A 탭을 연 /si 패널](docs/si/ko-qa.png)
 
 | Flow | 실시간 |
