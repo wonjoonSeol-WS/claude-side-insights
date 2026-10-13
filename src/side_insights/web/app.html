@@ -13,7 +13,10 @@
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Hiragino Sans", "Pretendard", sans-serif; }
+:root { color-scheme: dark; }
 button { font: inherit; color: inherit; cursor: pointer; }
+select { font: inherit; color: var(--text); background: var(--panel-2); }
+option { color: var(--text); background: var(--panel-2); }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
 code, .mono { font-family: var(--mono); font-size: 12.5px; }
 .wrap { padding: 12px 14px 24px; max-width: 1800px; margin: 0 auto; }
