@@ -9,7 +9,7 @@ import threading
 from enum import Enum
 
 from side_insights.paths import DATA, atomic_write_json, read_json
-from side_insights.language import DEFAULT as DEFAULT_LANGUAGE, Language
+from side_insights.language import DEFAULT as DEFAULT_LANGUAGE, Language, system_language
 
 PATH = os.path.join(DATA, "config.json")
 MODELS = ("opus", "sonnet", "haiku")
@@ -57,7 +57,8 @@ def overrides(pane):
 def load(pane=None):
     """Effective settings: defaults, then the global values, then this pane's overrides."""
     saved = _saved()
-    return {**{s.key: s.default for s in Setting}, **_valid_only(saved), **overrides(pane)}
+    defaults = {**{s.key: s.default for s in Setting}, Setting.LANG.key: system_language().code}
+    return {**defaults, **_valid_only(saved), **overrides(pane)}
 
 
 def get(name, pane=None):

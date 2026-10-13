@@ -155,7 +155,7 @@ In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a que
 | Setting | Default | Meaning |
 |---|---|---|
 | Analysis model | `opus` | `opus`, `sonnet` or `haiku` (set a full model id in config.json) |
-| Language (UI and analysis) | `en` | English, 한국어, 日本語 |
+| Language (UI and analysis) | your system language if it is Korean or Japanese, else `en` | English, 한국어, 日本語 |
 | Build a flow when a turn ends | on | When off, flows are built only with the ↻ button |
 | Check Q&A when a turn ends | on | When off, Q&A is checked only with the ↻ buttons |
 | Open the panel when a session starts | off | When on, the panel opens by itself in cmux, Orca, Ghostty or iTerm2 when a session starts |
