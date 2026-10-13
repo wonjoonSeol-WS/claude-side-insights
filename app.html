@@ -223,7 +223,7 @@ const S = {
   dialog: ["help", "settings"].includes(PARAMS.get("dialog")) ? PARAMS.get("dialog") : null,
   lastTouch: PARAMS.get("mode") ? Date.now() : 0,
   state: null, flows: [], pending: null, qa: { turns: [], pending: false }, flowCache: {}, flowId: null,
-  seenFlows: null, wasBusy: false, playing: null, error: null, sig: null, panes: null,
+  seenFlows: null, playing: null, error: null, sig: null, panes: null,
   qaPage: 1, qaOnlyOpen: false, qaArchived: false, qaRefs: [], busyIds: new Set(),
   config: null, scope: SCOPE.GLOBAL, settingsMsg: null, returnFocus: null, polling: false, toast: null,
 };
@@ -312,15 +312,13 @@ function absorbState(data) {
   const ids = new Set(S.flows.map(f => f.id));
   const fresh = S.seenFlows && S.flows.find(f => !S.seenFlows.has(f.id));
   S.seenFlows = ids;
-  if (fresh && !recentlyTouched()) {
+  if (fresh && S.mode === "flow" && !recentlyTouched()) {
     stopAutoplay();
     S.flowId = fresh.id;
     S.step = 0;
-    S.mode = "flow";
   }
   if (!S.flowId || !ids.has(S.flowId)) S.flowId = S.flows[0]?.id || null;
-  if (S.state.busy && !S.wasBusy && !recentlyTouched()) S.mode = "live";
-  S.wasBusy = S.state.busy;
+  if (!S.mode) S.mode = S.flows.length ? "flow" : "live";
 }
 
 async function loadFlow() {
