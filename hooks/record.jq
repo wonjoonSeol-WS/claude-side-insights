@@ -16,7 +16,12 @@ def cut(n): if type == "string" and length > n then .[0:n] + "…" else . end;
     error: (if .hook_event_name == "PostToolUseFailure" then true
             elif .hook_event_name == "PostToolUse"
             then ([.tool_response | objects | (.is_error, .error)] | any(. == true or (type == "string" and length > 0)))
-            else null end)
+            else null end),
+    reason: (if .hook_event_name == "PostToolUseFailure" then (.error // "")
+             elif .hook_event_name == "PostToolUse"
+             then ((.tool_response | objects | (.error // .stderr // "")) // "")
+             else "" end
+             | tostring | gsub("[[:cntrl:]]"; " ") | gsub("\\s+"; " ") | cut(600))
   } as $event
 | ($event | tojson),
   (if .hook_event_name == "Stop" and (.transcript_path // "") != "" then {transcript: .transcript_path, cwd: (.cwd // "")} | tojson else empty end)

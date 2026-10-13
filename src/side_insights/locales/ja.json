@@ -103,6 +103,7 @@
   "mod_next_file": "次のファイル",
   "mod_next_flow": "次のフロー",
   "mod_no_item": "先に質問を選んでください: クリックするか、Tab で移動して Enter",
+  "mod_no_reason": "この失敗の理由は記録されていません (理由を残す前に実行されました)。",
   "mod_prev_file": "前のファイル",
   "mod_prev_flow": "前のフロー",
   "mod_settings_close": "設定を閉じる",

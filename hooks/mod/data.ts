@@ -51,6 +51,7 @@ export type Tool = {
   state: string
   start?: number | null
   end?: number | null
+  reason?: string | null
 }
 export type FileChange = { path: string; count: number; created: boolean; last: number }
 export type FlowRef = { id: string; ts: number; status: string; title: string }

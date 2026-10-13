@@ -54,6 +54,7 @@ export type View = {
   scope: ScopeValue
   file?: string
   toolFilter?: string
+  toolOpen?: string
   statusFilter?: string
   note?: { text: string; color: string }
 }
@@ -81,6 +82,7 @@ export type Actions = {
   closeDiff: () => void
   diffView: (view: DiffViewValue) => void
   filterTools: (state: string) => void
+  toggleTool: (id: string) => void
   filterStatus: (status: string) => void
 }
 
@@ -653,7 +655,7 @@ const diffCard = (c: Ctx) => {
 }
 
 const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
-  const { Text } = c.ui
+  const { Box, Text, Button } = c.ui
   const [mark, color] =
     tool.state === ToolState.OK
       ? ['✓', c.p.green]
@@ -667,7 +669,7 @@ const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
   const name = tool.label || tool.tool
   const nameColor = EDIT_TOOLS.has(tool.tool) ? c.p.purple : tool.tool.startsWith('mcp__') ? c.p.teal : c.p.blue
   const what = (tool.file ? relative(c, tool.file) : tool.summary) ?? ''
-  return (
+  const line = (
     <Text key={`tool-${i}`} wrap="truncate-end">
       <Text color={hex(color)} bold>
         {mark}
@@ -679,7 +681,26 @@ const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
       <Text color={hex(c.p.text)}>{what}</Text> <Text color={hex(c.p.faint)}>{took}</Text>
     </Text>
   )
+  if (tool.state !== ToolState.ERR) {
+    return line
+  }
+  const id = toolId(tool)
+  const open = c.view.toolOpen === id
+  return (
+    <Box key={`tool-err-${i}`} flexDirection="column" backgroundColor={open ? hex(c.p.selected) : undefined}>
+      <Button key={`tool-reason-${i}`} plain onPress={() => c.act.toggleTool(id)}>
+        {line}
+      </Button>
+      {open ? (
+        <Box paddingLeft={2} marginBottom={1}>
+          <Text color={hex(tool.reason ? c.p.red : c.p.faint)}>{tool.reason || c.t('mod_no_reason')}</Text>
+        </Box>
+      ) : null}
+    </Box>
+  )
 }
+
+export const toolId = (tool: Tool) => `${tool.start ?? ''}:${tool.tool}`
 
 const FILTER_LABEL: Record<string, string> = { [ToolState.OK]: 'term_ok', [ToolState.ERR]: 'term_err', [ToolState.RUN]: 'term_run' }
 

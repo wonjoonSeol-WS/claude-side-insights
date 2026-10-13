@@ -75,6 +75,8 @@ class State:
             tool = self._add(e.get("id"), _new_tool(e))
         failed = bool(e.get("error"))
         tool["end"], tool["state"] = e.get("ts"), ERR if failed else OK
+        if failed and e.get("reason"):
+            tool["reason"] = e["reason"]
         if e.get("tool") in EDIT_TOOLS and e.get("file") and not failed:
             changed = self.files.setdefault(e["file"], {"count": 0, "created": False, "last": 0})
             changed["count"] += 1
@@ -134,7 +136,7 @@ class ActivityTail:
             "sid": s.sid, "cwd": s.cwd, "transcript": s.transcript, "busy": s.busy,
             "tools": [{"tool": tool["tool"], "label": tool_label(tool["tool"]), "summary": tool["summary"],
                        "file": s.rel(tool["file"]) if tool["file"] else None,
-                       "state": tool["state"], "start": tool["start"], "end": tool["end"]}
+                       "state": tool["state"], "start": tool["start"], "end": tool["end"], "reason": tool.get("reason")}
                       for tool in list(s.tools.values())[-max_tools:]],
             "files": [{"path": s.rel(p), "count": f["count"], "created": f["created"], "last": f["last"]}
                       for p, f in sorted(s.files.items(), key=lambda kv: -kv[1]["last"])],

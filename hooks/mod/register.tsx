@@ -495,6 +495,10 @@ const actions = (copyText: Copy): Actions => ({
     pruneSelection()
     redraw()
   },
+  toggleTool: id => {
+    mod.view.toolOpen = mod.view.toolOpen === id ? undefined : id
+    redraw()
+  },
   filterTools: state => {
     mod.view.toolFilter = mod.view.toolFilter === state ? undefined : state
     redraw()

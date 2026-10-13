@@ -48,7 +48,7 @@ const STATE = {
     busy: false,
     tools: [
       { tool: 'Edit', label: 'Edit', summary: 'edit', file: '/repo/src/a.ts', state: 'ok', start: 1791905000, end: 1791905001 },
-      { tool: 'Bash', label: 'Bash', summary: 'npm test', file: null, state: 'err', start: 1791905002, end: 1791905004 },
+      { tool: 'Bash', label: 'Bash', summary: 'npm test', file: null, state: 'err', start: 1791905002, end: 1791905004, reason: 'Exit code 1 FAIL retry.test.ts' },
     ],
     files: [{ path: '/repo/src/a.ts', count: 2, created: false, last: 1791905001 }],
   },
@@ -802,5 +802,19 @@ test('a step lists only the checks that name it, and the flow card still lists e
   const all = await ui.find({ key: 'checks' })
   expect(all?.text).toContain('npm test')
   expect(all?.text).toContain('claim test')
+  await ui.unmount()
+})
+
+test('pressing a failed tool call shows why it failed, and pressing it again hides it', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-live' })
+  expect(await ui.find({ type: 'Text', text: /FAIL retry\.test\.ts/ }), 'hidden until pressed').toBeUndefined()
+  await ui.press({ key: 'tool-reason-0' })
+  expect(await ui.find({ type: 'Text', text: /Exit code 1 FAIL retry\.test\.ts/ })).toBeDefined()
+  await ui.press({ key: 'tool-reason-0' })
+  expect(await ui.find({ type: 'Text', text: /FAIL retry\.test\.ts/ }), 'hidden again').toBeUndefined()
   await ui.unmount()
 })

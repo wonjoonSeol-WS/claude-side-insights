@@ -103,6 +103,7 @@
   "mod_next_file": "Next file",
   "mod_next_flow": "Next flow",
   "mod_no_item": "Select a question first: click it, or Tab to it and press Enter",
+  "mod_no_reason": "No reason was recorded for this failure (it ran before reasons were kept).",
   "mod_prev_file": "Previous file",
   "mod_prev_flow": "Previous flow",
   "mod_settings_close": "close settings",

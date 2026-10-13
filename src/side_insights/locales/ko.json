@@ -103,6 +103,7 @@
   "mod_next_file": "다음 파일",
   "mod_next_flow": "다음 Flow",
   "mod_no_item": "먼저 질문을 고르세요: 클릭하거나 Tab 으로 옮겨 Enter",
+  "mod_no_reason": "이 실패의 이유는 기록되지 않았습니다 (이유를 남기기 전에 실행됨).",
   "mod_prev_file": "이전 파일",
   "mod_prev_flow": "이전 Flow",
   "mod_settings_close": "설정 닫기",
