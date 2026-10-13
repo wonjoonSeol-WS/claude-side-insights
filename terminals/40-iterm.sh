@@ -1,4 +1,4 @@
-# iTerm2: the terminal panel (claude-activity) in a split to the right, through iTerm's AppleScript.
+# iTerm2: the terminal panel (si-activity) in a split to the right, through iTerm's AppleScript.
 PANE_ENV=ITERM_SESSION_ID
 
 term_detect() { [ "${TERM_PROGRAM:-}" = iTerm.app ] && [ -n "${ITERM_SESSION_ID:-}" ]; }

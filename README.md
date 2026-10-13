@@ -64,7 +64,7 @@ Available in English, 한국어 and 日本語.
 
 *Sample data from a made-up project.*
 
-**Browser panel**, opened with `/si-browser`: a browser split in cmux, your own browser anywhere else (`! claude-flow` always opens it in your default browser):
+**Browser panel**, opened with `/si-browser`: a browser split in cmux, your own browser anywhere else:
 
 | Q&A | Flow |
 |---|---|
@@ -74,11 +74,11 @@ Available in English, 한국어 and 日本語.
 
 The Flow tab follows one example through every step. Its values are inferred from the code, not captured at runtime.
 
-**Terminal panel**: in iTerm2, Ghostty and Orca, `! claude-panel` also opens the classic terminal panel in a split, with the same three tabs.
+**Terminal panel**: in iTerm2, Ghostty and Orca, `! si-panel` also opens the classic terminal panel in a split, with the same three tabs.
 
 ## Supported terminals
 
-`/si` works in any terminal Claude Code runs in. `! claude-panel` (and `/si-browser` in cmux) opens a panel next to Claude in these:
+`/si` works in any terminal Claude Code runs in. `! si-panel` (and `/si-browser` in cmux) opens a panel next to Claude in these:
 
 | Terminal | What opens next to Claude | Tested |
 |---|---|---|
@@ -86,15 +86,15 @@ The Flow tab follows one example through every step. Its values are inferred fro
 | Orca | Terminal panel in a split | yes |
 | Ghostty 1.3+ | Terminal panel in a split | yes |
 | iTerm2 | Terminal panel in a split | yes |
-| Anything else | `! claude-panel` opens the full panel in your browser (it cannot hide it). `/si` works everywhere | yes |
+| Anything else | `! si-panel` opens the full panel in your browser (it cannot hide it). `/si` works everywhere | yes |
 
-- The terminal panel has the same three tabs (Flow, Live, Q&A). `! claude-flow` opens the browser version.
+- The terminal panel has the same three tabs (Flow, Live, Q&A). `! si-open` opens the browser version.
 - Ghostty and iTerm2 are driven by AppleScript. macOS asks once for permission.
 - Adding a terminal is one small shell file. See [terminals/README.md](terminals/README.md).
 
 ## The /si pane
 
-Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, so it looks the same in every terminal. Before using the keys, give the pane focus with `ctrl+x tab` or a click. A letter or digit the pane does not use shows a hint and is not sent to the prompt. With a non-Latin keyboard input source (for example 한글), switch to English first: hotkeys only accept Latin letters and digits. On Q&A, select a question by clicking it (or Tab to it and press Enter). The first open question is selected by default.
+Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, so it looks the same in every terminal. Before using the keys, give the pane focus with `ctrl+x tab` or a click. A letter or digit the pane does not use shows a hint and is not sent to the prompt. With a non-Latin keyboard input source (for example 한글), switch to English first: hotkeys only accept Latin letters and digits. On Q&A, select a question by clicking it (or Tab to it and press Enter). This also copies the whole question. The first open question is selected by default.
 
 | Key | What it does |
 |---|---|
@@ -108,7 +108,7 @@ Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, 
 | `a` `c` | Q&A: archive or restore the selected question. Copy it while it is still open |
 | `f` `v` | Q&A: show open questions only, show archived ones |
 | `o` | The full page in your browser |
-| `g` | Settings: apply to all panels or this one, language, model, automatic runs, open on session start |
+| `g` | Settings: apply to all panels or this one, language, model, automatic runs, open on session start, theme. `k` `j` pick a setting, `p` `n` change it, `g` closes |
 | `h` | Every key, including Claude Code's own pane keys |
 | `ctrl+x ←` `ctrl+x →` | Wider / narrower (`↑` `↓` above the prompt). Dragging the divider works too |
 
@@ -131,16 +131,16 @@ Also:
 
 ## Commands
 
-Run inside Claude Code with a leading `!` (except `claude-activity`), for example `! claude-panel`.
+Run inside Claude Code with a leading `!` (except `si-activity`), for example `! si-panel`.
 
 | Command | What it does |
 |---|---|
-| `claude-panel` | Show or hide this pane's panel (in terminals without a split, it opens the browser page) |
-| `claude-flow` | Open the full panel in your browser (`all` lists every pane) |
-| `claude-qa list [--open]` | List this session's questions |
-| `claude-qa set <id> answered\|partial\|unanswered\|auto` | Set a status yourself |
-| `claude-qa archive <id>` / `restore <id>` | Hide an item, or bring it back |
-| `claude-activity` | Live activity as a terminal UI. Run it in a separate terminal pane, not after `!` |
+| `si-panel` | Show or hide this pane's panel (in terminals without a split, it opens the browser page) |
+| `si-open` | Open the full panel in your browser (`all` lists every pane) |
+| `si-qa list [--open]` | List this session's questions |
+| `si-qa set <id> answered\|partial\|unanswered\|auto` | Set a status yourself |
+| `si-qa archive <id>` / `restore <id>` | Hide an item, or bring it back |
+| `si-activity` | Live activity as a terminal UI. Run it in a separate terminal pane, not after `!` |
 
 Keys in the browser panel:
 
@@ -187,14 +187,14 @@ On a subscription this probably counts toward your usage limit (not confirmed). 
 | Can the ↻ runs change my files? | No. They use read-only tools. |
 | Why no flow for this turn? | Flows run only after turns that changed files: edits, or shell commands that write files. Press **↻ Rebuild flow**. |
 | Answered later, but still open? | The next check usually fixes it. Otherwise press **↻ Re-check open** or **↻ Re-check this question** (`r` in /si), or click the status in the browser panel. A failed check shows **↻ Re-check this turn**. |
-| How do I hide the panel? | `! claude-panel` hides and shows it. It opens by itself only if "Open the panel when a session starts" is on. |
+| How do I hide the panel? | `! si-panel` hides and shows it. It opens by itself only if "Open the panel when a session starts" is on. |
 
 **Where data lives**: `~/.claude/side-insights/`
 
 | Path | What |
 |---|---|
 | `config.json` | settings |
-| `token` | secret for the page and `claude-qa` |
+| `token` | secret for the page and `si-qa` |
 | `logs/` | tool activity |
 | `turns/` | transcript and folder of each pane's last finished turn |
 | `flows/` | flows |
@@ -222,7 +222,7 @@ flowchart LR
 
 - Everything stays in `~/.claude/side-insights/`, readable only by you.
 - The server listens on 127.0.0.1 and only accepts `127.0.0.1` or `localhost` as host (no DNS rebinding).
-- A secret token guards every page and API call except `/health`. It is created and added to every link for you (`claude-panel`, `claude-flow`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs. The links `claude-panel` and `/si-browser` print contain the token and end up in your session transcript. Treat them like a password.
+- A secret token guards every page and API call except `/health`. It is created and added to every link for you (`si-panel`, `si-open`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs. The link `si-panel` prints contains the token and ends up in your session transcript. Treat it like a password. `/si-browser` leaves the link out.
 
 ## Uninstall
 

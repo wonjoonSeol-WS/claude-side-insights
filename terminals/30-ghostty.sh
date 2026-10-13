@@ -1,4 +1,4 @@
-# Ghostty 1.3+: the terminal panel (claude-activity) in a split to the right, through Ghostty's AppleScript.
+# Ghostty 1.3+: the terminal panel (si-activity) in a split to the right, through Ghostty's AppleScript.
 # The split opens next to the focused terminal, which is the one that just started Claude.
 
 term_detect() { [ "${TERM_PROGRAM:-}" = ghostty ] && [ -z "${CMUX_SURFACE_ID:-}" ] && { [ -d /Applications/Ghostty.app ] || [ -d "$HOME/Applications/Ghostty.app" ]; }; }

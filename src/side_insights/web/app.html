@@ -586,7 +586,7 @@ function renderTurn(turn, items) {
     return `<div class="qa-item ${item.archived ? "archived" : ""}">
       <button class="chip ${status}" data-qa-cycle="${id}" ${busy}
         title="${t("cycle_title")}${item.manual ? t("auto_verdict", statusLabel(item.auto_status)) : ""}">${esc(statusLabel(status))}</button>
-      <div><div class="q">${esc(item.question)}${item.from === FROM_MID_TURN ? `<small>${t("midturn")}</small>` : ""}<span class="qid" title="claude-qa set ${id} answered">${id}</span></div>
+      <div><div class="q">${esc(item.question)}${item.from === FROM_MID_TURN ? `<small>${t("midturn")}</small>` : ""}<span class="qid" title="si-qa set ${id} answered">${id}</span></div>
       <div class="a">${answer}</div>
       ${item.resolved_in && item.first_status ? `<div class="resolved">${t("resolved", statusLabel(item.first_status), statusLabel(item.auto_status))} ${clock(item.resolved_at)}</div>`
         : item.rechecked_at && item.first_status && item.first_status !== item.auto_status
@@ -637,8 +637,8 @@ function renderHelpBody() {
   const row = (k, v) => `<tr><td class="cmd">${k}</td><td>${v}</td></tr>`;
   const c = S.config?.effective || {};
   return `<h4>${t("help_cmds")}</h4><table>
-      ${row("claude-panel", t("h_panel"))}${row("claude-flow [all]", t("h_flow"))}${row("claude-qa list [--open]", t("h_qa_list"))}
-      ${row("claude-qa set &lt;id&gt; answered|partial|unanswered|auto", t("h_qa_set"))}${row("claude-qa archive|restore &lt;id&gt;", t("h_qa_arch"))}</table>
+      ${row("si-panel", t("h_panel"))}${row("si-open [all]", t("h_flow"))}${row("si-qa list [--open]", t("h_qa_list"))}
+      ${row("si-qa set &lt;id&gt; answered|partial|unanswered|auto", t("h_qa_set"))}${row("si-qa archive|restore &lt;id&gt;", t("h_qa_arch"))}</table>
     <h4>${t("help_keys")}</h4><table>
       ${row("<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>", t("k_tabs"))}${row("<kbd>←</kbd> <kbd>→</kbd>", t("k_steps"))}${row("<kbd>?</kbd>", t("k_help"))}${row("<kbd>Esc</kbd>", t("k_escape"))}</table>
     <h4>${t("help_settings")}</h4><table>

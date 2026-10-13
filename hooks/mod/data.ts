@@ -27,7 +27,6 @@ export type Env = {
 }
 
 export const Status = { ANSWERED: 'answered', PARTIAL: 'partial', UNANSWERED: 'unanswered' } as const
-export type StatusValue = (typeof Status)[keyof typeof Status]
 export const ToolState = { RUN: 'run', OK: 'ok', ERR: 'err', LOST: 'lost' } as const
 export const RecordStatus = { OK: 'ok', ERROR: 'error' } as const
 export const Source = { PROMPT: 'prompt', MID_TURN: 'mid-turn' } as const
@@ -69,10 +68,10 @@ export type QaItem = {
   rechecked_at?: number
 }
 export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[] }
-export type Waiting = { ts?: number; text: string; mid_turn?: boolean }
+type Waiting = { ts?: number; text: string; mid_turn?: boolean }
 export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', PANEL_AUTO: 'panel_auto', THEME: 'theme' } as const
 export type SettingKey = (typeof Setting)[keyof typeof Setting]
-export type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean; theme?: string }
+type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean; theme?: string }
 export type ConfigPayload = {
   global?: Settings
   pane?: Partial<Settings>
@@ -83,7 +82,7 @@ export type ConfigPayload = {
 }
 export const Scope = { GLOBAL: 'global', PANE: 'pane' } as const
 export type ScopeValue = (typeof Scope)[keyof typeof Scope]
-export type QaCounts = { answered: number; partial: number; unanswered: number; open: number; total: number }
+type QaCounts = { answered: number; partial: number; unanswered: number; open: number; total: number }
 export type PanelState = {
   activity: { sid?: string | null; cwd?: string | null; busy?: boolean; tools: Tool[]; files: FileChange[] }
   flows: FlowRef[]
@@ -124,9 +123,9 @@ const DEFAULT_LANG = 'en'
 const TOKEN_HEADER = 'X-Side-Insights'
 export const FETCH_ERROR = -1
 
-export type Conn = { base: string; page: string; key: string; dataDir: string }
+type Conn = { base: string; page: string; key: string; dataDir: string }
 
-export const paneKey = (raw: string): string => {
+const paneKey = (raw: string): string => {
   const bytes = new TextEncoder().encode(raw)
   let out = ''
   for (const b of bytes) {
@@ -209,20 +208,19 @@ export class Api {
 
   state = () => this.call<PanelState>('GET', `/api/${this.conn.key}/state`)
   flow = (id: string) => this.call<FlowRecord>('GET', `/api/${this.conn.key}/flow/${encodeURIComponent(id)}`)
-  config = () => this.call<ConfigPayload>('GET', `/api/config?pane=${encodeURIComponent(this.conn.key)}`)
+  config = () => this.call<ConfigPayload>('GET', `/api/config${query({ pane: this.conn.key })}`)
   saveConfig = (update: Partial<Record<SettingKey, string | boolean | null>>, scope: ScopeValue) =>
-    this.call<ConfigPayload>('POST', `/api/config${scope === Scope.PANE ? `?pane=${encodeURIComponent(this.conn.key)}` : ''}`, update)
-  setStatus = (id: string, status: string | null) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, status })
-  setArchived = (id: string, archived: boolean) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, archived })
+    this.call<ConfigPayload>('POST', `/api/config${query({ pane: scope === Scope.PANE ? this.conn.key : undefined })}`, update)
+  override = (id: string, change: { status: string | null } | { archived: boolean }) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, ...change })
   open = (mode: string) => this.call('POST', `/api/${this.conn.key}/open?mode=${encodeURIComponent(mode)}`)
+  regen = (params: Record<string, string | undefined>) => this.call('POST', `/api/${this.conn.key}/regen${query(params)}`)
+}
 
-  regen(params: Record<string, string | undefined>) {
-    const query = Object.entries(params)
-      .filter((kv): kv is [string, string] => !!kv[1])
-      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
-      .join('&')
-    return this.call('POST', `/api/${this.conn.key}/regen?${query}`)
-  }
+const query = (params: Record<string, string | undefined>) => {
+  const pairs = Object.entries(params)
+    .filter((kv): kv is [string, string] => !!kv[1])
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+  return pairs.length ? `?${pairs.join('&')}` : ''
 }
 
 export type Messages = Record<string, string>
@@ -301,17 +299,28 @@ export const duration = (seconds: number): string => {
   return `${Math.floor(seconds / 60)}m${String(Math.floor(seconds % 60)).padStart(2, '0')}s`
 }
 
-export const highlight = (text: string): string => text.replace(/==([^=\n]+)==/g, '**$1**')
-
 export const DiffSource = { WORKING: 'working', NEW: 'new', COMMIT: 'commit', FILE: 'file', NONE: 'none' } as const
-export type DiffSourceValue = (typeof DiffSource)[keyof typeof DiffSource]
+type DiffSourceValue = (typeof DiffSource)[keyof typeof DiffSource]
 export type FileDiff = { source: DiffSourceValue; hunks: string; cut: number; commit?: string; error?: string; text?: string }
 export const DiffView = { AUTO: 'auto', WORKING: 'working', COMMIT: 'commit', FILE: 'file' } as const
 export type DiffViewValue = (typeof DiffView)[keyof typeof DiffView]
+export type DiffState = { path: string; loading: boolean; data?: FileDiff; view: DiffViewValue }
 
 const MAX_DIFF_LINES = 400
 const GIT_TIMEOUT_MS = 5000
 const HUNK = /^@@ /
+const HUNK_HEADER = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/
+
+const recount = (hunk: string[]): string[] => {
+  const header = HUNK_HEADER.exec(hunk[0] ?? '')
+  if (!header) {
+    return hunk
+  }
+  const body = hunk.slice(1)
+  const old = body.filter(l => !l.startsWith('+') && !l.startsWith('\\')).length
+  const added = body.filter(l => !l.startsWith('-') && !l.startsWith('\\')).length
+  return [`@@ -${header[1]},${old} +${header[2]},${added} @@${header[3]}`, ...body]
+}
 
 export const trimHunks = (text: string, max = MAX_DIFF_LINES): { hunks: string; cut: number } => {
   const lines = text.split('\n')
@@ -326,18 +335,27 @@ export const trimHunks = (text: string, max = MAX_DIFF_LINES): { hunks: string; 
   if (body.length <= max) {
     return { hunks: body.join('\n'), cut: 0 }
   }
-  let end = max
+  let end = 0
   for (let i = max; i > 0; i--) {
     if (HUNK.test(body[i] ?? '')) {
       end = i
       break
     }
   }
+  if (!end) {
+    return { hunks: recount(body.slice(0, max)).join('\n'), cut: body.length - max }
+  }
   return { hunks: body.slice(0, end).join('\n'), cut: body.length - end }
 }
 
+const NOT_A_REPO = /not a git repository/i
+
 const git = async (io: Io, cwd: string, args: string[]) =>
-  io.run(['git', '-C', cwd, '-c', 'color.ui=never', '-c', 'core.quotepath=off', ...args], { timeoutMs: GIT_TIMEOUT_MS })
+  io.run(['git', '-C', cwd, '-c', 'color.ui=never', '-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', ...args], { timeoutMs: GIT_TIMEOUT_MS })
+
+const firstLine = (text: string) => text.trim().split('\n')[0]?.trim() || undefined
+
+const errorText = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
 const none = (error?: string): FileDiff => ({ source: DiffSource.NONE, hunks: '', cut: 0, ...(error ? { error } : {}) })
 
@@ -347,22 +365,36 @@ const loadFile = async (io: Io, path: string): Promise<FileDiff> => {
     const shown = lines.slice(0, MAX_DIFF_LINES)
     return { source: DiffSource.FILE, hunks: '', text: shown.join('\n'), cut: lines.length - shown.length }
   } catch (err) {
-    return none(err instanceof Error ? err.message : String(err))
+    return none(errorText(err))
   }
 }
 
 const loadCommit = async (io: Io, cwd: string, path: string): Promise<FileDiff> => {
-  const shown = await git(io, cwd, ['log', '-1', '--no-ext-diff', '-p', '--format=%h %s', '--', path])
+  const shown = await git(io, cwd, ['log', '-1', '--no-ext-diff', '--no-textconv', '-p', '--format=%h %s', '--', path])
   const fromCommit = trimHunks(shown.stdout)
   return shown.exitCode === 0 && fromCommit.hunks
-    ? { source: DiffSource.COMMIT, commit: shown.stdout.split('\n')[0]?.trim(), ...fromCommit }
-    : none(shown.stderr.trim().split('\n')[0] || undefined)
+    ? { source: DiffSource.COMMIT, commit: firstLine(shown.stdout), ...fromCommit }
+    : none(firstLine(shown.stderr))
 }
 
-const loadWorking = async (io: Io, cwd: string, path: string): Promise<FileDiff> => {
-  const working = await git(io, cwd, ['diff', '--no-ext-diff', 'HEAD', '--', path])
+const loadChanges = async (io: Io, cwd: string, path: string): Promise<{ diff: FileDiff; outside: boolean }> => {
+  const working = await git(io, cwd, ['diff', '--no-ext-diff', '--no-textconv', 'HEAD', '--', path])
   const fromWorking = trimHunks(working.stdout)
-  return working.exitCode === 0 && fromWorking.hunks ? { source: DiffSource.WORKING, ...fromWorking } : none(working.stderr.trim().split('\n')[0] || undefined)
+  if (working.exitCode === 0 && fromWorking.hunks) {
+    return { diff: { source: DiffSource.WORKING, ...fromWorking }, outside: false }
+  }
+  const tracked = await git(io, cwd, ['ls-files', '--error-unmatch', '--', path])
+  if (NOT_A_REPO.test(tracked.stderr) || NOT_A_REPO.test(working.stderr)) {
+    return { diff: none(firstLine(tracked.stderr || working.stderr)), outside: true }
+  }
+  if (tracked.exitCode !== 0) {
+    const added = await git(io, cwd, ['diff', '--no-ext-diff', '--no-textconv', '--no-index', '--', '/dev/null', path])
+    const fromNew = trimHunks(added.stdout)
+    if (fromNew.hunks) {
+      return { diff: { source: DiffSource.NEW, ...fromNew }, outside: false }
+    }
+  }
+  return { diff: none(firstLine(working.stderr)), outside: false }
 }
 
 export const loadDiff = async (io: Io, cwd: string, path: string, view: DiffViewValue = DiffView.AUTO): Promise<FileDiff> => {
@@ -373,29 +405,16 @@ export const loadDiff = async (io: Io, cwd: string, path: string, view: DiffView
     if (view === DiffView.COMMIT) {
       return await loadCommit(io, cwd, path)
     }
-    if (view === DiffView.WORKING) {
-      return await loadWorking(io, cwd, path)
+    const changes = await loadChanges(io, cwd, path)
+    if (view === DiffView.WORKING || changes.diff.source !== DiffSource.NONE) {
+      return changes.diff
     }
-    const working = await git(io, cwd, ['diff', '--no-ext-diff', 'HEAD', '--', path])
-    const fromWorking = trimHunks(working.stdout)
-    if (working.exitCode === 0 && fromWorking.hunks) {
-      return { source: DiffSource.WORKING, ...fromWorking }
+    if (changes.outside) {
+      return await loadFile(io, path)
     }
-    const tracked = await git(io, cwd, ['ls-files', '--error-unmatch', '--', path])
-    if (tracked.exitCode !== 0) {
-      const added = await git(io, cwd, ['diff', '--no-ext-diff', '--no-index', '--', '/dev/null', path])
-      const fromNew = trimHunks(added.stdout)
-      if (fromNew.hunks) {
-        return { source: DiffSource.NEW, ...fromNew }
-      }
-    }
-    const shown = await git(io, cwd, ['log', '-1', '--no-ext-diff', '-p', '--format=%h %s', '--', path])
-    const fromCommit = trimHunks(shown.stdout)
-    if (shown.exitCode === 0 && fromCommit.hunks) {
-      return { source: DiffSource.COMMIT, commit: shown.stdout.split('\n')[0]?.trim(), ...fromCommit }
-    }
-    return { source: DiffSource.NONE, hunks: '', cut: 0, error: (working.stderr || shown.stderr).trim().split('\n')[0] || undefined }
+    const commit = await loadCommit(io, cwd, path)
+    return commit.source === DiffSource.NONE ? none(changes.diff.error ?? commit.error) : commit
   } catch (err) {
-    return { source: DiffSource.NONE, hunks: '', cut: 0, error: err instanceof Error ? err.message : String(err) }
+    return none(errorText(err))
   }
 }

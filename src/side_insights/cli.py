@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""claude-qa: read and update this pane's Q&A (current session) through the local panel server.
+"""si-qa: read and update this pane's Q&A (current session) through the local panel server.
 
-  claude-qa [list] [--open]             questions with id and status
-  claude-qa set <id> answered|partial|unanswered|auto
-  claude-qa archive <id> | restore <id>
+  si-qa [list] [--open]             questions with id and status
+  si-qa set <id> answered|partial|unanswered|auto
+  si-qa archive <id> | restore <id>
 """
 import sys
 

@@ -18,7 +18,7 @@ Every name it can define:
 | `term_detect` | yes | Succeeds when the current shell runs in this terminal (check its environment variables) |
 | `term_open <key> <url>` | yes | Opens the panel for pane `<key>`. Show `<url>` in a browser view if the terminal has one, or run `$(panel_view_command <key>)` in a split |
 | `term_find <key>` | no | Prints one handle per line for each open panel of `<key>`. A handle is any string your `term_close` understands. Without it the panel may open twice |
-| `term_close <handle>` | no | Closes one panel. Without it `claude-panel` can only open |
+| `term_close <handle>` | no | Closes one panel. Without it `si-panel` can only open |
 | `PANE_ENV=<VAR>` | no | An environment variable that names this pane. Without it panels are keyed by the Claude session id |
 | `CHILD_ENV_PREFIX=<PREFIX>` | no | Variables with this prefix are removed before the background analysis runs |
 

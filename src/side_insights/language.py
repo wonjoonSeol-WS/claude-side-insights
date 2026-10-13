@@ -1,6 +1,7 @@
 """Supported languages: code, display label and the name used to ask the model for that language."""
 import functools
 import os
+import re
 import subprocess
 import sys
 from enum import Enum
@@ -24,13 +25,19 @@ class Language(Enum):
 DEFAULT = Language.EN
 
 _LOCALE_ENV = ("LC_ALL", "LC_MESSAGES", "LANG")
+_NO_PREFERENCE = ("c", "posix")
+_LANG_RE = re.compile(r"^(ko|ja)([_.@-]|$)")
 _APPLE_LANGUAGES = ["/usr/bin/defaults", "read", "-g", "AppleLanguages"]
 _DETECT_TIMEOUT = 2
 
 
+def _clean(value):
+    return (value or "").strip().strip('",()').lower()
+
+
 def _match(value):
-    value = (value or "").strip().strip('",()').lower()
-    return next((lang for lang in (Language.KO, Language.JA) if value.startswith(lang.code)), None)
+    found = _LANG_RE.match(_clean(value))
+    return Language.from_code(found.group(1)) if found else None
 
 
 def _apple_first_language():
@@ -38,16 +45,19 @@ def _apple_first_language():
         out = subprocess.run(_APPLE_LANGUAGES, capture_output=True, text=True, timeout=_DETECT_TIMEOUT).stdout
     except (OSError, subprocess.SubprocessError):
         return ""
-    return next((line.strip().strip('",()') for line in out.splitlines() if line.strip().strip('",()')), "")
+    return next((_clean(line) for line in out.splitlines() if _clean(line)), "")
+
+
+def _locale_preference():
+    value = next((_clean(os.environ.get(name)) for name in _LOCALE_ENV if _clean(os.environ.get(name))), "")
+    return "" if re.split(r"[.@]", value)[0] in _NO_PREFERENCE else value
 
 
 @functools.lru_cache(maxsize=1)
 def system_language():
-    """Korean or Japanese when the locale or, on macOS, the first preferred language says so; English otherwise."""
-    for name in _LOCALE_ENV:
-        found = _match(os.environ.get(name))
-        if found:
-            return found
+    preference = _locale_preference()
+    if preference:
+        return _match(preference) or DEFAULT
     if sys.platform == "darwin":
         return _match(_apple_first_language()) or DEFAULT
     return DEFAULT

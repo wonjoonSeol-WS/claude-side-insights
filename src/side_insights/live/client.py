@@ -1,4 +1,4 @@
-"""Requests to the local panel server, shared by the terminal panel and claude-qa."""
+"""Requests to the local panel server, shared by the terminal panel and si-qa."""
 import http.client
 import json
 import subprocess

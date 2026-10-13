@@ -1,5 +1,5 @@
 #!/bin/bash
-# List or change this session's Q&A items: claude-qa [list|set|archive|restore] ...
+# List or change this session's Q&A items: si-qa [list|set|archive|restore] ...
 set -u
 PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$PANEL_ROOT/shell/key.sh"

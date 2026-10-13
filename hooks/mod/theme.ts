@@ -26,28 +26,28 @@ export type Palette = {
 
 export const DARK: Palette = {
   dark: true,
-  base: [22, 24, 29],
-  card: [28, 31, 38],
+  base: [13, 17, 23],
+  card: [21, 27, 35],
   code: [17, 19, 23],
-  line: [58, 63, 75],
-  text: [225, 228, 234],
-  muted: [150, 156, 168],
-  faint: [98, 104, 116],
-  blue: [96, 150, 250],
-  green: [79, 191, 127],
-  orange: [231, 163, 62],
-  red: [229, 96, 79],
-  purple: [170, 130, 240],
-  teal: [64, 190, 190],
-  yellow: [240, 200, 90],
-  pink: [236, 112, 170],
-  selected: [44, 50, 66],
-  key: [56, 60, 72],
+  line: [61, 68, 77],
+  text: [240, 246, 252],
+  muted: [145, 152, 161],
+  faint: [101, 108, 118],
+  blue: [68, 147, 248],
+  green: [63, 185, 80],
+  orange: [219, 109, 40],
+  red: [248, 81, 73],
+  purple: [171, 125, 248],
+  teal: [57, 197, 207],
+  yellow: [210, 153, 34],
+  pink: [219, 97, 162],
+  selected: [18, 29, 47],
+  key: [38, 44, 54],
   hero: [
-    [124, 77, 220],
-    [76, 110, 245],
-    [34, 160, 200],
-    [36, 190, 150],
+    [130, 80, 223],
+    [9, 105, 218],
+    [27, 124, 131],
+    [26, 127, 55],
   ],
   heroText: [255, 255, 255],
   cat: [255, 210, 120],
@@ -55,35 +55,35 @@ export const DARK: Palette = {
 
 export const LIGHT: Palette = {
   dark: false,
-  base: [251, 251, 253],
-  card: [244, 245, 248],
+  base: [246, 248, 250],
+  card: [255, 255, 255],
   code: [234, 236, 241],
-  line: [213, 216, 223],
+  line: [209, 217, 224],
   text: [31, 35, 40],
-  muted: [91, 98, 112],
-  faint: [138, 144, 156],
-  blue: [47, 111, 224],
-  green: [31, 143, 85],
-  orange: [194, 119, 18],
-  red: [207, 61, 46],
-  purple: [124, 79, 214],
-  teal: [18, 138, 138],
-  yellow: [168, 122, 0],
-  pink: [200, 60, 130],
-  selected: [227, 233, 247],
-  key: [228, 230, 235],
+  muted: [89, 99, 110],
+  faint: [129, 139, 152],
+  blue: [9, 105, 218],
+  green: [26, 127, 55],
+  orange: [188, 76, 0],
+  red: [209, 36, 47],
+  purple: [130, 80, 223],
+  teal: [27, 124, 131],
+  yellow: [154, 103, 0],
+  pink: [191, 57, 137],
+  selected: [221, 244, 255],
+  key: [239, 242, 245],
   hero: [
-    [124, 77, 220],
-    [76, 110, 245],
-    [34, 140, 190],
-    [26, 160, 125],
+    [130, 80, 223],
+    [9, 105, 218],
+    [27, 124, 131],
+    [26, 127, 55],
   ],
   heroText: [255, 255, 255],
   cat: [255, 214, 130],
 }
 
 export const THEMES = { dark: DARK, light: LIGHT } as const satisfies Record<string, Palette>
-export type ThemeName = keyof typeof THEMES
+type ThemeName = keyof typeof THEMES
 export const AUTO_THEME = 'auto'
 
 const themeOf = (name: string | undefined): ThemeName | undefined =>
@@ -108,7 +108,7 @@ export const mix = (a: Rgb, b: Rgb, amount: number): Rgb => [
 
 export const tint = (p: Palette, color: Rgb, amount = 0.25): string => hex(mix(p.base, color, amount))
 
-export const gradient = (stops: readonly Rgb[], at: number): Rgb => {
+const gradient = (stops: readonly Rgb[], at: number): Rgb => {
   if (stops.length === 1) {
     return stops[0] as Rgb
   }
@@ -120,7 +120,7 @@ export const gradient = (stops: readonly Rgb[], at: number): Rgb => {
 const DEFAULT_COLOR = 0x01000000
 const packed = ([r, g, b]: Rgb) => (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b)
 
-export type Cell = { ch: string; fg?: Rgb; bg?: Rgb }
+type Cell = { ch: string; fg?: Rgb; bg?: Rgb }
 
 export class Canvas {
   readonly cells: Cell[]
@@ -155,7 +155,7 @@ export class Canvas {
 
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/'
 
-export const base64 = (bytes: Uint8Array): string => {
+const base64 = (bytes: Uint8Array): string => {
   let out = ''
   for (let i = 0; i < bytes.length; i += 3) {
     const a = bytes[i] ?? 0
@@ -170,21 +170,26 @@ export const base64 = (bytes: Uint8Array): string => {
 }
 
 export const CAT = 'ᓚᘏᗢ'
-export const GROUND = '⠂'
+const GROUND = '⠂'
 const TITLE = ' ◆ side insights '
 const SPARKS = ['⋅', '✧', '✦', '✧']
 const SNORE = ['z', 'zZ', 'zZz', 'zZ']
 const SPARK_SPOTS = [0.12, 0.31, 0.47, 0.66, 0.83]
 const ROWS = 3
-
-export const HERO_ROWS = ROWS
+const WAVE_FRAMES = 60
+const WAVE_DEPTH = 0.08
+const SPARK_STAGGER = 3
+const SPARK_EVERY_BUSY = 8
+const SPARK_EVERY_IDLE = 24
+const SNORE_FRAMES = 4
+const TRAIL = 3
 
 export const hero = (p: Palette, columns: number, busy: boolean, tick: number): Canvas => {
   const canvas = new Canvas(columns, ROWS)
-  const shift = busy ? (tick % 60) / 60 : 0
+  const shift = busy ? (tick % WAVE_FRAMES) / WAVE_FRAMES : 0
   for (let x = 0; x < columns; x++) {
     const at = columns > 1 ? x / (columns - 1) : 0
-    const wave = busy ? 0.08 * Math.sin((at + shift) * Math.PI * 2) : 0
+    const wave = busy ? WAVE_DEPTH * Math.sin((at + shift) * Math.PI * 2) : 0
     const color = gradient(p.hero, at + wave)
     canvas.set(x, 0, { ch: '▄', fg: color })
     canvas.set(x, 1, { ch: ' ', bg: color })
@@ -192,7 +197,7 @@ export const hero = (p: Palette, columns: number, busy: boolean, tick: number): 
   }
   SPARK_SPOTS.forEach((spot, i) => {
     const x = Math.floor(spot * columns)
-    const phase = (tick + i * 3) % (busy ? 8 : 24)
+    const phase = (tick + i * SPARK_STAGGER) % (busy ? SPARK_EVERY_BUSY : SPARK_EVERY_IDLE)
     const ch = SPARKS[phase % SPARKS.length] ?? '⋅'
     if (phase < SPARKS.length) {
       canvas.set(x, 1, { ch, fg: mix(gradient(p.hero, spot), p.heroText, 0.7) })
@@ -208,14 +213,14 @@ export const hero = (p: Palette, columns: number, busy: boolean, tick: number): 
     if (busy) {
       const room = track - CAT.length
       const spot = tick % (room + 1)
-      for (let d = 1; d <= 3 && spot - d >= 0; d++) {
+      for (let d = 1; d <= TRAIL && spot - d >= 0; d++) {
         canvas.set(trackStart + spot - d, 1, { ch: d === 1 ? '∘' : '⋅', fg: mix(gradient(p.hero, (trackStart + spot) / columns), p.heroText, 0.9 - d * 0.2) })
       }
       canvas.write(trackStart + spot, 1, CAT, p.cat)
     } else {
       const spot = track - CAT.length - 4
       canvas.write(trackStart + spot, 1, CAT, p.cat)
-      const snore = SNORE[Math.floor(tick / 4) % SNORE.length] ?? 'z'
+      const snore = SNORE[Math.floor(tick / SNORE_FRAMES) % SNORE.length] ?? 'z'
       canvas.write(trackStart + spot + CAT.length + 1, 1, snore.padEnd(3, ' '), p.heroText)
     }
   }

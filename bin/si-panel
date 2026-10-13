@@ -28,7 +28,7 @@ else
   done
   if [ "$shown" = 0 ]; then panel_py say panel_shown; else panel_py say panel_failed >&2; status=1; fi
 fi
-if [ -n "$(panel_token)" ]; then
+if [ -z "${SIDE_INSIGHTS_NO_LINK:-}" ] && [ -n "$(panel_token)" ]; then
   panel_py say panel_link
   panel_link "$key"
   echo

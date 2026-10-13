@@ -25,7 +25,7 @@ from side_insights.paths import KEY_RE, PORT, pane_key, read_token
 POLL_SECONDS = 0.1
 ANIMATE_SECONDS = 0.15
 IDLE_REDRAW_SECONDS = 1
-VIEW_TITLE = "claude-panel:"
+VIEW_TITLE = "si-panel:"
 MARGIN = 2
 RIGHT_MARGIN = 1
 SCROLL_STEP = 3

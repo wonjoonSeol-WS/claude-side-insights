@@ -1,6 +1,5 @@
 #!/bin/bash
-# SessionStart hook, also run by `claude-panel --force`: open this pane's panel once through the adapter in terminals/.
-# With --force and no matching adapter, the page opens in the default browser.
+# SessionStart hook, also run by `si-panel --force` (which falls back to the default browser).
 set -u
 [ -z "${SIDE_INSIGHTS_CHILD:-}" ] || exit 0
 umask 077
@@ -26,7 +25,7 @@ if [ -n "$missing" ]; then
 fi
 
 if [ "$force" = 0 ]; then
-  [ "$(panel_py config get panel_auto "$key" 2>/dev/null)" != "0" ] || exit 0
+  [ "$(panel_py config get panel_auto "$key" 2>/dev/null)" = "1" ] || exit 0
 fi
 
 {

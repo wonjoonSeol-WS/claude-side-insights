@@ -14,41 +14,48 @@ import {
   langCode,
   loadMessages,
   rowTurn,
-  type Env,
-  type Io,
   Scope,
   DiffView,
   loadDiff,
   type ConfigPayload,
+  type DiffState,
   type DiffViewValue,
-  type FileDiff,
+  type Env,
   type FlowRecord,
+  type Io,
   type Messages,
   type PanelState,
   type QaItem,
   type Reply,
+  type ScopeValue,
+  type SettingKey,
 } from './data'
+import { MAX_FILES, clampIndex, currentFlow, findItem, isOpen, isShown, selection, sortedFiles } from './select'
 import { DARK, hex, resolvePalette, type Palette } from './theme'
 import {
   HERO_KEY,
+  ON,
   PAD,
+  SCOPE_ROW,
+  TOGGLES,
   Tab,
-  currentFlow,
+  Tone,
+  buttonKeys,
   flow,
   footer,
   header,
   help,
-  keyCatcher,
-  settings,
   heroCanvas,
-  isOpen,
-  isShown,
+  hotkeyLayer,
+  isHiddenKey,
   live,
   qa,
-  selection,
+  settingRows,
+  settings,
   type Actions,
   type Ctx,
   type TabValue,
+  type ToneValue,
   type View,
 } from './views'
 
@@ -70,6 +77,8 @@ const CONFIRM_MS = 4000
 const NOTE_MS = 5000
 const SEP = '  |  '
 const FRAME_MS = 140
+const IDLE_FRAME_EVERY = 4
+const THEME_PROBE_MS = 2000
 
 type Mod = {
   io?: Io
@@ -77,7 +86,7 @@ type Mod = {
   env?: Env
   timer?: { cancel: () => void }
   quiet: boolean
-  ticks: number
+  pollCount: number
   polling: boolean
   pollAgain: boolean
   state?: PanelState
@@ -100,16 +109,20 @@ type Mod = {
   tick: number
   frames?: { cancel: () => void }
   heroCols?: number
+  themeInputs?: { claude?: string; systemDark?: boolean }
+  focusable: string[]
+  lastFocus?: string
+  configSeq: number
   working?: boolean
-  diff?: { path: string; loading: boolean; data?: FileDiff; view: DiffViewValue }
+  diff?: DiffState
   config?: ConfigPayload
 }
 
-const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false, settings: false, scope: Scope.GLOBAL })
+const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false, settings: false, scope: Scope.GLOBAL, settingRow: 0 })
 
 const mod: Mod = {
   quiet: false,
-  ticks: 0,
+  pollCount: 0,
   polling: false,
   pollAgain: false,
   down: false,
@@ -122,6 +135,8 @@ const mod: Mod = {
   noteUntil: 0,
   palette: DARK,
   tick: 0,
+  configSeq: 0,
+  focusable: [],
 }
 
 const t = (key: string, ...args: (string | number)[]) => format(mod.messages, key, ...args)
@@ -146,7 +161,7 @@ const frame = () => {
   }
   const busy = isBusy()
   mod.tick += 1
-  if (!busy && mod.tick % 4) {
+  if (!busy && mod.tick % IDLE_FRAME_EVERY) {
     return
   }
   const canvas = heroCanvas(mod.palette, mod.heroCols, busy, mod.tick)
@@ -162,15 +177,27 @@ const animate = (on: boolean) => {
   }
 }
 
+const paletteKey = (p: Palette) => `${hex(p.base)}${hex(p.code)}`
+
+const repaint = () => {
+  const next = resolvePalette(mod.config?.effective?.theme, mod.themeInputs?.claude, mod.themeInputs?.systemDark)
+  const changed = paletteKey(next) !== paletteKey(mod.palette)
+  mod.palette = next
+  return changed
+}
+
 const loadTheme = async (io: Io) => {
   const [claudeTheme, systemDark] = await Promise.all([io.theme().catch(() => undefined), io.systemDark().catch(() => undefined)])
-  mod.palette = resolvePalette(mod.config?.effective?.theme, claudeTheme, systemDark)
+  mod.themeInputs = { claude: claudeTheme, systemDark }
+  return repaint()
 }
+
+const paneTitle = () => (Object.hasOwn(mod.messages, 'mod_pane_title') ? t('mod_pane_title') : PANE_TITLE)
 
 const now = async () => (mod.io ? mod.io.now() : 0)
 
-const say = async (text: string, color = 'success') => {
-  mod.view.note = { text, color }
+const say = async (text: string, tone: ToneValue = Tone.OK) => {
+  mod.view.note = { text, tone }
   mod.noteUntil = (await now()) + NOTE_MS
   redraw()
 }
@@ -188,13 +215,9 @@ const startServer = async (io: Io) => {
     return
   }
   mod.lastStart = at
-  try {
-    await io.run(['/bin/bash', '-c', '. "$1/shell/key.sh" && ensure_panel_server', '_', io.root], {
-      timeoutMs: START_TIMEOUT_MS,
-    })
-  } catch {
-    return
-  }
+  await io
+    .run(['/bin/bash', '-c', '. "$1/shell/key.sh" && [ -z "$(panel_missing)" ] && ensure_panel_server', '_', io.root], { timeoutMs: START_TIMEOUT_MS })
+    .catch(() => undefined)
 }
 
 const toasts = (io: Io, s: PanelState) => {
@@ -236,7 +259,9 @@ const loadFlow = async () => {
   if (api !== mod.api) {
     return
   }
-  mod.flowLoading = undefined
+  if (mod.flowLoading === id) {
+    mod.flowLoading = undefined
+  }
   if (reply.data) {
     mod.flows.set(id, reply.data)
   } else if (reply.status !== FETCH_ERROR) {
@@ -245,23 +270,32 @@ const loadFlow = async () => {
   redraw()
 }
 
-const loadConfig = async (io: Io, api: Api) => {
-  const config = await api.config()
-  if (config.data) {
-    const before = mod.config?.effective?.theme
-    mod.config = config.data
-    if (before !== config.data.effective?.theme) {
-      await loadTheme(io)
-    }
-  }
-  const lang = config.data ? langCode(config.data.effective?.lang) : (mod.lang ?? langCode(undefined))
+const applyLang = async (io: Io, api: Api, lang: string) => {
   if (lang === mod.lang && Object.keys(mod.messages).length) {
-    return
+    return false
   }
   const cached = mod.messageCache.get(lang) ?? (await loadMessages(io, lang))
+  if (api !== mod.api) {
+    return false
+  }
   mod.messageCache.set(lang, cached)
   mod.lang = lang
   mod.messages = cached
+  return true
+}
+
+const loadConfig = async (io: Io, api: Api) => {
+  const seq = ++mod.configSeq
+  const [config, themeChanged] = await Promise.all([api.config(), loadTheme(io)])
+  if (api !== mod.api || seq !== mod.configSeq) {
+    return themeChanged
+  }
+  if (config.data) {
+    mod.config = config.data
+  }
+  const painted = repaint()
+  const lang = config.data ? langCode(config.data.effective?.lang) : (mod.lang ?? langCode(undefined))
+  return (await applyLang(io, api, lang)) || themeChanged || painted
 }
 
 const pruneSelection = () => {
@@ -272,30 +306,36 @@ const pruneSelection = () => {
 }
 
 const pollOnce = async (io: Io, api: Api) => {
-  mod.ticks += 1
+  mod.pollCount += 1
   const s = mod.state
   const idle = !!s && !mod.paneOpen && !isBusy() && !s.qa.waiting.length && !s.qa.pending
-  if (idle && mod.ticks % IDLE_EVERY !== 0) {
+  if (idle && mod.pollCount % IDLE_EVERY !== 0) {
     return
   }
   const wasDown = mod.down
-  if (mod.ticks === 1 || mod.ticks % CONFIG_EVERY === 0 || !Object.keys(mod.messages).length) {
-    await loadConfig(io, api)
+  let changed = false
+  if (mod.pollCount === 1 || mod.pollCount % CONFIG_EVERY === 0 || !Object.keys(mod.messages).length) {
+    changed = await loadConfig(io, api)
+    if (api !== mod.api) {
+      return
+    }
   }
   const reply = await api.state()
   if (api !== mod.api) {
     return
   }
-  let changed = false
   if (reply.data) {
     const text = JSON.stringify(reply.data)
-    changed = text !== mod.stateText || mod.down || !!mod.httpError
+    changed = changed || text !== mod.stateText || mod.down || !!mod.httpError
     mod.state = reply.data
     mod.stateText = text
     mod.down = false
     mod.httpError = undefined
     if (wasDown) {
       await loadConfig(io, api)
+      if (api !== mod.api) {
+        return
+      }
     }
     toasts(io, reply.data)
     pruneSelection()
@@ -303,13 +343,13 @@ const pollOnce = async (io: Io, api: Api) => {
       await loadFlow()
     }
   } else if (reply.status === FETCH_ERROR) {
-    changed = !mod.down
+    changed = changed || !mod.down
     mod.down = true
     mod.httpError = undefined
     await startServer(io)
   } else {
     const error = reply.error ?? `HTTP ${reply.status}`
-    changed = mod.down || error !== mod.httpError
+    changed = changed || mod.down || error !== mod.httpError
     mod.down = false
     mod.httpError = error
   }
@@ -323,11 +363,6 @@ const pollOnce = async (io: Io, api: Api) => {
 }
 
 const poll = async () => {
-  const io = mod.io
-  const api = mod.api
-  if (!io || !api) {
-    return
-  }
   if (mod.polling) {
     mod.pollAgain = true
     return
@@ -336,15 +371,20 @@ const poll = async () => {
   try {
     do {
       mod.pollAgain = false
+      const io = mod.io
+      const api = mod.api
+      if (!io || !api) {
+        break
+      }
       await pollOnce(io, api)
-    } while (mod.pollAgain && api === mod.api)
+    } while (mod.pollAgain)
   } finally {
     mod.polling = false
   }
 }
 
 const reset = () => {
-  mod.ticks = 0
+  mod.pollCount = 0
   mod.state = undefined
   mod.stateText = undefined
   mod.down = false
@@ -355,8 +395,6 @@ const reset = () => {
   mod.flowLoading = undefined
   mod.confirm = undefined
   mod.diff = undefined
-  mod.polling = false
-  mod.pollAgain = false
   mod.view = { ...freshView(), tab: mod.view.tab }
 }
 
@@ -375,7 +413,7 @@ const confirmed = async (key: string) => {
     return true
   }
   mod.confirm = { key, until: at + CONFIRM_MS }
-  await say(t('term_confirm', 'r'), 'warning')
+  await say(t('term_confirm', 'r'), Tone.WARN)
   return false
 }
 
@@ -385,11 +423,9 @@ const run = async (action: () => Promise<Reply<unknown>>, done: string) => {
     await say(done)
     await poll()
   } else {
-    await say(t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err'))), 'error')
+    await say(failure(reply), Tone.ERROR)
   }
 }
-
-const sortedFiles = () => [...(mod.state?.activity.files ?? [])].sort((a, b) => b.last - a.last)
 
 const absolute = (path: string) => {
   const home = mod.env?.home ?? ''
@@ -406,14 +442,62 @@ const dropDiff = () => {
 }
 
 const refreshConfig = async () => {
-  const reply = await mod.api?.config()
-  if (reply?.data) {
-    mod.config = reply.data
-    if (mod.io) {
-      await loadTheme(mod.io)
-    }
+  const io = mod.io
+  const api = mod.api
+  if (!io || !api) {
+    return
+  }
+  await loadConfig(io, api)
+  if (api === mod.api) {
     redraw()
   }
+}
+
+const failure = (reply: Reply<unknown>) => t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err')))
+
+const assume = (key: SettingKey, value: string | boolean, scope: ScopeValue) => {
+  const c = mod.config
+  if (!c?.effective) {
+    return
+  }
+  const overridden = !!c.pane && Object.hasOwn(c.pane, key)
+  mod.config = {
+    ...c,
+    effective: scope === Scope.PANE || !overridden ? { ...c.effective, [key]: value } : c.effective,
+    ...(scope === Scope.PANE ? { pane: { ...c.pane, [key]: value } } : { global: { ...(c.global ?? c.effective), [key]: value } }),
+  }
+}
+
+const saveSetting = (key: SettingKey, value: string | boolean) => {
+  const api = mod.api
+  const io = mod.io
+  if (!api || !io) {
+    return
+  }
+  const scope = mod.view.scope
+  const seq = ++mod.configSeq
+  assume(key, value, scope)
+  repaint()
+  redraw()
+  void api.saveConfig({ [key]: value }, scope).then(async reply => {
+    if (api !== mod.api) {
+      return
+    }
+    if (!isOk(reply)) {
+      return say(failure(reply), Tone.ERROR)
+    }
+    if (reply.data && seq === mod.configSeq) {
+      const pane = mod.config?.pane ?? {}
+      const data = reply.data
+      mod.config = scope === Scope.PANE || !data.effective ? data : { ...data, pane, effective: { ...data.effective, ...pane } }
+      repaint()
+      await applyLang(io, api, langCode(mod.config.effective?.lang))
+      if (api !== mod.api) {
+        return
+      }
+    }
+    await say(t('mod_settings_saved'))
+  })
 }
 
 const showDiff = async (path: string, view: DiffViewValue = DiffView.AUTO) => {
@@ -421,13 +505,9 @@ const showDiff = async (path: string, view: DiffViewValue = DiffView.AUTO) => {
   if (!io) {
     return
   }
-  if (view === DiffView.AUTO && mod.diff?.path === path && mod.view.file === path) {
-    dropDiff()
-    redraw()
-    return
-  }
   const full = absolute(path)
-  const dir = full.slice(0, full.lastIndexOf('/')) || '/'
+  const slash = full.lastIndexOf('/')
+  const dir = slash > 0 ? full.slice(0, slash) : slash === 0 ? '/' : '.'
   mod.view.file = path
   mod.diff = { path, loading: true, view }
   redraw()
@@ -445,23 +525,37 @@ const openBrowserPanel = async (): Promise<string> => {
     return t('panel_failed')
   }
   if (mod.env?.cmux) {
-    const out = await io.run([`${io.root}/bin/claude-panel`], { timeoutMs: BROWSER_TIMEOUT_MS }).catch(() => undefined)
+    const out = await io.run([`${io.root}/bin/si-panel`], { timeoutMs: BROWSER_TIMEOUT_MS, env: { SIDE_INSIGHTS_NO_LINK: '1' } }).catch(() => undefined)
     return out ? [out.stdout, out.stderr].map(x => x.trim()).filter(Boolean).join('\n') || t('panel_shown') : t('panel_failed')
   }
   const reply = await api.open('')
-  if (!isOk(reply)) {
-    return t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err')))
-  }
-  return `${t('panel_requested')}\n${api.pageUrl()}`
+  return isOk(reply) ? t('panel_requested') : failure(reply)
 }
 
-const allItems = () => (mod.state?.qa.turns ?? []).flatMap(x => x.items ?? [])
+const qaTurns = () => mod.state?.qa.turns ?? []
 
 const selectedId = () => (mod.state ? selection(mod.view, mod.state.qa.turns) : undefined)
 
-const selectedItem = (): QaItem | undefined => {
-  const id = selectedId()
-  return id ? allItems().find(i => i.id === id) : undefined
+const selectedItem = (): QaItem | undefined => findItem(qaTurns(), selectedId())
+
+type FilterField = 'statusFilter' | 'toolFilter' | 'toolOpen'
+
+const flip = (field: FilterField, value: string) => {
+  mod.view[field] = mod.view[field] === value ? undefined : value
+}
+
+const toggleFlag = (field: 'openOnly' | 'showArchived', name: string) => {
+  mod.view[field] = !mod.view[field]
+  pruneSelection()
+  void say(`${name}: ${t(mod.view[field] ? 'on' : 'off')}`, Tone.INFO)
+}
+
+const goFlow = (id: string | undefined) => {
+  dropDiff()
+  mod.view.flowId = id
+  mod.view.step = 0
+  redraw()
+  void loadFlow()
 }
 
 type Copy = (text: string, surface: RenderSurface) => Promise<UiCopyResult>
@@ -469,7 +563,7 @@ type Copy = (text: string, surface: RenderSurface) => Promise<UiCopyResult>
 const withItem = (act: (item: QaItem, api: Api) => void) => () => {
   const item = selectedItem()
   if (!item || !mod.api) {
-    void say(t('mod_no_item'), 'warning')
+    void say(t('mod_no_item'), Tone.WARN)
     return
   }
   act(item, mod.api)
@@ -477,30 +571,35 @@ const withItem = (act: (item: QaItem, api: Api) => void) => () => {
 
 const actions = (copyText: Copy): Actions => ({
   openFile: path => {
+    if (mod.diff?.path === path && mod.view.file === path) {
+      dropDiff()
+      redraw()
+      return
+    }
     void showDiff(path)
   },
   fileBy: delta => {
-    const files = sortedFiles()
+    const files = sortedFiles(mod.state?.activity.files).slice(0, MAX_FILES)
     if (!files.length) {
       return
     }
     const at = files.findIndex(f => f.path === mod.view.file)
-    const next = files[at < 0 ? 0 : Math.max(0, Math.min(files.length - 1, at + delta))]
-    if (next) {
+    const next = files[at < 0 ? 0 : clampIndex(at + delta, files.length)]
+    if (next && next.path !== mod.view.file) {
       void showDiff(next.path)
     }
   },
   filterStatus: status => {
-    mod.view.statusFilter = mod.view.statusFilter === status ? undefined : status
+    flip('statusFilter', status)
     pruneSelection()
     redraw()
   },
   toggleTool: id => {
-    mod.view.toolOpen = mod.view.toolOpen === id ? undefined : id
+    flip('toolOpen', id)
     redraw()
   },
   filterTools: state => {
-    mod.view.toolFilter = mod.view.toolFilter === state ? undefined : state
+    flip('toolFilter', state)
     redraw()
   },
   diffView: view => {
@@ -513,7 +612,7 @@ const actions = (copyText: Copy): Actions => ({
     redraw()
   },
   unusedKey: key => {
-    void say(t('mod_key_unused', key), 'suggestion')
+    void say(t('mod_key_unused', key), Tone.INFO)
   },
   toggleHelp: () => {
     mod.view.help = !mod.view.help
@@ -528,25 +627,32 @@ const actions = (copyText: Copy): Actions => ({
       void refreshConfig()
     }
   },
-  setScope: scope => {
-    mod.view.scope = scope
+  settingBy: delta => {
+    const rows = settingRows(mod.config, mod.view.scope, t)
+    mod.view.settingRow = clampIndex(mod.view.settingRow + delta, rows.length)
     redraw()
   },
-  saveSetting: (key, value) => {
-    const api = mod.api
-    const io = mod.io
-    if (!api || !io) {
+  settingValue: (delta, row) => {
+    const rows = settingRows(mod.config, mod.view.scope, t)
+    const at = clampIndex(row ?? mod.view.settingRow, rows.length)
+    const r = rows[at]
+    if (!r) {
       return
     }
-    void api.saveConfig({ [key]: value }, mod.view.scope).then(async reply => {
-      if (!isOk(reply)) {
-        return say(t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err'))), 'error')
-      }
-      mod.config = reply.data
-      await loadConfig(io, api)
-      await loadTheme(io)
-      await say(t('mod_settings_saved'))
-    })
+    mod.view.settingRow = at
+    const n = r.options.length
+    const i = r.options.findIndex(o => o.value === r.value)
+    const next = r.options[((((i < 0 && delta > 0 ? -1 : Math.max(0, i)) + delta) % n) + n) % n]
+    if (!next || next.value === r.value) {
+      redraw()
+      return
+    }
+    if (r.key === SCOPE_ROW) {
+      mod.view.scope = next.value === Scope.PANE ? Scope.PANE : Scope.GLOBAL
+      redraw()
+      return
+    }
+    saveSetting(r.key, TOGGLES.includes(r.key) ? next.value === ON : next.value)
   },
   setTab: (tab: TabValue) => {
     dropDiff()
@@ -558,57 +664,57 @@ const actions = (copyText: Copy): Actions => ({
       void loadFlow()
     }
   },
-  flowTo: id => {
-    dropDiff()
-    mod.view.flowId = id
-    mod.view.step = 0
-    redraw()
-    void loadFlow()
-  },
+  flowTo: id => goFlow(id),
   flowBy: delta => {
     const flows = mod.state?.flows ?? []
-    if (!flows.length) {
-      return
+    if (flows.length) {
+      goFlow(flows[clampIndex(currentFlow(flows, mod.view.flowId).index + delta, flows.length)]?.id)
     }
-    dropDiff()
-    const { index } = currentFlow(flows, mod.view.flowId)
-    mod.view.flowId = flows[Math.max(0, Math.min(flows.length - 1, index + delta))]?.id
-    mod.view.step = 0
-    redraw()
-    void loadFlow()
   },
   stepTo: step => {
     dropDiff()
     const id = flowId()
     const steps = (id && mod.flows.get(id)?.flow?.steps?.length) || 1
-    mod.view.step = Math.max(0, Math.min(steps - 1, step))
+    mod.view.step = clampIndex(step, steps)
     redraw()
   },
   select: id => {
     mod.view.selected = id
     redraw()
   },
+  pickQuestion: (id, press) => {
+    mod.view.selected = id
+    redraw()
+    const question = findItem(qaTurns(), id)?.question
+    if (!question) {
+      return
+    }
+    void copyText(question, press.surface).then(
+      r => say(t(r.isCopied ? 'mod_copied_question' : 'copy_failed'), r.isCopied ? Tone.OK : Tone.ERROR),
+      () => say(t('copy_failed'), Tone.ERROR),
+    )
+  },
   archive: withItem((item, api) => {
     const archived = !item.archived
-    void run(() => api.setArchived(item.id, archived), t(archived ? 'term_archived' : 'term_restored'))
+    void run(() => api.override(item.id, { archived }), t(archived ? 'term_archived' : 'term_restored'))
   }),
   copy: (press: UiPressArgument) => {
     const item = selectedItem()
     if (!item) {
-      void say(t('mod_no_item'), 'warning')
+      void say(t('mod_no_item'), Tone.WARN)
       return
     }
     const text = t('ask_message', (item.question ?? '').split(/\s+/).filter(Boolean).join(' '))
     void copyText(text, press.surface).then(
-      r => say(t(r.isCopied ? 'copy_done' : 'copy_failed'), r.isCopied ? 'success' : 'error'),
-      () => say(t('copy_failed'), 'error'),
+      r => say(t(r.isCopied ? 'copy_done' : 'copy_failed'), r.isCopied ? Tone.OK : Tone.ERROR),
+      () => say(t('copy_failed'), Tone.ERROR),
     )
   },
   recheck: () => {
     const id = selectedId()
     const api = mod.api
     if (!id || !api) {
-      void say(t('mod_no_item'), 'warning')
+      void say(t('mod_no_item'), Tone.WARN)
       return
     }
     void confirmed(`qa:r:${id}`).then(ok => {
@@ -617,10 +723,10 @@ const actions = (copyText: Copy): Actions => ({
       }
       const turn = rowTurn(id)
       const params = turn ? { target: Regen.QA, turn } : { target: Regen.QA, item: id }
-      const marked = !turn && allItems().find(i => i.id === id)?.manual
+      const marked = !turn && findItem(qaTurns(), id)?.manual
       return run(async () => {
         if (marked) {
-          const cleared = await api.setStatus(id, null)
+          const cleared = await api.override(id, { status: null })
           if (!isOk(cleared)) {
             return cleared
           }
@@ -636,26 +742,14 @@ const actions = (copyText: Copy): Actions => ({
     }
     void confirmed('flow:r').then(ok => (ok ? run(() => api.regen({ target: Regen.FLOW }), t('flow_started')) : undefined))
   },
-  toggleOpenOnly: () => {
-    mod.view.openOnly = !mod.view.openOnly
-    pruneSelection()
-    void say(`${t('qa_open_only')}: ${t(mod.view.openOnly ? 'on' : 'off')}`, 'suggestion')
-  },
-  toggleArchived: () => {
-    mod.view.showArchived = !mod.view.showArchived
-    pruneSelection()
-    void say(`${t('qa_archived')}: ${t(mod.view.showArchived ? 'on' : 'off')}`, 'suggestion')
-  },
+  toggleOpenOnly: () => toggleFlag('openOnly', t('qa_open_only')),
+  toggleArchived: () => toggleFlag('showArchived', t('qa_archived')),
   openBrowser: () => {
     const api = mod.api
     if (!api) {
       return
     }
-    void api.open(mod.view.tab).then(reply => {
-      if (!isOk(reply)) {
-        return say(t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err'))), 'error')
-      }
-    })
+    void api.open(mod.view.tab).then(reply => (isOk(reply) ? undefined : say(failure(reply), Tone.ERROR)))
   },
 })
 
@@ -673,7 +767,7 @@ const bandLine = (cols: number): string | undefined => {
   const latest = s.flows.find(f => f.status === RecordStatus.OK)
   const parts: string[] = []
   if (n.total) {
-    parts.push(`Q&A ✓ ${n.answered}  ◐ ${n.partial}  ✗ ${n.unanswered}`)
+    parts.push(`${t('mode_qa')} ✓ ${n.answered}  ◐ ${n.partial}  ✗ ${n.unanswered}`)
   }
   if (s.qa.pending) {
     parts.push(`⠋ ${t('qa_checking')}`)
@@ -716,7 +810,7 @@ export const register: Register = on => {
         blit: (key, columns, rows, cells) => $.ui.blit({ requestId: PANE, key, columns, rows, cells }),
         every: (ms, fn) => $.clock.every(ms, fn),
         systemDark: async () => {
-          const out = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: 2000 }).catch(() => undefined)
+          const out = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: THEME_PROBE_MS }).catch(() => undefined)
           if (out?.stdout.trim().toLowerCase() === 'dark') {
             return true
           }
@@ -750,15 +844,15 @@ export const register: Register = on => {
     return next(e)
   }).catch(($, e, next) => next(e))
 
-  on('command.run', { command: 'si-browser' }, async () => ({ text: await openBrowserPanel() })).catch(($, e, next) => next(e))
+  on('command.run', { command: BROWSER_COMMAND }, async () => ({ text: await openBrowserPanel() })).catch(($, e, next) => next(e))
 
-  on('command.run', { command: ['side-insights', 'si'] }, async $ => {
+  on('command.run', { command: PANE_COMMANDS }, async $ => {
     mod.paneOpen = true
-    if (mod.io) {
-      await loadTheme(mod.io)
+    await $.ui.open({ id: PANE, title: paneTitle(), focus: true })
+    const io = mod.io
+    if (io && (await loadTheme(io))) {
+      redraw()
     }
-    await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true })
-    animate(true)
     void poll()
     return {}
   }).catch(($, e, next) => next(e))
@@ -767,6 +861,17 @@ export const register: Register = on => {
     mod.paneOpen = false
     animate(false)
     return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('ui.focus', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const visible = mod.focusable
+    if (!e.element || !isHiddenKey(e.element) || !visible.length) {
+      mod.lastFocus = e.element
+      return next(e)
+    }
+    const target = mod.lastFocus === visible[0] ? visible[visible.length - 1] : visible[0]
+    mod.lastFocus = target
+    return next({ ...e, element: target })
   }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -805,12 +910,13 @@ export const register: Register = on => {
     const ui = $.ui.resolve(e)
     const { Box } = ui
     const id = flowId()
+    const terminal = e.surface === 'terminal'
     mod.paneOpen = true
-    animate(true)
+    animate(terminal)
     mod.heroCols = e.props.bodyColumns
     const c: Ctx = {
       ui,
-      raster: e.surface === 'terminal' ? $.ui.resolve(e).Raster : undefined,
+      raster: terminal ? $.ui.resolve(e).Raster : undefined,
       p: mod.palette,
       tick: mod.tick,
       busy: isBusy(),
@@ -827,14 +933,18 @@ export const register: Register = on => {
       problem: problem(),
       diff: mod.diff,
       config: mod.config,
+      hotkeys: [],
     }
+    const top = header(c)
     const body = mod.view.settings ? settings(c) : mod.view.help ? help(c) : mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
+    const bottom = footer(c)
+    mod.focusable = buttonKeys([top, body, bottom])
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} minHeight={e.props.scroll.bodyRows} paddingX={PAD} paddingY={1} backgroundColor={hex(mod.palette.base)}>
-        {keyCatcher(c)}
-        {header(c)}
+        {top}
         {body}
-        {footer(c)}
+        {bottom}
+        {hotkeyLayer(c)}
       </Box>
     )
   })

@@ -1,4 +1,4 @@
-# Orca: the terminal panel (claude-activity) in a split next to Claude, through the orca CLI.
+# Orca: the terminal panel (si-activity) in a split next to Claude, through the orca CLI.
 PANE_ENV=ORCA_PANE_KEY
 CHILD_ENV_PREFIX=ORCA_
 

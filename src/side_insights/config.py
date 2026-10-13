@@ -13,7 +13,8 @@ from side_insights.language import DEFAULT as DEFAULT_LANGUAGE, Language, system
 
 PATH = os.path.join(DATA, "config.json")
 MODELS = ("opus", "sonnet", "haiku")
-THEMES = ("auto", "dark", "light")
+AUTO_THEME = "auto"
+THEMES = (AUTO_THEME, "dark", "light")
 _MODEL_RE = re.compile(r"^(%s|claude-[a-z0-9.-]+)$" % "|".join(MODELS))
 _SAVE_LOCK = threading.Lock()
 
@@ -24,7 +25,7 @@ class Setting(Enum):
     FLOW_AUTO = ("flow_auto", True)
     QA_AUTO = ("qa_auto", True)
     PANEL_AUTO = ("panel_auto", False)
-    THEME = ("theme", "auto")
+    THEME = ("theme", AUTO_THEME)
 
     def __init__(self, key, default):
         self.key = key
@@ -59,7 +60,6 @@ def overrides(pane):
 
 
 def load(pane=None):
-    """Effective settings: defaults, then the global values, then this pane's overrides."""
     saved = _saved()
     defaults = {**{s.key: s.default for s in Setting}, Setting.LANG.key: system_language().code}
     return {**defaults, **_valid_only(saved), **overrides(pane)}
@@ -70,7 +70,6 @@ def get(name, pane=None):
 
 
 def save(update, pane=None):
-    """Save global values, or this pane's overrides when pane is given. A None value removes a pane override."""
     if not isinstance(update, dict):
         raise ValueError("settings must be an object")
     for name, value in update.items():
