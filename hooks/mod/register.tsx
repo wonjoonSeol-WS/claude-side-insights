@@ -294,7 +294,7 @@ const pollOnce = async (io: Io, api: Api) => {
     mod.stateText = text
     mod.down = false
     mod.httpError = undefined
-    if (false) {
+    if (wasDown) {
       await loadConfig(io, api)
     }
     toasts(io, reply.data)
