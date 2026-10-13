@@ -448,7 +448,8 @@ const dropDiff = () => {
   mod.view.file = undefined
 }
 
-const KO_FIELD_RESET = 16
+const KO_FIELD_IDLE_MS = 600
+let koClear: { cancel: () => void } | undefined
 
 const runKey = (key: string, surface: RenderSurface) => {
   const press = mod.hotkeys.get(key)
@@ -467,11 +468,12 @@ const onKoreanInput = (value: string, surface: RenderSurface) => {
   for (const key of fresh) {
     runKey(key, surface)
   }
-  if (value.length >= KO_FIELD_RESET) {
+  koClear?.cancel()
+  koClear = mod.io?.after(KO_FIELD_IDLE_MS, () => {
     mod.koValue = ''
     mod.koSent = 0
     redraw()
-  }
+  })
 }
 
 const koreanKeyField = (ui: unknown, surface: RenderSurface) => {
@@ -861,6 +863,7 @@ export const register: Register = on => {
         invalidate: () => $.ui.invalidate('ui.render'),
         blit: (key, columns, rows, cells) => $.ui.blit({ requestId: PANE, key, columns, rows, cells }),
         every: (ms, fn) => $.clock.every(ms, fn),
+        after: (ms, fn) => $.clock.after(ms, fn),
         systemDark: async () => {
           const out = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: THEME_PROBE_MS }).catch(() => undefined)
           if (out?.stdout.trim().toLowerCase() === 'dark') {

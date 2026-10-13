@@ -8,6 +8,7 @@ export type Io = {
   invalidate: () => void
   blit: (key: string, columns: number, rows: number, cells: string) => Promise<unknown>
   every: (ms: number, fn: () => void) => { cancel: () => void }
+  after: (ms: number, fn: () => void) => { cancel: () => void }
   theme: () => Promise<string | undefined>
   systemDark: () => Promise<boolean | undefined>
   now: () => Promise<number>
