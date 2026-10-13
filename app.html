@@ -1,0 +1,493 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Flow</title>
+<style>
+:root {
+  --bg: #161514; --panel: #1f1e1c; --panel-2: #262422; --line: #34322f; --text: #ece9e4; --muted: #9a958d; --faint: #6d6862;
+  --blue: #5b8def; --orange: #e7a33e; --green: #4fbf7f; --red: #e5604f; --purple: #a98bea; --teal: #3fb6b0; --gray: #8b8780;
+  --hl: rgba(231, 199, 62, .16); --hl-line: #e7c73e;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Pretendard", sans-serif; }
+button { font: inherit; color: inherit; cursor: pointer; }
+code, .mono { font-family: var(--mono); font-size: 12.5px; }
+.wrap { padding: 12px 14px 24px; max-width: 1800px; margin: 0 auto; }
+
+.top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; flex: 1 1 auto; min-width: 0; scrollbar-width: none; }
+.tab { flex: none; border: 1px solid var(--line); background: transparent; border-radius: 999px; padding: 6px 14px; color: var(--muted); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.tab b { color: var(--text); margin-right: 6px; }
+.tab.on { background: var(--text); color: #1a1918; border-color: var(--text); }
+.tab.on b { color: #1a1918; }
+.tab.err { border-color: var(--red); }
+.ctrl { display: flex; align-items: center; gap: 6px; flex: none; }
+.btn { border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 6px 12px; }
+.btn:hover { border-color: var(--faint); }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+.count { color: var(--muted); min-width: 56px; text-align: center; font-variant-numeric: tabular-nums; }
+.progress { height: 3px; background: var(--line); border-radius: 2px; margin: 10px 0 14px; overflow: hidden; }
+.progress i { display: block; height: 100%; background: var(--blue); transition: width .3s; }
+
+.modes { display: flex; gap: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.mode { border: 0; background: transparent; padding: 4px 10px; border-radius: 7px; color: var(--muted); }
+.mode.on { background: var(--panel-2); color: var(--text); }
+.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px; font-size: 12.5px; border: 1px solid var(--line); color: var(--muted); }
+.pill.busy { color: var(--orange); border-color: rgba(231,163,62,.5); }
+.pill.gen { color: var(--blue); border-color: rgba(91,141,239,.5); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.busy .dot, .gen .dot { animation: pulse 1s infinite; }
+@keyframes pulse { 50% { opacity: .25; } }
+
+.grid { display: grid; grid-template-columns: 300px minmax(0, 1fr) 360px; gap: 14px; align-items: start; }
+@media (max-width: 1250px) { .grid { grid-template-columns: 260px minmax(0, 1fr); } .side { grid-column: 1 / -1; } }
+@media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } .tab { max-width: 180px; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.card h3 { margin: 0 0 12px; font-size: 13px; color: var(--muted); font-weight: 600; letter-spacing: .02em; }
+
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.legend span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); margin-right: 5px; }
+.steps { list-style: none; margin: 0; padding: 0; }
+.step { display: flex; gap: 12px; padding: 8px; border-radius: 10px; cursor: pointer; border: 1px solid transparent; position: relative; }
+.step:hover { background: var(--panel-2); }
+.step.on { background: var(--panel-2); border-color: var(--line); }
+.step + .step::before { content: ""; position: absolute; left: 24px; top: -8px; height: 12px; border-left: 1px dashed var(--line); }
+.num { flex: none; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--c); color: var(--c); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+.step.changed .num { background: color-mix(in srgb, var(--c) 22%, transparent); box-shadow: 0 0 0 3px rgba(231,199,62,.25); }
+.step .t { font-weight: 600; line-height: 1.35; }
+.step .l { color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.chg { font-size: 11px; color: var(--hl-line); margin-left: 6px; font-weight: 600; }
+.note { border-top: 1px dashed var(--line); margin-top: 12px; padding-top: 10px; color: var(--muted); font-size: 12.5px; }
+
+.ctx { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.h { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 8px; }
+.h h2 { margin: 0; font-size: 22px; }
+.badge { font-size: 12px; border-radius: 6px; padding: 2px 8px; background: color-mix(in srgb, var(--c) 22%, transparent); color: var(--c); font-weight: 600; }
+.loc { display: inline-block; background: var(--panel-2); border-radius: 6px; padding: 2px 8px; margin-bottom: 12px; word-break: break-all; }
+.explain { margin: 0 0 18px; padding: 0; list-style: none; max-width: 72ch; }
+.explain li { font-size: 15px; line-height: 1.7; padding: 3px 0 3px 16px; position: relative; overflow-wrap: anywhere; }
+.explain li::before { content: ""; position: absolute; left: 2px; top: 13px; width: 5px; height: 5px; border-radius: 50%; background: var(--faint); }
+.explain li.sub { padding-left: 32px; color: var(--muted); }
+.explain li.sub::before { left: 18px; background: transparent; border: 1px solid var(--faint); }
+strong { color: #fff; font-weight: 700; }
+em { color: #d9cfe9; }
+mark { background: rgba(231,199,62,.22); color: #f3e3a3; border-radius: 4px; padding: 0 3px; }
+.explain code, .note code, .row .v code, .qa code { background: var(--panel-2); border-radius: 5px; padding: 1px 6px; font-size: 12.5px; color: #e9dcc0; }
+.label { color: var(--muted); font-size: 12.5px; margin: 14px 0 6px; }
+pre.code { margin: 0; background: #141312; border: 1px solid var(--line); border-radius: 10px; padding: 12px 0; overflow-x: auto; font: 12.5px/1.6 var(--mono); }
+pre.code { overflow-x: hidden; }
+pre.code span { display: block; padding: 1px 14px 1px 2.2em; text-indent: -1.2em; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.code span.hl { background: var(--hl); box-shadow: inset 3px 0 var(--hl-line); }
+table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.data td { border-top: 1px solid var(--line); padding: 7px 8px; vertical-align: top; word-break: break-all; }
+table.data td:first-child { color: var(--muted); width: 34%; }
+.before { text-decoration: line-through; color: var(--faint); margin-right: 8px; }
+.after { color: var(--hl-line); font-family: var(--mono); }
+
+.rows { display: flex; flex-direction: column; }
+.row { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; align-items: baseline; }
+.row:first-child { border-top: 0; }
+.row .k { flex: none; font-family: var(--mono); font-size: 12px; }
+.row .v { min-width: 0; color: var(--muted); overflow-wrap: anywhere; }
+.st-ok { color: var(--green); } .st-err { color: var(--red); } .st-run { color: var(--orange); } .st-lost { color: var(--faint); }
+.A { color: var(--green); } .M { color: var(--orange); }
+.side .card + .card { margin-top: 14px; }
+.tool { display: grid; grid-template-columns: 14px 62px minmax(60px, 120px) minmax(0, 1fr) auto; gap: 8px; padding: 5px 0; border-top: 1px solid var(--line); font-size: 12.5px; align-items: baseline; }
+.tool:first-child { border-top: 0; }
+.tool .time { color: var(--faint); font-family: var(--mono); font-size: 11.5px; }
+.tool .name { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool .sum { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool .dur { color: var(--faint); font-family: var(--mono); font-size: 11.5px; }
+.name.edit { color: var(--purple); } .name.mcp { color: var(--teal); } .name.other { color: var(--blue); }
+.empty { color: var(--faint); padding: 18px 0; text-align: center; }
+.big-empty { padding: 60px 20px; text-align: center; color: var(--muted); }
+.big-empty b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
+.err-box { border: 1px solid rgba(229,96,79,.5); background: rgba(229,96,79,.08); border-radius: 10px; padding: 12px; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; }
+.live-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+@media (max-width: 1000px) { .live-grid { grid-template-columns: minmax(0, 1fr); } }
+.qa-turn { margin-bottom: 14px; }
+.qa-head { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
+.qa-head .p { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.qa-item { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.qa-item:first-of-type { border-top: 0; }
+.qa-item .q { font-weight: 700; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.qa-item .q small { font-weight: 400; color: var(--faint); margin-left: 6px; font-size: 11.5px; }
+.qa-item .a { color: var(--muted); font-size: 14px; line-height: 1.65; margin-top: 4px; overflow-wrap: anywhere; }
+.qa-item.archived { opacity: .45; }
+.qid { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 8px; font-weight: 400; user-select: all; }
+.pager { display: flex; justify-content: center; align-items: center; gap: 4px; margin: 6px 0 14px; flex-wrap: wrap; }
+.pager button { min-width: 32px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 3px 9px; font-size: 13px; color: var(--muted); }
+.pager button.on { background: var(--text); color: #1a1918; border-color: var(--text); font-weight: 700; }
+.pager button:disabled { opacity: .35; cursor: default; }
+.pager span { color: var(--faint); font-size: 12.5px; margin: 0 6px; }
+.qa-tools { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.mini { border: 1px solid var(--line); background: transparent; border-radius: 7px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
+.mini:hover { color: var(--text); border-color: var(--faint); }
+.chip.manual { outline: 1px dashed currentColor; outline-offset: 1px; }
+button.chip { border: 0; }
+.chip { font-size: 12px; border-radius: 999px; padding: 2px 8px; text-align: center; align-self: start; font-weight: 600; white-space: nowrap; }
+.chip.answered { color: var(--green); background: rgba(79,191,127,.12); }
+.chip.partial { color: var(--orange); background: rgba(231,163,62,.14); }
+.chip.unanswered { color: var(--red); background: rgba(229,96,79,.14); }
+.mode .n { background: var(--red); color: #fff; border-radius: 999px; padding: 0 6px; font-size: 11px; margin-left: 4px; }
+.help-bg { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; padding: 16px; z-index: 10; }
+.help { max-width: 760px; width: 100%; max-height: 90vh; overflow: auto; }
+.help h4 { margin: 16px 0 6px; font-size: 13px; color: var(--muted); }
+.help table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.help td { border-top: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
+.help td:first-child { font-family: var(--mono); font-size: 12px; white-space: nowrap; color: #e9dcc0; }
+kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; font-family: var(--mono); font-size: 12px; }
+.keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.keys a { color: inherit; text-decoration: none; }
+.keys .card:hover { border-color: var(--faint); }
+.summary { color: var(--muted); margin: -4px 0 12px; font-size: 13.5px; }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+<script>
+const KEY = __PANEL_KEY__;
+const FULL = new URLSearchParams(location.search).has("full");
+const I18N = __PANEL_I18N__;
+const LANG = I18N.lang;
+const t = (k, ...a) => String(I18N.messages[k] ?? I18N.fallback[k] ?? k).replace(/\{(\d)\}/g, (_, i) => a[i] ?? "");
+const KINDS = {
+  input: [t("kind_input"), "var(--gray)"], logic: [t("kind_logic"), "var(--blue)"], external: [t("kind_external"), "var(--orange)"],
+  storage: [t("kind_storage"), "var(--green)"], output: [t("kind_output"), "var(--purple)"], config: [t("kind_config"), "var(--gray)"], test: [t("kind_test"), "var(--teal)"],
+};
+const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const QA_PAGE = 10;
+const S = { qaPage: 1, qa: { turns: [], pending: false }, qaOnlyOpen: false, qaArchived: false, qaIndex: [], state: null, flows: [], pending: null, flowCache: {}, flowId: null, step: 0, mode: null, playing: null, lastTouch: 0, seenFlows: null, wasBusy: false, error: null };
+
+const lines = text => {
+  let t = String(text ?? "").trim();
+  if (!t.includes("\n")) t = t.replace(/([.!?])\s+(?=\S)/g, "$1\n");
+  return t.split("\n").map(l => l.trim()).filter(Boolean);
+};
+const inline = s => {
+  const codes = [];
+  return esc(s)
+    .replace(/`([^`]+)`/g, (_, c) => `\u0000${codes.push(c) - 1}\u0000`)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/==([^=]+)==/g, "<mark>$1</mark>")
+    .replace(/(^|[\s(])\*([^*\s][^*]*?)\*(?=[\s).,!?:]|$)/g, "$1<em>$2</em>")
+    .replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${codes[i]}</code>`);
+};
+const prose = text => `<ul class="explain">${lines(text).map(l => /^[-*] /.test(l) ? `<li class="sub">${inline(l.slice(2))}</li>` : `<li>${inline(l)}</li>`).join("")}</ul>`;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const secs = s => s == null ? "" : s < 1 ? `${Math.round(s * 1000)}ms` : s < 60 ? `${s.toFixed(1)}s` : `${Math.floor(s / 60)}m${String(Math.floor(s % 60)).padStart(2, "0")}s`;
+const clock = ts => ts ? new Date(ts * 1000).toTimeString().slice(0, 8) : "";
+const kind = k => KINDS[k] || KINDS.logic;
+const circled = n => n <= 20 ? String.fromCharCode(0x2460 + n - 1) : `(${n})`;
+const touch = () => { S.lastTouch = Date.now(); };
+const PARAMS = new URLSearchParams(location.search);
+if (PARAMS.get("mode")) { S.mode = PARAMS.get("mode"); S.lastTouch = Date.now(); }
+S.step = Number(PARAMS.get("step") || 0);
+S.help = PARAMS.get("dialog") === "help";
+S.settingsOpen = PARAMS.get("dialog") === "settings";
+
+async function poll(force) {
+  try {
+    if (!KEY) {
+      S.keys = await (await fetch("/api/keys")).json();
+    } else {
+      const r = await (await fetch(`/api/${KEY}/state`)).json();
+      S.qa = await (await fetch(`/api/${KEY}/qa`)).json();
+      S.state = r.activity; S.flows = r.flows; S.pending = r.pending; S.error = null;
+      const ids = new Set(S.flows.map(f => f.id));
+      if (S.seenFlows === null) {
+        S.seenFlows = ids;
+      } else {
+        const fresh = S.flows.find(f => !S.seenFlows.has(f.id));
+        S.seenFlows = ids;
+        if (fresh) { S.flowId = fresh.id; S.step = 0; S.mode = "flow"; }
+      }
+      if (!S.flowId && S.flows.length) S.flowId = S.flows[0].id;
+      const busy = S.state.busy;
+      if (busy && !S.wasBusy && Date.now() - S.lastTouch > 30000) S.mode = "live";
+      S.wasBusy = busy;
+      if (S.flowId && !S.flowCache[S.flowId]) S.flowCache[S.flowId] = await (await fetch(`/api/${KEY}/flow/${S.flowId}`)).json();
+      const sig = JSON.stringify([r, S.qa, S.flowId, S.mode, S.qaOnlyOpen, S.qaArchived, S.qaPage, Object.keys(S.flowCache).length]);
+      const ticking = S.pending || S.qa.pending || r.activity.tools.some(t => t.state === "run");
+      if (!force && sig === S.sig && !ticking) return;
+      S.sig = sig;
+    }
+  } catch (e) { S.error = t("err_server"); }
+  render();
+}
+
+function renderHelp() {
+  const c = S.config || {};
+  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  return `<div class="help-bg" data-act="help"><div class="card help" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${t("help_title")}</h3><button class="btn" data-act="help">${t("close")}</button></div>
+    <h4>${t("help_cmds")}</h4><table>
+      ${row("claude-panel", t("h_panel"))}${row("claude-flow [all]", t("h_flow"))}${row("claude-qa list [--open]", t("h_qa_list"))}
+      ${row("claude-qa set &lt;id&gt; answered|partial|unanswered|auto", t("h_qa_set"))}${row("claude-qa archive|restore &lt;id&gt;", t("h_qa_arch"))}</table>
+    <h4>${t("help_keys")}</h4><table>
+      ${row("<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>", t("k_tabs"))}${row("<kbd>←</kbd> <kbd>→</kbd>", t("k_steps"))}${row("<kbd>?</kbd>", t("k_help"))}</table>
+    <h4>${t("help_settings")}</h4><table>
+      ${row(`model = ${esc(c.model || "")}`, t("s_model"))}${row(`lang = ${esc(c.lang || LANG)}`, t("s_lang"))}
+      ${row(`flow_auto = ${c.flow_auto ? 1 : 0}`, t("s_flow_auto"))}${row(`qa_auto = ${c.qa_auto ? 1 : 0}`, t("s_qa_auto"))}${row(`panel_auto = ${c.panel_auto ? 1 : 0}`, t("s_panel_auto"))}</table>
+  </div></div>`;
+}
+
+const ENV_NAMES = { model: "CLAUDE_FLOW_MODEL", lang: "CLAUDE_PANEL_LANG", flow_auto: "CLAUDE_FLOW_AUTO", qa_auto: "CLAUDE_QA_AUTO", panel_auto: "CLAUDE_PANEL_AUTO" };
+function renderSettings() {
+  const c = S.config;
+  if (!c) return "";
+  const locked = name => c.locked.includes(name);
+  const lockNote = name => locked(name) ? `<div style="color:var(--orange);font-size:12px;margin-top:4px">${t("locked", ENV_NAMES[name])}</div>` : "";
+  const toggle = name => `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-setting="${name}" ${c[name] ? "checked" : ""} ${locked(name) ? "disabled" : ""}>${c[name] ? t("on") : t("off")}</label>`;
+  const models = [...new Set([...c.models, c.model])];
+  const row = (label, control, name) => `<tr><td style="font-family:inherit;color:var(--text);white-space:normal">${label}</td><td>${control}${lockNote(name)}</td></tr>`;
+  return `<div class="help-bg" data-act="settings"><div class="card help" onclick="event.stopPropagation()">
+    <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">${t("settings")}</h3><button class="btn" data-act="settings">${t("close")}</button></div>
+    <p style="color:var(--muted);font-size:13px">${t("settings_note")}</p>
+    <table>
+      ${row(t("s_model"), `<select class="btn" data-setting="model" ${locked("model") ? "disabled" : ""}>${models.map(m => `<option ${m === c.model ? "selected" : ""}>${esc(m)}</option>`).join("")}</select>`, "model")}
+      ${row(t("s_lang"), `<select class="btn" data-setting="lang" ${locked("lang") ? "disabled" : ""}>${c.langs.map(l => `<option value="${l.code}" ${l.code === c.lang ? "selected" : ""}>${esc(l.label)}</option>`).join("")}</select>`, "lang")}
+      ${row(t("s_flow_auto"), toggle("flow_auto"), "flow_auto")}
+      ${row(t("s_qa_auto"), toggle("qa_auto"), "qa_auto")}
+      ${row(t("s_panel_auto"), toggle("panel_auto"), "panel_auto")}
+    </table>
+    ${S.settingsMsg ? `<p style="color:var(--green);font-size:13px">${esc(S.settingsMsg)}</p>` : ""}
+  </div></div>`;
+}
+
+async function saveSetting(name, value) {
+  const r = await fetch("/api/config", { method: "POST", headers: { "Content-Type": "application/json", "X-Claude-Panel": "1" }, body: JSON.stringify({ [name]: value }) });
+  const body = await r.json();
+  if (!r.ok) { S.settingsMsg = body.error || t("failed"); render(); return; }
+  if (name === "lang" && body.lang !== LANG) { location.search = location.search.replace(/([?&])lang=[^&]*&?/, "$1"); location.reload(); return; }
+  S.config = body; S.settingsMsg = t("saved"); render();
+}
+
+function render() {
+  const app = document.getElementById("app");
+  const y = window.scrollY;
+  app.innerHTML = (KEY ? renderPanel() : renderIndex()) + (S.help ? renderHelp() : "") + (S.settingsOpen ? renderSettings() : "");
+  window.scrollTo(0, y);
+}
+
+function renderIndex() {
+  const keys = S.keys || [];
+  return `<div class="top"><h2 style="margin:4px 0 14px">${t("title_index")}</h2></div>
+  <div class="keys">${keys.map(k => `<a href="/p/${esc(k.key)}"><div class="card">
+    <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc((k.cwd || "").split("/").pop() || k.key.slice(0, 8))}</b>
+    ${k.busy ? `<span class="pill busy"><i class="dot"></i>${t("busy")}</span>` : `<span class="pill">${t("idle")}</span>`}</div>
+    <div class="l mono" style="color:var(--faint);margin:4px 0 8px">${esc(k.cwd || k.key)}</div>
+    <div style="color:var(--muted);font-size:13px">${t("idx_counts", k.tools, k.files)}${k.pending ? t("idx_gen") : ""}</div>
+    ${k.flow ? `<div style="margin-top:6px">${t("idx_recent")}${esc(k.flow)}</div>` : ""}
+  </div></a>`).join("") || `<div class="big-empty"><b>${t("idx_empty_t")}</b>${t("idx_empty_d")}</div>`}</div>`;
+}
+
+function renderPanel() {
+  if (S.error) return `<div class="big-empty"><b>${t("disconnected")}</b>${esc(S.error)}</div>`;
+  if (!S.state) return `<div class="big-empty">${t("loading")}</div>`;
+  const mode = S.mode || (S.flows.length ? "flow" : "live");
+  const st = S.state;
+  const status = st.busy ? `<span class="pill busy"><i class="dot"></i>${t("busy")}</span>` : `<span class="pill"><i class="dot"></i>${t("idle")}</span>`;
+  const gen = S.pending ? `<span class="pill gen"><i class="dot"></i>${t("flow_gen", secs(Date.now() / 1000 - (S.pending.since || Date.now() / 1000)))}</span>` : "";
+  const header = `<div class="top" style="margin-bottom:10px">
+    <div class="modes"><button class="mode ${mode === "flow" ? "on" : ""}" data-mode="flow">${t("mode_flow")}</button><button class="mode ${mode === "live" ? "on" : ""}" data-mode="live">${t("mode_live")}</button><button class="mode ${mode === "qa" ? "on" : ""}" data-mode="qa">Q&amp;A${openCount() ? `<span class="n">${openCount()}</span>` : ""}</button></div>
+    ${status}${gen}
+    <span style="color:var(--faint);font-size:12.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((st.cwd || "").split("/").pop())}</span>
+    <button class="btn" data-act="regen" title="${t("regen_title")}">${t("regen")}</button>
+    ${FULL ? "" : `<button class="btn" data-act="full" title="${t("full_title")}">${t("full")}</button>`}
+    <button class="btn" data-act="help" title="?">${t("help")}</button>
+    <button class="btn" data-act="settings">${t("settings")}</button>${""}
+  </div>`;
+  return header + (mode === "flow" ? renderFlow() : mode === "qa" ? renderQA() : renderLive());
+}
+
+function renderFlow() {
+  if (!S.flows.length) {
+    return `<div class="big-empty"><b>${t("flow_empty_t")}</b>${t("flow_empty_d")}${S.pending ? `<br>${t("flow_empty_now")}` : ""}</div>`;
+  }
+  const rec = S.flowCache[S.flowId];
+  const tabs = `<div class="tabs">${S.flows.map((f, i) => `<button class="tab ${f.id === S.flowId ? "on" : ""} ${f.status === "error" ? "err" : ""}" data-flow="${esc(f.id)}" title="${esc(f.title || "")} ${clock(f.ts)}"><b>${S.flows.length - i}</b>${esc(f.title || f.id)} <span style="opacity:.6;font-size:12px">${clock(f.ts).slice(0, 5)}</span></button>`).join("")}</div>`;
+  if (!rec) return `<div class="top">${tabs}</div><div class="big-empty">${t("loading")}</div>`;
+  if (rec.status !== "ok") {
+    return `<div class="top">${tabs}</div><div class="progress"><i style="width:0"></i></div>
+      <div class="card"><h3>${t("flow_fail")}</h3><div class="err-box">${esc(rec.error || t("unknown_err"))}</div></div>`;
+  }
+  const flow = rec.flow, steps = flow.steps || [];
+  const i = Math.min(S.step, steps.length - 1), step = steps[i] || {};
+  const [kLabel, kColor] = kind(step.kind);
+  const kindsUsed = [...new Set(steps.map(s => s.kind))];
+  const top = `<div class="top">${tabs}
+    <div class="ctrl"><button class="btn" data-act="prev">←</button><span class="count">${i + 1} / ${steps.length}</span><button class="btn" data-act="next">→</button>
+    <button class="btn primary" data-act="play">${S.playing ? t("pause") : t("play")}</button></div></div>
+    <div class="progress"><i style="width:${((i + 1) / steps.length) * 100}%"></i></div>`;
+  const pipeline = `<div class="card"><h3>${t("pipeline")}</h3>
+    <div class="legend">${kindsUsed.map(k => `<span style="--c:${kind(k)[1]}">${kind(k)[0]}</span>`).join("")}<span style="--c:var(--hl-line)">${t("changed_this")}</span></div>
+    <ol class="steps">${steps.map((s, n) => `<li class="step ${n === i ? "on" : ""} ${s.changed ? "changed" : ""}" data-step="${n}" style="--c:${kind(s.kind)[1]}">
+      <div class="num">${n + 1}</div><div style="min-width:0"><div class="t">${esc(s.title)}${s.changed ? `<span class="chg">${t("changed_short")}</span>` : ""}</div><div class="l">${esc(s.location)}</div></div></li>`).join("")}</ol>
+    <div class="note">${inline(flow.summary)}</div></div>`;
+  const hl = (step.highlight || []).filter(Boolean);
+  const code = step.code ? `<div class="label">${t("code")}</div><pre class="code">${step.code.replace(/\n$/, "").split("\n").map(line => `<span class="${hl.some(h => line.includes(h.trim()) && h.trim()) ? "hl" : ""}">${esc(line) || " "}</span>`).join("")}</pre>` : "";
+  const data = (step.data || []).length ? `<div class="label">${t("data")}</div><table class="data">${step.data.map(d => `<tr><td class="mono">${esc(d.name)}</td><td>${d.before ? `<span class="before mono">${esc(d.before)}</span>` : ""}<span class="after">${esc(d.after)}</span></td></tr>`).join("")}</table>` : "";
+  const detail = `<div class="card">
+    <div class="ctx">${t("flow_n", S.flows.length - S.flows.findIndex(f => f.id === S.flowId))} / ${esc(flow.title)}  ${clock(rec.ts)}</div>
+    <div class="h"><h2>${circled(i + 1)} ${esc(step.title)}</h2><span class="badge" style="--c:${kColor}">${kLabel}</span>${step.changed ? `<span class="badge" style="--c:var(--hl-line)">${t("changed_this")}</span>` : ""}</div>
+    <code class="loc">${esc(step.location)}</code>
+    ${prose(step.explanation)}${data}${code}</div>`;
+  const side = `<div class="side">
+    <div class="card"><h3>${t("changes", (flow.changes || []).length)}</h3><div class="rows">${(flow.changes || []).map(c => `<div class="row"><span class="k M">M</span><div style="min-width:0"><div class="mono" style="font-size:12px;word-break:break-all">${esc(c.file)}</div><div class="v">${inline(c.what)}</div></div></div>`).join("") || `<div class="empty">${t("none")}</div>`}</div></div>
+    ${(flow.checks || []).length ? `<div class="card"><h3>${t("checks")}</h3><div class="rows">${flow.checks.map(c => `<div class="row"><span class="k ${c.status === "pass" ? "st-ok" : c.status === "fail" ? "st-err" : "st-lost"}">${c.status === "pass" ? "✓" : c.status === "fail" ? "✗" : "?"}</span><span>${esc(c.label)}</span></div>`).join("")}</div></div>` : ""}
+    <div class="card"><h3>${t("request")}</h3><div style="white-space:pre-wrap;color:var(--muted);font-size:13px">${esc(rec.prompt)}</div><div style="color:var(--faint);font-size:12px;margin-top:8px">${esc(rec.model || "")}${rec.cost ? ` / $${rec.cost.toFixed(3)}` : ""}</div></div>
+    ${toolsCard(12)}</div>`;
+  return top + `<div class="grid">${pipeline}${detail}${side}</div>`;
+}
+
+function sessionTurns() {
+  const sid = S.state?.sid;
+  return S.qa.turns || [];
+}
+function openCount() {
+  return sessionTurns().reduce((n, t) => n + (t.items || []).filter(i => i.status !== "answered" && !i.archived).length, 0);
+}
+const STATUS = { answered: t("st_answered"), partial: t("st_partial"), unanswered: t("st_unanswered") };
+const tr = t;
+function renderQA() {
+  const turns = sessionTurns();
+  const gen = S.qa.pending ? `<span class="pill gen"><i class="dot"></i>${t("qa_checking")}</span>` : "";
+  const bar = `<div class="top" style="margin-bottom:12px">
+    <label class="btn" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-act="qa-open" ${S.qaOnlyOpen ? "checked" : ""}>${t("qa_open_only")}</label>
+    <label class="btn" style="display:flex;gap:6px;align-items:center"><input type="checkbox" data-act="qa-archived" ${S.qaArchived ? "checked" : ""}>${t("qa_archived")}</label>
+    ${gen}<span style="flex:1"></span>
+    <button class="btn" data-act="qa-regen" title="${t("qa_regen_title")}">${t("qa_regen")}</button></div>`;
+  if (!turns.length) return bar + `<div class="big-empty"><b>${t("qa_empty_t")}</b>${t("qa_empty_d")}</div>`;
+  S.qaIndex = [];
+  const visible = turns
+    .map(t => ({ t, items: (t.items || []).filter(i => (!S.qaOnlyOpen || i.status !== "answered") && (S.qaArchived || !i.archived)) }))
+    .filter(({ t, items }) => items.length || t.status !== "ok" || !(S.qaOnlyOpen || t.items?.length));
+  const pages = Math.max(1, Math.ceil(visible.length / QA_PAGE));
+  S.qaPage = Math.min(Math.max(1, S.qaPage), pages);
+  const pageTurns = visible.slice((S.qaPage - 1) * QA_PAGE, S.qaPage * QA_PAGE);
+  const nums = [...new Set([1, S.qaPage - 2, S.qaPage - 1, S.qaPage, S.qaPage + 1, S.qaPage + 2, pages])].filter(n => n >= 1 && n <= pages).sort((a, b) => a - b);
+  const pager = pages > 1 ? `<div class="pager"><button data-qa-page="${S.qaPage - 1}" ${S.qaPage === 1 ? "disabled" : ""}>‹</button>${nums.map((n, k) => `${k && n - nums[k - 1] > 1 ? "<span>…</span>" : ""}<button data-qa-page="${n}" class="${n === S.qaPage ? "on" : ""}">${n}</button>`).join("")}<button data-qa-page="${S.qaPage + 1}" ${S.qaPage === pages ? "disabled" : ""}>›</button><span>${t("turns_n", visible.length)}</span></div>` : "";
+  const body = pageTurns.map(({ t, items }) => {
+    return `<div class="card qa-turn"><div class="qa-head"><span>${clock(t.ts)}</span><span class="p">${esc(t.prompt)}</span><span>${esc(t.model || "")}${t.scope === "through-end" ? tr("through_end") : ""}</span><button class="mini" data-qa-turn="${esc(t.turn_id)}" title="${tr("recheck_title")}">${tr("recheck")}</button></div>
+      ${t.status !== "ok" ? `<div class="err-box">${esc(t.error || tr("qa_fail"))}</div>` : ""}
+      <div class="qa">${items.map(i => {
+        const n = S.qaIndex.push({ turn_id: t.turn_id, question: i.question, status: i.status }) - 1;
+        return `<div class="qa-item ${i.archived ? "archived" : ""}">
+        <button class="chip ${esc(i.status)} ${i.manual ? "manual" : ""}" data-qa-cycle="${n}" title="${tr("cycle_title")}${i.manual ? tr("auto_verdict", STATUS[i.auto_status] || "") : ""}">${STATUS[i.status] || esc(i.status)}</button>
+        <div><div class="q">${inline(i.question)}${i.from === "mid-turn" ? `<small>${tr("midturn")}</small>` : ""}<span class="qid" title="claude-qa set ${esc(i.id)} answered">${esc(i.id || "")}</span></div><div class="a">${inline(i.answer)}</div>${i.resolved_in ? `<div class="a" style="color:var(--green);font-size:12.5px">${tr("resolved", STATUS[i.first_status] || "", STATUS[i.auto_status] || "")} ${clock(i.resolved_at)}</div>` : ""}
+        <div class="qa-tools"><button class="mini" data-qa-archive="${n}" data-archived="${i.archived ? 1 : 0}">${i.archived ? tr("restore") : tr("archive")}</button>${i.manual ? `<button class="mini" data-qa-reset="${n}">${tr("reset_auto")}</button>` : ""}</div></div></div>`;
+      }).join("") || (t.status === "ok" ? `<div class="empty">${tr("qa_noq")}</div>` : "")}</div></div>`;
+  }).join("");
+  return bar + pager + (body || `<div class="big-empty"><b>${t("qa_all_done")}</b></div>`) + pager;
+}
+
+function toolsCard(limit) {
+  const tools = S.state.tools.slice(-limit).reverse();
+  const now = Date.now() / 1000;
+  return `<div class="card"><h3>${t("tools", S.state.tools.length)}</h3>${tools.map(t => {
+    const icon = { ok: "✓", err: "✗", run: "◌", lost: "-" }[t.state] || "-";
+    const dur = t.state === "run" ? secs(now - t.start) : t.end && t.start ? secs(t.end - t.start) : "";
+    const cls = EDIT_TOOLS.has(t.tool) ? "edit" : (t.tool || "").startsWith("mcp__") ? "mcp" : "other";
+    return `<div class="tool"><span class="st-${t.state}">${icon}</span><span class="time">${clock(t.start)}</span><span class="name ${cls}" title="${esc(t.tool)}">${esc(t.label)}</span><span class="sum" title="${esc(t.file || t.summary)}">${esc(t.file || t.summary)}</span><span class="dur">${dur}</span></div>`;
+  }).join("") || `<div class="empty">${t("not_yet")}</div>`}</div>`;
+}
+
+function filesCard() {
+  const files = S.state.files;
+  return `<div class="card"><h3>${t("files", files.length)}</h3><div class="rows">${files.map(f => `<div class="row"><span class="k ${f.created ? "A" : "M"}">${f.created ? "A" : "M"}</span><span class="mono" style="font-size:12px;word-break:break-all;flex:1">${esc(f.path)}</span><span class="v">${f.count > 1 ? "×" + f.count : ""}</span></div>`).join("") || `<div class="empty">${t("none")}</div>`}</div></div>`;
+}
+
+function renderLive() {
+  return `<div class="live-grid">${toolsCard(200)}<div>${filesCard()}</div></div>`;
+}
+
+function go(n) {
+  const rec = S.flowCache[S.flowId];
+  const len = rec?.flow?.steps?.length || 0;
+  if (!len) return;
+  S.step = (n + len) % len;
+  render();
+}
+
+document.addEventListener("click", async e => {
+  const pg = e.target.closest("[data-qa-page]");
+  if (pg) { if (!pg.disabled) { touch(); S.qaPage = Number(pg.dataset.qaPage); render(); window.scrollTo(0, 0); } return; }
+  const tq = e.target.closest("[data-qa-turn]");
+  if (tq) {
+    touch();
+    tq.textContent = t("checking_dots");
+    await fetch(`/api/${KEY}/regen?qa&turn=${encodeURIComponent(tq.dataset.qaTurn)}`, { method: "POST", headers: { "X-Claude-Panel": "1" } });
+    return poll(true);
+  }
+  const q = e.target.closest("[data-qa-cycle],[data-qa-archive],[data-qa-reset]");
+  if (q) {
+    touch();
+    const ref = S.qaIndex[Number(q.dataset.qaCycle ?? q.dataset.qaArchive ?? q.dataset.qaReset)];
+    if (!ref) return;
+    const body = { turn_id: ref.turn_id, question: ref.question };
+    if (q.dataset.qaCycle !== undefined) body.status = { answered: "partial", partial: "unanswered", unanswered: "answered" }[ref.status] || "answered";
+    if (q.dataset.qaArchive !== undefined) body.archived = q.dataset.archived !== "1";
+    if (q.dataset.qaReset !== undefined) body.status = null;
+    await fetch(`/api/${KEY}/qa/override`, { method: "POST", headers: { "Content-Type": "application/json", "X-Claude-Panel": "1" }, body: JSON.stringify(body) });
+    return poll(true);
+  }
+  const el = e.target.closest("[data-mode],[data-flow],[data-step],[data-act]");
+  if (!el) return;
+  if (el.dataset.act === "settings") { S.settingsOpen = !S.settingsOpen; S.settingsMsg = ""; if (S.settingsOpen) S.config = await (await fetch("/api/config")).json(); render(); return; }
+  if (el.dataset.act === "help") { S.help = !S.help; if (S.help && !S.config) S.config = await (await fetch("/api/config")).json(); render(); return; }
+  if (el.dataset.act === "qa-open") { S.qaOnlyOpen = el.checked; S.qaPage = 1; render(); return; }
+  if (el.dataset.act === "qa-archived") { S.qaArchived = el.checked; S.qaPage = 1; render(); return; }
+
+  if (el.dataset.act === "qa-regen") {
+    const r = await fetch(`/api/${KEY}/regen?qa`, { method: "POST", headers: { "X-Claude-Panel": "1" } });
+    if (!r.ok) el.textContent = (await r.json()).error || t("failed");
+    return poll(true);
+  }
+  touch();
+  if (el.dataset.mode) { S.mode = el.dataset.mode; render(); }
+  else if (el.dataset.flow) { S.flowId = el.dataset.flow; S.step = 0; S.mode = "flow"; await poll(true); }
+  else if (el.dataset.step) { go(Number(el.dataset.step)); }
+  else {
+    const act = el.dataset.act;
+    if (act === "prev") go(S.step - 1);
+    if (act === "next") go(S.step + 1);
+    if (act === "play") {
+      if (S.playing) { clearInterval(S.playing); S.playing = null; }
+      else S.playing = setInterval(() => { const len = S.flowCache[S.flowId]?.flow?.steps?.length || 0; if (S.step >= len - 1) { clearInterval(S.playing); S.playing = null; render(); } else go(S.step + 1); }, 3500);
+      render();
+    }
+    if (act === "full") fetch(`/api/${KEY}/open`, { method: "POST", headers: { "X-Claude-Panel": "1" } });
+    if (act === "regen") {
+      const r = await fetch(`/api/${KEY}/regen`, { method: "POST", headers: { "X-Claude-Panel": "1" } });
+      if (!r.ok) { el.textContent = (await r.json()).error || t("failed"); return; }
+      poll(true);
+    }
+  }
+});
+document.addEventListener("change", e => {
+});
+document.addEventListener("change", e => {
+  const name = e.target.dataset?.setting;
+  if (name) saveSetting(name, e.target.type === "checkbox" ? e.target.checked : e.target.value);
+});
+document.addEventListener("keydown", e => {
+  if (e.target.closest && e.target.closest("input,select,textarea")) return;
+  if (e.key === "?") { e.preventDefault(); document.querySelector("[data-act=help]")?.click(); return; }
+  if (e.key === "Escape" && (S.help || S.settingsOpen)) { S.help = false; S.settingsOpen = false; render(); return; }
+  const tab = { "1": "flow", "2": "live", "3": "qa" }[e.key];
+  if (tab && KEY) { touch(); S.mode = tab; render(); return; }
+  if (e.key === "ArrowLeft") { touch(); go(S.step - 1); }
+  if (e.key === "ArrowRight") { touch(); go(S.step + 1); }
+});
+(async () => {
+  if (S.help || S.settingsOpen) S.config = await (await fetch("/api/config")).json().catch(() => null);
+  poll();
+  setInterval(poll, 1000);
+})();
+</script>
+</body>
+</html>
