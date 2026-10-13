@@ -22,7 +22,7 @@ class Setting(Enum):
     LANG = ("lang", DEFAULT_LANGUAGE.code)
     FLOW_AUTO = ("flow_auto", True)
     QA_AUTO = ("qa_auto", True)
-    PANEL_AUTO = ("panel_auto", True)
+    PANEL_AUTO = ("panel_auto", False)
 
     def __init__(self, key, default):
         self.key = key

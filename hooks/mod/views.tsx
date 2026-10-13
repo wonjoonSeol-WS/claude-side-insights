@@ -61,6 +61,7 @@ export type Actions = {
   toggleArchived: () => void
   openBrowser: () => void
   toggleHelp: () => void
+  unusedKey: (key: string) => void
 }
 
 export type Ctx = {
@@ -318,6 +319,19 @@ export const header = (c: Ctx) => {
           </Text>
         </Box>
       ) : null}
+    </Box>
+  )
+}
+
+const ALL_KEYS = [...'0123456789abcdefghijklmnopqrstuvwxyz']
+
+export const keyCatcher = (c: Ctx) => {
+  const { Box, Button } = c.ui
+  return (
+    <Box key="key-catcher" display="none">
+      {ALL_KEYS.map(key => (
+        <Button key={`unused-${key}`} plain hotkey={key} label={key} onPress={() => c.act.unusedKey(key)} />
+      ))}
     </Box>
   )
 }
@@ -873,7 +887,7 @@ export const qa = (c: Ctx) => {
     </Box>,
     <Box key="qa-keys" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
       <Button key="status" plain hotkey="s" label={c.t('term_k_status')} onPress={() => c.act.cycleStatus()} />
-      <Button key="auto" plain hotkey="u" label={c.t('reset_auto')} onPress={() => c.act.autoStatus()} />
+      {selectedItem?.manual ? <Button key="auto" plain hotkey="u" label={c.t('reset_auto')} onPress={() => c.act.autoStatus()} /> : null}
       <Button key="archive" plain hotkey="a" label={c.t('term_k_archive')} onPress={() => c.act.archive()} />
       {canCopy(selectedItem) ? <Button key="copy" plain hotkey="c" label={c.t('term_k_copy')} onPress={press => c.act.copy(press)} /> : null}
       <Button key="recheck" plain hotkey="r" label={c.t('term_k_recheck')} onPress={() => c.act.recheck()} />

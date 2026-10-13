@@ -18,7 +18,7 @@ Then open the panel next to Claude:
 ! claude-panel
 ```
 
-It also opens on its own when a new session starts in cmux, Orca, Ghostty or iTerm2. Run it again to hide it.
+Run it again to hide it. To open it by itself at every session start, turn on "Open the panel when a session starts".
 
 Update:
 
@@ -143,7 +143,7 @@ In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a que
 | Language (UI and analysis) | `en` | English, 한국어, 日本語 |
 | Build a flow when a turn ends | on | When off, flows are built only with the ↻ button |
 | Check Q&A when a turn ends | on | When off, Q&A is checked only with the ↻ buttons |
-| Open the panel when a session starts | on | When off, the panel opens only with `claude-panel` |
+| Open the panel when a session starts | off | When on, the panel opens by itself in cmux, Orca, Ghostty or iTerm2 when a session starts |
 
 Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`) and `SIDE_INSIGHTS_DATA` (default `~/.claude/side-insights`).
 
@@ -168,7 +168,7 @@ On a subscription this probably counts toward your usage limit (not confirmed). 
 | Can the ↻ runs change my files? | No. They use read-only tools. |
 | Why no flow for this turn? | Flows run only after turns that edited files. Press **↻ Rebuild flow**. |
 | Answered later, but still open? | The next check usually fixes it. Otherwise press **↻ Re-check open**, **↻ Re-check this question**, or click the status. A failed check shows **↻ Re-check this turn**. |
-| How do I hide the panel? | `! claude-panel` hides and shows it. To stop it opening by itself, turn off "Open the panel when a session starts". |
+| How do I hide the panel? | `! claude-panel` hides and shows it. It opens by itself only if "Open the panel when a session starts" is on. |
 
 **Where data lives**: `~/.claude/side-insights/`
 

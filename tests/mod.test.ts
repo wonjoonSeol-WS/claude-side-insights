@@ -12,6 +12,7 @@ const EN: Record<string, string> = {
   ask_message: 'Please answer: {0}',
   flow_started: 'Rebuilding the flow',
   mod_band_flow: 'Flow: {0}',
+  mod_key_unused: '{0} does nothing here. Press h to see the keys.',
   mod_band_hint: '/si to open',
   mod_band_waiting: '{0} waiting, checked ~{1}s after the turn',
   mod_spinner_waiting: '{0} questions waiting',
@@ -544,6 +545,36 @@ test('h opens a help card with the panel keys and the Claude Code pane keys, and
     expect(await ui.find({ key: 'qa-tiles' }), 'help replaces the tab body').toBeUndefined()
     await ui.press({ key: 'tab-qa' })
     expect(await ui.find({ key: 'help-cc' }), 'a tab press leaves help').toBeUndefined()
+    await ui.unmount()
+  }
+})
+
+test('a key the pane does not use is caught with a hint instead of falling through to the prompt', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...PANE_PROPS })
+    await ui.press({ key: 'unused-4' })
+    expect(await ui.find({ type: 'Text', text: /4 does nothing here/ }), 'the hint').toBeDefined()
+    await ui.press({ key: 'tab-flow' })
+    expect(await ui.find({ key: 'pipeline' }), 'the tab key still works after it').toBeDefined()
+    await ui.press({ key: 'tab-qa' })
+    await ui.unmount()
+  }
+})
+
+test('the undo key shows only for a question whose status was set by hand', async ($, on) => {
+  const manual = { ...STATE.qa.turns[0], items: STATE.qa.turns[0].items.map(i => (i.id === 'i2' ? { ...i, manual: true } : i)) }
+  const { clock } = setup(on, { current: { ...STATE, qa: { ...STATE.qa, turns: [manual, ...STATE.qa.turns.slice(1)] } }, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  for (const surface of SURFACES) {
+    const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...PANE_PROPS })
+    await ui.press({ key: 'item-2-i3' })
+    expect(await ui.find({ key: 'auto' }), 'no undo for an automatic status').toBeUndefined()
+    await ui.press({ key: 'item-1-i2' })
+    expect(await ui.find({ key: 'auto' }), 'undo for a status set by hand').toBeDefined()
     await ui.unmount()
   }
 })

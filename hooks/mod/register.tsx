@@ -34,6 +34,7 @@ import {
   footer,
   header,
   help,
+  keyCatcher,
   heroCanvas,
   isOpen,
   isShown,
@@ -377,6 +378,9 @@ const withItem = (act: (item: QaItem, api: Api) => void) => () => {
 }
 
 const actions = (copyText: Copy): Actions => ({
+  unusedKey: key => {
+    void say(t('mod_key_unused', key), 'suggestion')
+  },
   toggleHelp: () => {
     mod.view.help = !mod.view.help
     redraw()
@@ -636,6 +640,7 @@ export const register: Register = on => {
     const body = mod.view.help ? help(c) : mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
     return (
       <Box flexDirection="column" width={e.props.bodyColumns} minHeight={e.props.scroll.bodyRows} paddingX={PAD} paddingY={1} backgroundColor={hex(mod.palette.base)}>
+        {keyCatcher(c)}
         {header(c)}
         {body}
         {footer(c)}
