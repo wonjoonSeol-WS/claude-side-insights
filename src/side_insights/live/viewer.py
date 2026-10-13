@@ -22,6 +22,7 @@ MIN_FILE_ROWS = 3
 NAME_MIN, NAME_MAX = 6, 14
 CLOCK_WIDTH = 9
 VIEW_TITLE = "claude-panel:"
+RIGHT_MARGIN = 1
 
 DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
 RED, GREEN, YELLOW, BLUE, CYAN, MAGENTA = (f"\033[3{n}m" for n in (1, 2, 3, 4, 6, 5))
@@ -83,6 +84,7 @@ def _tool_line(tool, st, tick, now, cols):
 
 def render(st, tick):
     cols, rows = os.get_terminal_size()
+    cols -= RIGHT_MARGIN
     status = f"{YELLOW}{SPINNER[tick % len(SPINNER)]} {t('busy', pane=st.pane)}{RESET}" if st.busy else f"{DIM}○ {t('idle', pane=st.pane)}{RESET}"
     where = os.path.basename((st.cwd or "").rstrip("/")) or "-"
     session = (st.sid or "-")[:8]

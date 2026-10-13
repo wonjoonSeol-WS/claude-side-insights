@@ -4,13 +4,22 @@ CHILD_ENV_PREFIX=ORCA_
 
 term_detect() { [ -n "${ORCA_TERMINAL_HANDLE:-}" ] && command -v orca >/dev/null 2>&1; }
 
+_orca_saved() { printf '%s/terminals/orca-%s' "$PANEL_DATA" "$1"; }
+
 term_open() {
-  orca terminal split --terminal "$ORCA_TERMINAL_HANDLE" --direction horizontal --command "$(panel_view_command "$1")" --json >/dev/null 2>&1
+  local handle
+  handle=$(orca terminal split --terminal "$ORCA_TERMINAL_HANDLE" --direction vertical \
+    --command "$(panel_view_command "$1")" --json 2>/dev/null | jq -r '.result.split.handle // empty')
+  [ -n "$handle" ] || return 1
+  mkdir -p "$PANEL_DATA/terminals"
+  printf '%s\n' "$handle" > "$(_orca_saved "$1")"
 }
 
 term_find() {
-  orca terminal list --json 2>/dev/null | jq -r --arg title "$(panel_view_title "$1")" \
-    '.result.terminals[] | select(.title == $title and .connected) | .handle'
+  local saved
+  saved=$(cat "$(_orca_saved "$1")" 2>/dev/null)
+  orca terminal list --json 2>/dev/null | jq -r --arg saved "$saved" --arg title "$(panel_view_title "$1")" \
+    '.result.terminals[] | select(.connected and (.handle == $saved or .title == $title)) | .handle'
 }
 
 term_close() { orca terminal close --terminal "$1" --json >/dev/null 2>&1; }
