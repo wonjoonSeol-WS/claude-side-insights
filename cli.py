@@ -11,9 +11,9 @@ import sys
 import urllib.error
 import urllib.request
 
-from common import PORT, api_token, pane_key
+from common import PORT, pane_key, read_token
 from i18n import t
-from qa_store import STATUSES
+from qa_store import STATUSES, Status
 
 AUTO = "auto"
 TIMEOUT = 5
@@ -22,15 +22,16 @@ TIMEOUT = 5
 def call(method, path, body=None):
     req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", method=method,
                                  data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Content-Type": "application/json", "X-Claude-Panel": api_token()})
+                                 headers={"Content-Type": "application/json", "X-Claude-Panel": read_token() or ""})
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
         try:
-            message = json.load(exc).get("error")
+            body = json.load(exc)
         except ValueError:
-            message = None
+            body = None
+        message = body.get("error") if isinstance(body, dict) else None
         sys.exit(message or str(exc))
     except (urllib.error.URLError, http.client.HTTPException, ConnectionError, ValueError):
         sys.exit(t("server_down"))
@@ -39,7 +40,7 @@ def call(method, path, body=None):
 def list_items(pane, only_open):
     data = call("GET", f"/api/{pane}/state")
     for turn in reversed(data.get("qa", {}).get("turns", [])):
-        items = [i for i in turn.get("items", []) if not i.get("archived") and not (only_open and i.get("status") == "answered")]
+        items = [i for i in turn.get("items", []) if not i.get("archived") and not (only_open and i.get("status") == Status.ANSWERED.value)]
         if items:
             print(f"\n# {(turn.get('prompt') or '')[:70]}")
         for item in items:

@@ -88,9 +88,6 @@ mark { background: rgba(231,199,62,.22); color: #f3e3a3; border-radius: 4px; pad
 pre.code { margin: 0; background: #141312; border: 1px solid var(--line); border-radius: 10px; padding: 12px 0; font: 12.5px/1.6 var(--mono); }
 pre.code span { display: block; padding: 1px 14px 1px 2.2em; text-indent: -1.2em; white-space: pre-wrap; overflow-wrap: anywhere; }
 pre.code span.hl { background: var(--hl); box-shadow: inset 3px 0 var(--hl-line); }
-table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
-table.data td { border-top: 1px solid var(--line); padding: 7px 8px; vertical-align: top; overflow-wrap: anywhere; }
-table.data td:first-child { color: var(--muted); width: 34%; }
 .before { text-decoration: line-through; color: var(--faint); margin-right: 8px; }
 .example { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
 .example b { color: var(--text); margin-right: 6px; }
@@ -105,7 +102,6 @@ table.data td:first-child { color: var(--muted); width: 34%; }
 .state tr.now td:first-child { color: var(--hl-line); }
 .state tr.now td:last-child::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--hl-line); margin-left: 8px; vertical-align: middle; }
 .state .step-no { color: var(--faint); font-size: 11px; margin-left: 6px; font-family: inherit; }
-.after { color: var(--hl-line); font-family: var(--mono); }
 
 .rows { display: flex; flex-direction: column; }
 .row { display: flex; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); font-size: 13px; align-items: baseline; }
@@ -131,26 +127,29 @@ table.data td:first-child { color: var(--muted); width: 34%; }
 @media (max-width: 1000px) { .live-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .qa-bar { margin-bottom: 12px; }
-.qa-turn { margin-bottom: 14px; }
+.qa-turn { margin-bottom: 20px; }
 .qa-head { display: flex; gap: 10px; align-items: baseline; color: var(--muted); font-size: 12.5px; margin-bottom: 8px; flex-wrap: wrap; }
-.qa-head .p { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 200px; }
-.qa-item { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.qa-head .p { max-width: 72ch; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 200px; }
+.qa-item { display: grid; grid-template-columns: 118px minmax(0, 1fr); gap: 12px; padding: 16px 0; border-top: 1px solid var(--line); }
 .qa-item:first-of-type { border-top: 0; }
 .qa-item.archived { opacity: .45; }
-.qa-item .q { font-weight: 700; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+.qa-item .q { font-weight: 700; font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; max-width: 72ch; }
 .qa-item .q small { font-weight: 400; color: var(--faint); margin-left: 6px; font-size: 11.5px; }
-.qa-item .a { color: var(--muted); font-size: 14px; line-height: 1.65; margin-top: 4px; overflow-wrap: anywhere; }
+.qa-item .a { color: var(--muted); font-size: 14px; line-height: 1.7; margin-top: 8px; overflow-wrap: anywhere; max-width: 72ch; }
+.qa-item .a p { margin: 0 0 4px; }
 .qa-item .resolved { color: var(--green); font-size: 12.5px; margin-top: 4px; }
-.qid { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 8px; font-weight: 400; user-select: all; }
+.qid { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 8px; font-weight: 400; user-select: all; opacity: 0; transition: opacity .15s; }
+.qa-item:hover .qid, .qid:focus { opacity: 1; }
 .qa-tools { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .mini { border: 1px solid var(--line); background: transparent; border-radius: 7px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
 .mini:hover { color: var(--text); border-color: var(--faint); }
+.tip { position: fixed; z-index: 60; max-width: min(520px, calc(100vw - 16px)); padding: 6px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--text); font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none; box-shadow: 0 6px 20px rgba(0,0,0,.35); }
+.tip:empty { display: none; }
 .chip { font-size: 12px; border: 0; border-radius: 999px; padding: 2px 8px; text-align: center; align-self: start; font-weight: 600; white-space: nowrap; }
-.chip.manual { outline: 1px dashed currentColor; outline-offset: 1px; }
 .chip.answered { color: var(--green); background: rgba(79,191,127,.12); }
 .chip.partial { color: var(--orange); background: rgba(231,163,62,.14); }
 .chip.unanswered { color: var(--red); background: rgba(229,96,79,.14); }
-.chip:disabled { opacity: .5; }
+[aria-disabled="true"] { opacity: .5; cursor: default; }
 .pager { display: flex; justify-content: center; align-items: center; gap: 4px; margin: 6px 0 14px; flex-wrap: wrap; }
 .pager button { min-width: 32px; border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 3px 9px; font-size: 13px; color: var(--muted); }
 .pager button.on { background: var(--text); color: #1a1918; border-color: var(--text); font-weight: 700; }
@@ -176,12 +175,14 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .keys .counts { color: var(--muted); font-size: 13px; }
 .toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 13px; z-index: 20; max-width: calc(100% - 32px); }
 .toast.err { border-color: rgba(229,96,79,.6); color: #f2b3aa; }
+.toast:empty { display: none; }
 .space-between { display: flex; justify-content: space-between; gap: 8px; }
 </style>
 </head>
 <body>
 <div class="wrap" id="app"></div>
-<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="tip" class="tip" role="tooltip"></div>
 <script>
 const KEY = __PANEL_KEY__;
 const I18N = __PANEL_I18N__;
@@ -194,6 +195,12 @@ const MODES = ["flow", "live", "qa"];
 const QA = { ANSWERED: "answered", PARTIAL: "partial", UNANSWERED: "unanswered" };
 const QA_CYCLE = { [QA.ANSWERED]: QA.PARTIAL, [QA.PARTIAL]: QA.UNANSWERED, [QA.UNANSWERED]: QA.ANSWERED };
 const TOOL = { RUN: "run", OK: "ok", ERR: "err", LOST: "lost" };
+const REC = { OK: "ok", ERROR: "error" };
+const CHECK = { PASS: "pass", FAIL: "fail", UNKNOWN: "unknown" };
+const CHECK_ICON = { [CHECK.PASS]: "✓", [CHECK.FAIL]: "✗", [CHECK.UNKNOWN]: "?" };
+const TOOL_ICON = { [TOOL.OK]: "✓", [TOOL.ERR]: "✗", [TOOL.RUN]: "◌" };
+const SCOPE_THROUGH_END = "through-end";
+const FROM_MID_TURN = "mid-turn";
 const DIALOG = { HELP: "help", SETTINGS: "settings" };
 const KEY_MODES = { 1: "flow", 2: "live", 3: "qa" };
 const SCOPE = { GLOBAL: "global", PANE: "pane" };
@@ -202,6 +209,7 @@ const QA_PAGE = 10;
 const POLL_MS = 1000;
 const AUTOPLAY_MS = 3500;
 const TOAST_MS = 4000;
+const FETCH_TIMEOUT_MS = 8000;
 const RECENT_TOUCH_MS = 30000;
 const MIN_HIGHLIGHT = 3;
 const TOOLS_IN_FLOW = 12;
@@ -218,9 +226,11 @@ const kindColor = k => KINDS[k] || KINDS.logic;
 const kindLabel = k => t(`kind_${KINDS[k] ? k : "logic"}`);
 const secs = s => s < 1 ? `${Math.round(s * 1000)}ms` : s < 60 ? `${s.toFixed(1)}s` : `${Math.floor(s / 60)}m${String(Math.floor(s % 60)).padStart(2, "0")}s`;
 const clock = ts => ts ? new Date(ts * 1000).toTimeString().slice(0, 8) : "";
+const hhmm = ts => clock(ts).slice(0, 5);
 const circled = n => n >= 1 && n <= 20 ? String.fromCharCode(0x2460 + n - 1) : `(${n})`;
 const list = v => Array.isArray(v) ? v : [];
-const STATUS_LABEL = { [QA.ANSWERED]: t("st_answered"), [QA.PARTIAL]: t("st_partial"), [QA.UNANSWERED]: t("st_unanswered") };
+const STATUS_LABEL = { [QA.ANSWERED]: text("st_answered"), [QA.PARTIAL]: text("st_partial"), [QA.UNANSWERED]: text("st_unanswered") };
+const statusLabel = status => STATUS_LABEL[status] || "-";
 
 const S = {
   mode: MODES.includes(PARAMS.get("mode")) ? PARAMS.get("mode") : null,
@@ -229,9 +239,9 @@ const S = {
   lastTouch: PARAMS.get("mode") ? Date.now() : 0,
   state: null, flows: [], pending: null, qa: { turns: [], pending: false }, flowCache: {}, flowId: null,
   seenFlows: null, playing: null, error: null, sig: null, panes: null,
-  qaPage: 1, qaOnlyOpen: false, qaArchived: false, qaRefs: [], qaPageTurns: [], busyIds: new Set(),
+  qaPage: 1, qaOnlyOpen: false, qaArchived: false, qaPageTurns: [], busyIds: new Set(), scrolledFlowId: null,
   config: null, scope: PARAMS.get("scope") === SCOPE.PANE ? SCOPE.PANE : SCOPE.GLOBAL, settingsMsg: null, returnFocus: null,
-  polling: false, forceNext: false,
+  polling: null,
 };
 const touch = () => { S.lastTouch = Date.now(); };
 const recentlyTouched = () => Date.now() - S.lastTouch < RECENT_TOUCH_MS;
@@ -244,11 +254,12 @@ async function api(method, url, body) {
       method,
       headers: { "Content-Type": "application/json", "X-Claude-Panel": TOKEN },
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
     const data = await r.json().catch(() => ({}));
-    return r.ok ? { ok: true, data } : { ok: false, error: data.error || r.statusText };
+    return r.ok ? { ok: true, data } : { ok: false, error: data.error || r.statusText, status: r.status };
   } catch (e) {
-    return { ok: false, error: text("err_server"), network: true };
+    return { ok: false, error: text("err_server") };
   }
 }
 
@@ -279,41 +290,36 @@ function sentences(source) {
 const prose = source => `<ul class="explain">${sentences(source).map(l => /^[-*] /.test(l)
   ? `<li class="sub">${inline(l.slice(2))}</li>` : `<li>${inline(l)}</li>`).join("")}</ul>`;
 
-async function poll(force) {
-  if (S.polling) {
-    S.forceNext = S.forceNext || Boolean(force);
+function poll(force) {
+  if (S.polling) return force ? S.polling.then(() => poll(true)) : S.polling;
+  S.polling = pollOnce(force).finally(() => { S.polling = null; });
+  return S.polling;
+}
+
+async function pollOnce(force) {
+  const r = await api("GET", KEY ? `/api/${KEY}/state` : "/api/panes");
+  if (!r.ok) {
+    const wasConnected = !S.error;
+    S.error = r.error;
+    S.sig = null;
+    if (wasConnected) renderSoon();
     return;
   }
-  S.polling = true;
-  try {
-    const r = await api("GET", KEY ? `/api/${KEY}/state` : "/api/panes");
-    if (!r.ok) {
-      S.error = r.error;
-      S.sig = null;
-      return renderSoon();
-    }
-    S.error = null;
-    if (!KEY) {
-      S.panes = r.data;
-    } else {
-      absorbState(r.data);
-      await loadFlow();
-    }
-    const sig = JSON.stringify([r.data, S.flowId, Object.keys(S.flowCache)]);
-    const userIsReading = S.dialog || String(window.getSelection?.() || "").length > 0;
-    if (!force && userIsReading) return tickTimers();
-    if (force || sig !== S.sig) {
-      S.sig = sig;
-      render();
-    } else {
-      tickTimers();
-    }
-  } finally {
-    S.polling = false;
-    if (S.forceNext) {
-      S.forceNext = false;
-      poll(true);
-    }
+  S.error = null;
+  if (!KEY) {
+    S.panes = r.data;
+  } else {
+    absorbState(r.data);
+    await loadFlow();
+  }
+  const sig = JSON.stringify([r.data, S.flowId, Object.keys(S.flowCache)]);
+  const userIsReading = S.dialog || String(window.getSelection?.() || "").length > 0;
+  if (!force && userIsReading) return tickTimers();
+  if (force || sig !== S.sig) {
+    S.sig = sig;
+    render();
+  } else {
+    tickTimers();
   }
 }
 
@@ -337,13 +343,18 @@ function absorbState(data) {
 
 async function loadFlow() {
   if (!S.flowId || S.flowCache[S.flowId]) return;
-  const r = await api("GET", `/api/${KEY}/flow/${S.flowId}`);
-  if (r.ok) S.flowCache[S.flowId] = r.data;
+  const id = S.flowId;
+  const r = await api("GET", `/api/${KEY}/flow/${id}`);
+  if (r.ok) S.flowCache[id] = r.data;
+  else if (r.status) S.flowCache[id] = { status: REC.ERROR, error: r.error };
 }
 
 function tickTimers() {
   const now = Date.now() / 1000;
-  document.querySelectorAll("[data-since]").forEach(el => { el.textContent = secs(now - Number(el.dataset.since)); });
+  document.querySelectorAll("[data-since]").forEach(el => {
+    const since = Number(el.dataset.since);
+    el.textContent = since > 0 ? secs(Math.max(0, now - since)) : "";
+  });
 }
 
 function selectorOf(el) {
@@ -359,10 +370,21 @@ function render() {
   app.innerHTML = `<div id="main" ${S.dialog ? "inert" : ""}>${KEY ? renderPanel() : renderIndex()}</div>${renderDialog()}`;
   window.scrollTo(0, y);
   scrolls.forEach(([sel, top, left]) => { const el = app.querySelector(sel); if (el) { el.scrollTop = top; el.scrollLeft = left; } });
-  app.querySelector(".tab.on")?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  revealSelectedTab(app);
   const again = focus && app.querySelector(focus);
   if (again) again.focus();
   tickTimers();
+}
+
+function revealSelectedTab(app) {
+  const strip = app.querySelector(".tabs");
+  const tab = strip?.querySelector(".tab.on");
+  if (!tab || S.flowId === S.scrolledFlowId) return;
+  S.scrolledFlowId = S.flowId;
+  const left = tab.offsetLeft - strip.offsetLeft;
+  if (left < strip.scrollLeft || left + tab.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+    strip.scrollLeft = left - (strip.clientWidth - tab.offsetWidth) / 2;
+  }
 }
 
 function renderIndex() {
@@ -390,7 +412,7 @@ function renderPanel() {
     <div class="modes">${modeButton("flow", t("mode_flow"))}${modeButton("live", t("mode_live"))}${modeButton("qa", `${t("mode_qa")}${open ? `<span class="n">${open}</span>` : ""}`)}</div>
     ${S.error ? `<span class="pill err" title="${esc(S.error)}"><i class="dot"></i>${t("disconnected")}</span>`
       : S.state.busy ? `<span class="pill busy"><i class="dot"></i>${t("busy")}</span>` : `<span class="pill"><i class="dot"></i>${t("idle")}</span>`}
-    ${mode === "flow" && S.pending ? `<span class="pill gen"><i class="dot"></i>${t("flow_gen", "")} <span data-since="${Number(S.pending.since) || Date.now() / 1000}"></span></span>` : ""}
+    ${mode === "flow" && S.pending ? `<span class="pill gen"><i class="dot"></i>${t("flow_gen")} <span data-since="${Number(S.pending.since) || 0}"></span></span>` : ""}
     <span class="where" title="${esc(S.state.cwd || "")}">${esc((S.state.cwd || "").split("/").pop())}</span>
     ${mode === "flow" ? `<button class="btn" data-act="regen" title="${t("regen_title")}">${t("regen")}</button>` : ""}
     ${FULL ? "" : `<button class="btn" data-act="full" title="${t("full_title")}">${t("full")}</button>`}
@@ -404,51 +426,72 @@ function renderFlow() {
   if (!S.flows.length) {
     return `<div class="big-empty"><b>${t("flow_empty_t")}</b>${t("flow_empty_d")}${S.pending ? `<br>${t("flow_empty_now")}` : ""}</div>`;
   }
-  const tabs = `<div class="tabs">${S.flows.map((f, i) => `<button class="tab ${f.id === S.flowId ? "on" : ""} ${f.status === "error" ? "err" : ""}"
-    data-flow="${esc(f.id)}" title="${esc(f.title)} ${clock(f.ts)}"><b>${S.flows.length - i}</b>${esc(f.title || f.id)}<small>${clock(f.ts).slice(0, 5)}</small></button>`).join("")}</div>`;
+  const tabs = flowTabs();
   const rec = S.flowCache[S.flowId];
   if (!rec) return `<div class="top">${tabs}</div><div class="big-empty">${t("loading")}</div>`;
-  if (rec.status !== "ok" || !rec.flow) {
+  if (rec.status !== REC.OK || !rec.flow) {
     return `<div class="top">${tabs}</div>
       <div class="card"><h3>${t("flow_fail")}</h3><div class="err-box">${esc(rec.error || text("unknown_err"))}</div></div>`;
   }
   const flow = rec.flow;
   const steps = list(flow.steps);
   if (!steps.length) return `<div class="top">${tabs}</div><div class="big-empty">${t("flow_empty_t")}</div>`;
-  const i = Math.min(S.step, steps.length - 1);
-  const step = steps[i];
-  const kindsUsed = [...new Set(steps.map(s => (KINDS[s.kind] ? s.kind : "logic")))];
-  const top = `<div class="top">${tabs}
-    <div class="ctrl"><button class="btn" data-act="prev" aria-label="${t("prev_step")}">←</button><span class="count">${i + 1} / ${steps.length}</span>
+  S.step = Math.min(Math.max(0, S.step), steps.length - 1);
+  const i = S.step;
+  return `<div class="top">${tabs}${flowControls(i, steps.length)}</div>
+    <div class="progress"><i style="width:${((i + 1) / steps.length) * 100}%"></i></div>
+    <div class="grid">${pipelineCard(flow, steps, i)}${stepDetail(rec, flow, steps[i], i)}${flowSide(rec, flow, steps, i)}</div>`;
+}
+
+function flowTabs() {
+  return `<div class="tabs">${S.flows.map(f => `<button class="tab ${f.id === S.flowId ? "on" : ""} ${f.status === REC.ERROR ? "err" : ""}"
+    data-flow="${esc(f.id)}" title="${esc(f.title)} ${clock(f.ts)}">${esc(f.title || f.id)}<small>${hhmm(f.ts)}</small></button>`).join("")}</div>`;
+}
+
+function flowControls(i, total) {
+  return `<div class="ctrl"><button class="btn" data-act="prev" aria-label="${t("prev_step")}">←</button><span class="count">${i + 1} / ${total}</span>
     <button class="btn" data-act="next" aria-label="${t("next_step")}">→</button>
-    <button class="btn primary" data-act="play">${S.playing ? t("pause") : t("play")}</button></div></div>
-    <div class="progress"><i style="width:${((i + 1) / steps.length) * 100}%"></i></div>`;
-  const pipeline = `<div class="card"><h3>${t("pipeline")}</h3>
+    <button class="btn primary" data-act="play">${S.playing ? t("pause") : t("play")}</button></div>`;
+}
+
+function pipelineCard(flow, steps, i) {
+  const kindsUsed = [...new Set(steps.map(s => (KINDS[s.kind] ? s.kind : "logic")))];
+  return `<div class="card"><h3>${t("pipeline")}</h3>
     ${flow.example ? `<div class="example"><b>${t("example_label")}</b>${inline(flow.example)}</div>` : ""}
     <div class="legend">${kindsUsed.map(k => `<span style="--c:${kindColor(k)}">${kindLabel(k)}</span>`).join("")}<span style="--c:var(--hl-line)">${t("changed_this")}</span></div>
     <ol class="steps">${steps.map((s, n) => `<li><button class="step ${n === i ? "on" : ""} ${s.changed ? "changed" : ""}" data-step="${n}" style="--c:${kindColor(s.kind)}" aria-current="${n === i}">
       <span class="num">${n + 1}</span><span><span class="t">${esc(s.title)}${s.changed ? `<span class="chg">${t("changed_short")}</span>` : ""}</span><span class="l">${esc(s.location)}</span></span></button></li>`).join("")}</ol>
     <div class="note">${inline(flow.summary)}</div></div>`;
+}
+
+function codeBlock(step) {
+  if (!step.code) return "";
   const needles = list(step.highlight).map(h => String(h).trim()).filter(h => h.length >= MIN_HIGHLIGHT);
-  const code = step.code ? `<div class="label">${t("code")}</div><pre class="code">${String(step.code).replace(/\n$/, "").split("\n")
-    .map(line => `<span class="${needles.some(h => line.includes(h)) ? "hl" : ""}">${esc(line) || " "}</span>`).join("")}</pre>` : "";
-  const flowNumber = S.flows.length - S.flows.findIndex(f => f.id === S.flowId);
-  const detail = `<div class="card detail">
-    <div class="ctx">${t("flow_n", flowNumber)} / ${esc(flow.title)}  ${clock(rec.ts)}</div>
+  return `<div class="label">${t("code")}</div><pre class="code">${String(step.code).replace(/\n$/, "").split("\n")
+    .map(line => `<span class="${needles.some(h => line.includes(h)) ? "hl" : ""}">${esc(line) || " "}</span>`).join("")}</pre>`;
+}
+
+function stepDetail(rec, flow, step, i) {
+  return `<div class="card detail">
+    <div class="ctx">${esc(flow.title)}  ${clock(rec.ts)}</div>
     <div class="h"><h2>${circled(i + 1)} ${esc(step.title)}</h2><span class="badge" style="--c:${kindColor(step.kind)}">${kindLabel(step.kind)}</span>
     ${step.changed ? `<span class="badge" style="--c:var(--hl-line)">${t("changed_this")}</span>` : ""}</div>
-    <code class="loc">${esc(step.location)}</code>${prose(step.explanation)}${code}</div>`;
+    <code class="loc">${esc(step.location)}</code>${prose(step.explanation)}${codeBlock(step)}</div>`;
+}
+
+function flowSide(rec, flow, steps, i) {
+  const changes = list(flow.changes);
   const checks = list(flow.checks);
   const cost = Number(rec.cost);
-  const side = `<div class="side">
+  const checkStatus = c => CHECK_ICON[c.status] ? c.status : CHECK.UNKNOWN;
+  return `<div class="side">
     ${stateCard(steps, i)}
-    <div class="card"><h3>${t("changes", list(flow.changes).length)}</h3><div class="rows">${list(flow.changes).map(c => `<div class="row"><span class="k M">M</span>
+    <div class="card"><h3>${t("changes", changes.length)}</h3><div class="rows">${changes.map(c => `<div class="row"><span class="k M">M</span>
       <div class="v"><div class="path">${esc(c.file)}</div>${inline(c.what)}</div></div>`).join("") || `<div class="empty">${t("none")}</div>`}</div></div>
     ${checks.length ? `<div class="card"><h3>${t("checks")}</h3><div class="rows">${checks.map(c => `<div class="row">
-      <span class="k st-${["pass", "fail"].includes(c.status) ? c.status : "unknown"}">${c.status === "pass" ? "✓" : c.status === "fail" ? "✗" : "?"}</span><span>${esc(c.label)}</span></div>`).join("")}</div></div>` : ""}
+      <span class="k st-${checkStatus(c)}">${CHECK_ICON[checkStatus(c)]}</span><span>${esc(c.label)}</span></div>`).join("")}</div></div>` : ""}
     <div class="card"><h3>${t("request")}</h3><div class="request">${esc(rec.prompt)}</div><div class="meta">${esc(rec.model || "")}${cost ? ` / $${cost.toFixed(3)}` : ""}</div></div>
     ${toolsCard(TOOLS_IN_FLOW)}</div>`;
-  return top + `<div class="grid">${pipeline}${detail}${side}</div>`;
 }
 
 function stateAt(steps, current) {
@@ -462,7 +505,7 @@ function stateAt(steps, current) {
 function stateCard(steps, current) {
   if (!steps.some(s => list(s.data).length)) return "";
   const rows = [...stateAt(steps, current)].map(([name, v]) => {
-    const now = v.step === current;
+    const now = v.step === current && (v.before == null || v.before !== v.after);
     const before = now && v.before && v.before !== v.after ? `<span class="before">${esc(v.before)}</span>` : "";
     return `<tr class="${now ? "now" : ""}"><td>${esc(name)}${now ? "" : `<span class="step-no">${circled(v.step + 1)}</span>`}</td><td>${before}${esc(v.after)}</td></tr>`;
   }).join("");
@@ -470,18 +513,31 @@ function stateCard(steps, current) {
 }
 
 function isTurnShown(turn, items) {
-  if (turn.status !== "ok") return true;
+  if (turn.status !== REC.OK) return true;
   return items.length > 0 || !(S.qaOnlyOpen || list(turn.items).length);
 }
 
-function renderQA() {
-  const bar = `<div class="top qa-bar">
+function qaBar() {
+  return `<div class="top qa-bar">
     <label class="btn"><input type="checkbox" data-act="qa-open" ${S.qaOnlyOpen ? "checked" : ""}>${t("qa_open_only")}</label>
     <label class="btn"><input type="checkbox" data-act="qa-archived" ${S.qaArchived ? "checked" : ""}>${t("qa_archived")}</label>
     ${S.qa.pending ? `<span class="pill gen"><i class="dot"></i>${t("qa_checking")}</span>` : ""}<span class="spacer"></span>
-    <button class="btn" data-act="qa-regen" title="${t("qa_regen_title")}">${t("qa_regen")}</button></div>`;
-  if (!S.qa.turns.length) return bar + `<div class="big-empty"><b>${t("qa_empty_t")}</b>${t("qa_empty_d")}</div>`;
-  S.qaRefs = [];
+    ${S.qaPageTurns.length ? `<button class="btn" data-act="qa-regen" title="${t("qa_regen_title")}">${t("qa_regen")}</button>` : ""}</div>`;
+}
+
+function findItem(id) {
+  for (const turn of S.qa.turns) {
+    const item = list(turn.items).find(i => i.id === id);
+    if (item) return item;
+  }
+  return null;
+}
+
+function renderQA() {
+  if (!S.qa.turns.length) {
+    S.qaPageTurns = [];
+    return qaBar() + `<div class="big-empty"><b>${t("qa_empty_t")}</b>${t("qa_empty_d")}</div>`;
+  }
   const visible = S.qa.turns
     .map(turn => ({ turn, items: list(turn.items).filter(i => (!S.qaOnlyOpen || i.status !== QA.ANSWERED) && (S.qaArchived || !i.archived)) }))
     .filter(({ turn, items }) => isTurnShown(turn, items));
@@ -495,37 +551,39 @@ function renderQA() {
   S.qaPageTurns = shown.map(({ turn }) => turn.turn_id).filter(Boolean);
   const body = shown.map(({ turn, items }) => renderTurn(turn, items)).join("");
   const allArchived = !body && S.qa.turns.some(turn => list(turn.items).some(i => i.archived));
-  return bar + pager + (body || `<div class="big-empty"><b>${allArchived ? t("qa_nothing_shown") : t("qa_all_done")}</b></div>`) + pager;
+  return qaBar() + pager + (body || `<div class="big-empty"><b>${allArchived ? t("qa_nothing_shown") : t("qa_all_done")}</b></div>`) + pager;
 }
 
 function renderTurn(turn, items) {
   const rows = items.map(item => {
-    const n = S.qaRefs.push(item) - 1;
+    const id = esc(item.id);
     const status = STATUS_LABEL[item.status] ? item.status : QA.UNANSWERED;
+    const busy = S.busyIds.has(item.id) ? 'aria-disabled="true"' : "";
+    const answer = sentences(item.answer).map(line => `<p>${inline(line)}</p>`).join("");
     return `<div class="qa-item ${item.archived ? "archived" : ""}">
-      <button class="chip ${status} ${item.manual ? "manual" : ""}" data-qa-cycle="${n}" data-focus="cycle-${esc(item.id)}" ${S.busyIds.has(item.id) ? "disabled" : ""}
-        title="${t("cycle_title")}${item.manual ? t("auto_verdict", STATUS_LABEL[item.auto_status] || "-") : ""}">${STATUS_LABEL[status]}</button>
-      <div><div class="q">${esc(item.question)}${item.from === "mid-turn" ? `<small>${t("midturn")}</small>` : ""}<span class="qid" title="claude-qa set ${esc(item.id)} answered">${esc(item.id)}</span></div>
-      <div class="a">${inline(item.answer)}</div>
-      ${item.resolved_in && item.first_status ? `<div class="resolved">${t("resolved", STATUS_LABEL[item.first_status] || "-", STATUS_LABEL[item.auto_status] || "-")} ${clock(item.resolved_at)}</div>`
+      <button class="chip ${status}" data-qa-cycle="${id}" ${busy}
+        title="${t("cycle_title")}${item.manual ? t("auto_verdict", statusLabel(item.auto_status)) : ""}">${esc(statusLabel(status))}</button>
+      <div><div class="q">${esc(item.question)}${item.from === FROM_MID_TURN ? `<small>${t("midturn")}</small>` : ""}<span class="qid" title="claude-qa set ${id} answered">${id}</span></div>
+      <div class="a">${answer}</div>
+      ${item.resolved_in && item.first_status ? `<div class="resolved">${t("resolved", statusLabel(item.first_status), statusLabel(item.auto_status))} ${clock(item.resolved_at)}</div>`
         : item.rechecked_at && item.first_status && item.first_status !== item.auto_status
-          ? `<div class="resolved">${t("rechecked", STATUS_LABEL[item.first_status] || "-", STATUS_LABEL[item.auto_status] || "-")} ${clock(item.rechecked_at)}</div>` : ""}
-      <div class="qa-tools">${status !== QA.ANSWERED && !item.archived && !item.manual ? `<button class="mini" data-qa-copy="${n}" title="${t("copy_title")}">${t("copy_question")}</button>` : ""}
-      ${item.manual ? "" : `<button class="mini" data-qa-recheck="${n}" title="${t("recheck_item_title")}">${t("recheck_item")}</button>`}
-      <button class="mini" data-qa-archive="${n}" data-focus="archive-${esc(item.id)}">${item.archived ? t("restore") : t("archive")}</button>
-      ${item.manual ? `<button class="mini" data-qa-reset="${n}">${t("reset_auto")}</button>` : ""}</div></div></div>`;
+          ? `<div class="resolved">${t("rechecked", statusLabel(item.first_status), statusLabel(item.auto_status))} ${clock(item.rechecked_at)}</div>` : ""}
+      <div class="qa-tools">${status !== QA.ANSWERED && !item.archived && !item.manual ? `<button class="mini" data-qa-copy="${id}" ${busy} title="${t("copy_title")}">${t("copy_question")}</button>` : ""}
+      ${item.manual ? "" : `<button class="mini" data-qa-recheck="${id}" title="${t("recheck_item_title")}">${t("recheck_item")}</button>`}
+      <button class="mini" data-qa-archive="${id}" ${busy}>${item.archived ? t("restore") : t("archive")}</button>
+      ${item.manual ? `<button class="mini" data-qa-reset="${id}" ${busy}>${t("reset_auto")}</button>` : ""}</div></div></div>`;
   }).join("");
   return `<div class="card qa-turn"><div class="qa-head"><span>${clock(turn.ts)}</span><span class="p" title="${esc(turn.prompt)}">${esc(turn.prompt)}</span>
-    <span>${esc(turn.model || "")}${turn.scope === "through-end" ? t("through_end") : ""}</span>
-    ${turn.status !== "ok" ? `<button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button>` : ""}</div>
-    ${turn.status !== "ok" ? `<div class="err-box">${esc(turn.error || text("qa_fail"))}</div>` : ""}
-    <div class="qa">${rows || (turn.status === "ok" ? `<div class="empty">${t("qa_noq")}</div>` : "")}</div></div>`;
+    <span>${esc(turn.model || "")}${turn.scope === SCOPE_THROUGH_END ? t("through_end") : ""}</span>
+    ${turn.status !== REC.OK ? `<button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button>` : ""}</div>
+    ${turn.status !== REC.OK ? `<div class="err-box">${esc(turn.error || text("qa_fail"))}</div>` : ""}
+    <div class="qa">${rows || (turn.status === REC.OK ? `<div class="empty">${t("qa_noq")}</div>` : "")}</div></div>`;
 }
 
 function toolsCard(limit) {
   const tools = list(S.state.tools).slice(-limit).reverse();
   return `<div class="card"><h3>${t("tools", list(S.state.tools).length)}</h3>${tools.map(tool => {
-    const icon = { [TOOL.OK]: "✓", [TOOL.ERR]: "✗", [TOOL.RUN]: "◌" }[tool.state] || "-";
+    const icon = TOOL_ICON[tool.state] || "-";
     const dur = tool.state === TOOL.RUN ? `<span data-since="${Number(tool.start) || 0}"></span>` : tool.end && tool.start ? secs(tool.end - tool.start) : "";
     const cls = EDIT_TOOLS.has(tool.tool) ? "edit" : (tool.tool || "").startsWith("mcp__") ? "mcp" : "other";
     return `<div class="tool"><span class="st-${esc(tool.state)}">${icon}</span><span class="time">${clock(tool.start)}</span>
@@ -549,7 +607,7 @@ function renderDialog() {
 
 function dialogShell(name, title, body) {
   return `<div class="overlay" data-overlay="${name}"><div class="card dialog" role="dialog" aria-modal="true" aria-labelledby="dlg-${name}">
-    <div class="dialog-head"><h3 id="dlg-${name}">${title}</h3><button class="btn" data-act="close" data-focus="close">${t("close")}</button></div>${body}</div></div>`;
+    <div class="dialog-head"><h3 id="dlg-${name}">${title}</h3><button class="btn" data-act="close">${t("close")}</button></div>${body}</div></div>`;
 }
 
 function renderHelpBody() {
@@ -591,7 +649,7 @@ function renderSettingsBody() {
 
 async function openDialog(name) {
   stopAutoplay();
-  S.returnFocus = selectorOf(document.activeElement);
+  if (!S.dialog) S.returnFocus = selectorOf(document.activeElement);
   S.settingsMsg = null;
   const r = await api("GET", `/api/config${KEY ? `?pane=${KEY}` : ""}`);
   if (!r.ok) return notify(r.error, true);
@@ -605,6 +663,7 @@ function closeDialog() {
   S.dialog = null;
   render();
   if (S.returnFocus) document.querySelector(S.returnFocus)?.focus();
+  S.returnFocus = null;
 }
 
 async function saveSetting(update) {
@@ -633,9 +692,8 @@ function notify(message, error) {
   const el = document.getElementById("toast");
   el.textContent = message;
   el.classList.toggle("err", Boolean(error));
-  el.hidden = false;
   clearTimeout(notify.timer);
-  notify.timer = setTimeout(() => { el.hidden = true; }, TOAST_MS);
+  notify.timer = setTimeout(() => { el.textContent = ""; }, TOAST_MS);
 }
 
 function selectFlow(id) {
@@ -668,14 +726,58 @@ function go(n) {
   render();
 }
 
-async function postOverride(ref, body) {
-  if (S.busyIds.has(ref.id)) return;
-  S.busyIds.add(ref.id);
+async function withBusy(item, work) {
+  if (S.busyIds.has(item.id)) return;
+  S.busyIds.add(item.id);
   render();
-  const r = await api("POST", `/api/${KEY}/qa/override`, { id: ref.id, ...body });
-  S.busyIds.delete(ref.id);
+  try {
+    await work();
+  } finally {
+    S.busyIds.delete(item.id);
+    render();
+  }
+}
+
+function postOverride(item, body) {
+  return withBusy(item, async () => {
+    const r = await api("POST", `/api/${KEY}/qa/override`, { id: item.id, ...body });
+    if (!r.ok) notify(r.error, true);
+    await poll(true);
+  });
+}
+
+function copyQuestion(item) {
+  return withBusy(item, async () => {
+    const r = await api("POST", `/api/${KEY}/qa/copy`, { id: item.id });
+    if (!r.ok) return notify(r.error, true);
+    notify(text(r.data.copied ? "copy_done" : "copy_failed"), !r.data.copied);
+  });
+}
+
+function togglePlay() {
+  if (S.playing) {
+    stopAutoplay();
+  } else {
+    if (S.step >= stepCount() - 1) S.step = 0;
+    S.playing = setInterval(() => (S.step >= stepCount() - 1 ? (stopAutoplay(), render()) : go(S.step + 1)), AUTOPLAY_MS);
+  }
+  render();
+}
+
+async function openFull() {
+  const r = await api("POST", `/api/${KEY}/open?mode=${S.mode || ""}`);
   if (!r.ok) notify(r.error, true);
-  await poll(true);
+}
+
+async function resetSetting(name) {
+  await saveSetting({ [name]: null });
+  document.querySelector(`[data-setting="${CSS.escape(name)}"]`)?.focus();
+}
+
+function setQaFilter(key, checked) {
+  S[key] = checked;
+  S.qaPage = 1;
+  render();
 }
 
 async function regen(target, turn, item, scope, turns) {
@@ -688,52 +790,52 @@ async function regen(target, turn, item, scope, turns) {
   await poll(true);
 }
 
-document.addEventListener("click", async e => {
+const ACTIONS = {
+  close: () => closeDialog(),
+  [DIALOG.HELP]: () => S.dialog === DIALOG.HELP ? closeDialog() : openDialog(DIALOG.HELP),
+  [DIALOG.SETTINGS]: () => S.dialog === DIALOG.SETTINGS ? closeDialog() : openDialog(DIALOG.SETTINGS),
+  "qa-open": el => setQaFilter("qaOnlyOpen", el.checked),
+  "qa-archived": el => setQaFilter("qaArchived", el.checked),
+  prev: () => go(S.step - 1),
+  next: () => go(S.step + 1),
+  play: togglePlay,
+  full: openFull,
+  regen: () => regen("flow", null),
+  "qa-regen": () => regen("qa", null, null, "open", S.qaPageTurns),
+};
+
+const ITEM_ACTIONS = {
+  qaCycle: item => postOverride(item, { status: QA_CYCLE[item.status] || QA.ANSWERED }),
+  qaArchive: item => postOverride(item, { archived: !item.archived }),
+  qaReset: item => postOverride(item, { status: null }),
+  qaRecheck: item => regen("qa", null, item.id),
+  qaCopy: copyQuestion,
+};
+
+const DATA_ACTIONS = {
+  resetSetting: resetSetting,
+  qaPage: page => { S.qaPage = Number(page); render(); window.scrollTo(0, 0); },
+  qaTurn: turn => regen("qa", turn),
+  mode: mode => setMode(mode),
+  flow: async id => { selectFlow(id); S.mode = "flow"; await loadFlow(); render(); },
+  step: n => go(Number(n)),
+};
+
+document.addEventListener("click", e => {
   const overlay = e.target.closest("[data-overlay]");
   if (overlay && e.target === overlay) return closeDialog();
   const el = e.target.closest("button, [data-act=qa-open], [data-act=qa-archived]");
-  if (!el || el.disabled) return;
+  if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return;
   const d = el.dataset;
-  if (d.act === "close") return closeDialog();
-  if (d.act === DIALOG.HELP || d.act === DIALOG.SETTINGS) return S.dialog === d.act ? closeDialog() : openDialog(d.act);
-  if (d.act === "qa-open" || d.act === "qa-archived") {
-    S[d.act === "qa-open" ? "qaOnlyOpen" : "qaArchived"] = el.checked;
-    S.qaPage = 1;
-    return render();
-  }
-  if (d.resetSetting) return saveSetting({ [d.resetSetting]: null });
   touch();
-  if (d.qaPage) { S.qaPage = Number(d.qaPage); render(); return window.scrollTo(0, 0); }
-  if (d.qaTurn) return regen("qa", d.qaTurn);
-  const ref = S.qaRefs[Number(d.qaCycle ?? d.qaArchive ?? d.qaReset ?? d.qaRecheck ?? d.qaCopy)];
-  if (ref && d.qaCopy !== undefined) {
-    if (S.busyIds.has(ref.id)) return;
-    S.busyIds.add(ref.id);
-    const r = await api("POST", `/api/${KEY}/qa/copy`, { id: ref.id });
-    S.busyIds.delete(ref.id);
-    if (!r.ok) return notify(r.error, true);
-    return notify(text(r.data.copied ? "copy_done" : "copy_failed"), !r.data.copied);
+  if (ACTIONS[d.act]) return ACTIONS[d.act](el);
+  const itemAction = Object.keys(ITEM_ACTIONS).find(k => d[k] !== undefined);
+  if (itemAction) {
+    const item = findItem(d[itemAction]);
+    return item && ITEM_ACTIONS[itemAction](item);
   }
-  if (ref && d.qaRecheck !== undefined) return regen("qa", null, ref.id);
-  if (ref && d.qaCycle !== undefined) return postOverride(ref, { status: QA_CYCLE[ref.status] || QA.ANSWERED });
-  if (ref && d.qaArchive !== undefined) return postOverride(ref, { archived: !ref.archived });
-  if (ref && d.qaReset !== undefined) return postOverride(ref, { status: null });
-  if (d.mode) return setMode(d.mode);
-  if (d.flow) { selectFlow(d.flow); S.mode = "flow"; await loadFlow(); return render(); }
-  if (d.step) return go(Number(d.step));
-  if (d.act === "prev") return go(S.step - 1);
-  if (d.act === "next") return go(S.step + 1);
-  if (d.act === "play") {
-    if (S.playing) stopAutoplay();
-    else S.playing = setInterval(() => (S.step >= stepCount() - 1 ? (stopAutoplay(), render()) : go(S.step + 1)), AUTOPLAY_MS);
-    return render();
-  }
-  if (d.act === "full") {
-    const r = await api("POST", `/api/${KEY}/open?mode=${S.mode || ""}`);
-    return r.ok ? undefined : notify(r.error, true);
-  }
-  if (d.act === "regen") return regen("flow", null);
-  if (d.act === "qa-regen") return regen("qa", null, null, "open", S.qaPageTurns);
+  const dataAction = Object.keys(DATA_ACTIONS).find(k => d[k] !== undefined);
+  if (dataAction) return DATA_ACTIONS[dataAction](d[dataAction]);
 });
 
 document.addEventListener("change", e => {
@@ -752,10 +854,47 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") { touch(); go(S.step + (e.key === "ArrowRight" ? 1 : -1)); }
 });
 
+const TIP_GAP = 8;
+const tip = document.getElementById("tip");
+let tipAnchor = null;
+
+function hideTip() {
+  tipAnchor = null;
+  tip.textContent = "";
+}
+
+function showTip(el) {
+  const text = el.dataset.tip;
+  const clipped = getComputedStyle(el).textOverflow === "ellipsis";
+  if (!text || (clipped && el.scrollWidth <= el.clientWidth)) return hideTip();
+  tipAnchor = el;
+  tip.textContent = text;
+  const box = el.getBoundingClientRect();
+  const width = tip.offsetWidth, height = tip.offsetHeight;
+  const below = box.bottom + TIP_GAP + height <= innerHeight;
+  tip.style.left = `${Math.max(TIP_GAP, Math.min(box.left, innerWidth - width - TIP_GAP))}px`;
+  tip.style.top = `${below ? box.bottom + TIP_GAP : Math.max(TIP_GAP, box.top - height - TIP_GAP)}px`;
+}
+
+document.addEventListener("pointerover", e => {
+  const el = e.target.closest?.("[title], [data-tip]");
+  if (!el) return hideTip();
+  if (el.hasAttribute("title")) {
+    el.dataset.tip = el.getAttribute("title");
+    el.removeAttribute("title");
+  }
+  if (el !== tipAnchor) showTip(el);
+});
+document.addEventListener("pointerleave", hideTip);
+addEventListener("scroll", hideTip, true);
+
 (async () => {
   if (S.dialog) await openDialog(S.dialog);
   await poll(true);
-  setInterval(poll, POLL_MS);
+  setInterval(() => {
+    poll();
+    if (tipAnchor && !tipAnchor.isConnected) hideTip();
+  }, POLL_MS);
 })();
 </script>
 </body>

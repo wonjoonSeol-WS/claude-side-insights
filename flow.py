@@ -11,7 +11,8 @@ import time
 import uuid
 
 import config
-from claude_run import Pending, language_instruction, run_claude
+from claude_run import Pending, run_claude
+from i18n import language_instruction
 from common import EDIT_TOOLS, atomic_write_json, data_dir, json_files, read_json
 from transcript import (assistant_blocks, prompt_text, clip, load_entries, queued_prompt, text_of, tool_results, turn_end, turn_start,
                         wait_until_written)
@@ -33,14 +34,18 @@ _QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
 _SCRATCH = r"(?:/tmp/|/private/tmp/|/dev/|\$TMPDIR|\$\{TMPDIR)"
 WRITES_FILES = re.compile(
     r"(?:^|[\s;&|])(?:&>|>\||>{1,2})\s*(?!" + _SCRATCH + r"|&)[\w~./$]"
-    r"|\bsed\s+-i\b|\bperl\s+-[a-z]*i|\btee\s+(?:-a\s+)?(?!" + _SCRATCH + r")[\w~./$]"
-    r"|\bcurl\b[^|;&]*\s-o\s*(?!" + _SCRATCH + r")[\w~./$]|\bgit\s+(?:apply|mv|rm|checkout\s+--)\b"
-    r"|\.write\(|\bopen\([^)]*['\"][wa]['\"]|\b(?:mv|cp|patch)\s+(?!-)[\w~./$]")
+    r"|\bsed\s+(?:-\w+\s+)*-[a-zA-Z]*i|--in-place\b|\bperl\s+-[a-z]*i|\btee\s+(?:-a\s+)?(?!" + _SCRATCH + r")[\w~./$]"
+    r"|\bcurl\b[^|;&]*\s-o\s*(?!" + _SCRATCH + r")[\w~./$]"
+    r"|\bgit\s+(?:apply|mv|rm|checkout|reset|merge|stash|restore|switch|pull|rebase|cherry-pick|revert)\b"
+    r"|\.write\(|\bopen\([^)]*['\"][wa]['\"]|\b(?:mv|cp|patch|rm|touch)\s+(?:-[\w-]+\s+)*(?!" + _SCRATCH + r")[\w~./$]")
+_MESSAGE_HEREDOC = re.compile(r"\b(?:git\s+(?:commit|tag)|gh\s+(?:pr|issue|release|api))\b")
 
 
 def writes_files(command):
-    """Heuristic for shell commands that change files outside scratch space; quoted text is ignored."""
-    heredoc_body = command.split("<<", 1)[1] if "<<" in command else ""
+    """Heuristic for shell commands that change files outside scratch space; quoted text and message bodies are ignored."""
+    head, _, heredoc_body = command.partition("<<")
+    if _MESSAGE_HEREDOC.search(head):
+        heredoc_body = ""
     return bool(WRITES_FILES.search(_QUOTED.sub("''", command)) or (heredoc_body and WRITES_FILES.search(heredoc_body)))
 
 
@@ -93,6 +98,11 @@ List the steps in the order data moves through the changed feature when it runs 
 - Trace the one concrete example from "example" through every step. In each step's data list the state names (variables, fields, rows, response codes) this step reads or changes and their concrete values for that example; give "before" only when the step changes the value. Use the same name for the same state in every step so it can be followed across steps.
 - code must be a real excerpt you confirmed with Read. Never invent symbols. Use kind "test" for test files.
 - checks: only tests, builds or checks that actually ran in the conversation. Empty if none.
+Write for a person skimming the panel, not for a machine:
+- Lead with the point in one short sentence, then add detail only if it helps.
+- Use plain, everyday words and natural phrasing for the output language; avoid stiff or translated-sounding sentences.
+- Leave out internal ids, hashes, uuids, session or turn ids, transcript entry numbers, character counts and timestamps unless the reader needs them to act.
+- Name code (functions, files, commands) only when it helps the reader find or understand something.
 - Do not use the em dash (U+2014) or the middle dot (U+00B7); use a hyphen, comma or slash."""
 
 
@@ -158,10 +168,16 @@ def new_flow_id():
 def _prune(out_dir, keep_id, turn_id):
     for path in json_files(out_dir):
         if os.path.basename(path) != f"{keep_id}.json" and turn_id and (read_json(path) or {}).get("turn_id") == turn_id:
-            os.remove(path)
-    flows = sorted(json_files(out_dir))
-    for old in flows[:-KEEP_FLOWS]:
-        os.remove(old)
+            _remove(path)
+    for old in sorted(json_files(out_dir))[:-KEEP_FLOWS]:
+        _remove(old)
+
+
+def _remove(path):
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
 
 
 def main():
@@ -179,16 +195,17 @@ def main():
     out_dir = data_dir("flows", pane)
     if not turn:
         if force:
-            atomic_write_json(os.path.join(out_dir, f"{new_flow_id()}.json"),
-                              {"id": None, "ts": time.time(), "status": "error", "error": "no turn found in the transcript"})
+            flow_id = new_flow_id()
+            atomic_write_json(os.path.join(out_dir, f"{flow_id}.json"),
+                              {"id": flow_id, "ts": time.time(), "status": "error", "error": "no turn found in the transcript"})
         return
     if not turn["edited"] and not turn["shell_writes"] and not force:
         return
     flow_id = new_flow_id()
     record = {"turn_id": turn["turn_id"], "model": settings["model"], "id": flow_id, "ts": time.time(), "cwd": cwd,
               "prompt": turn["prompt"][:RECORD_PROMPT_LIMIT], "edited": turn["edited"]}
-    shell = "".join(f"\nShell commands that may have changed files:\n" + "\n".join(f"- {c}" for c in turn["shell_writes"])
-                    for _ in [0] if turn["shell_writes"])
+    shell = ("\nShell commands that may have changed files:\n" + "\n".join(f"- {c}" for c in turn["shell_writes"])
+             if turn["shell_writes"] else "")
     message = (f"Working directory: {cwd}\nFiles edited this turn:\n" + "\n".join(f"- {f}" for f in turn["edited"]) + shell +
                f"\n\n## User request\n{clip(turn['prompt'], PROMPT_LIMIT)}\n\n## What happened this turn\n{turn['body']}\n\n"
                "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema.")

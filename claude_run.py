@@ -7,22 +7,17 @@ import time
 
 import fcntl
 
-from common import atomic_write_json, process_alive, read_json
-from i18n import current
+from common import atomic_write_json, process_alive, read_json, terminal_settings
 
 STALE_AFTER = 1800
-_PARENT_SESSION_VARS = ("CMUX_", "ORCA_", "CLAUDE_CODE_", "CLAUDECODE")
-
-
-def language_instruction(pane, keep=""):
-    name = current(pane).prompt_name
-    kept = f" Keep {keep} exactly in the user's own words and language." if keep else ""
-    return f"\n\nWrite every text field in {name}.{kept} Keep code excerpts, identifiers, file names and commands as they are."
+_PARENT_PREFIXES = ("CLAUDE_CODE_MESSAGING_", *terminal_settings("CHILD_ENV_PREFIX"))
+_PARENT_VARS = {*terminal_settings("PANE_ENV"), "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID",
+                "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SSE_PORT", "CLAUDE_PID", "CLAUDE_EFFORT"}
 
 
 def run_claude(system, schema, message, model, tools, cwd, timeout, max_turns):
     """Returns (structured_output, cost). Raises RuntimeError when no structured output came back."""
-    env = {k: v for k, v in os.environ.items() if not k.startswith(_PARENT_SESSION_VARS)}
+    env = {k: v for k, v in os.environ.items() if k not in _PARENT_VARS and not k.startswith(_PARENT_PREFIXES)}
     env["CLAUDE_ACTIVITY_CHILD"] = "1"
     tool_list = ",".join(tools)
     cmd = ["claude", "-p", "--model", model, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
@@ -64,7 +59,11 @@ class Pending:
     def __enter__(self):
         os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
         self.lock = open(self.path + ".lock", "w")
-        fcntl.flock(self.lock, fcntl.LOCK_EX)
+        try:
+            fcntl.flock(self.lock, fcntl.LOCK_EX)
+        except BaseException:
+            self.lock.close()
+            raise
         atomic_write_json(self.path, {"pid": os.getpid(), "since": time.time(), **self.info})
         return self
 
@@ -80,7 +79,6 @@ class Pending:
 
     @staticmethod
     def claim(path, pid):
-        """Written by the server right after spawning, so a second click sees the run before the child starts."""
         atomic_write_json(path, {"pid": pid, "since": time.time()})
 
     @staticmethod

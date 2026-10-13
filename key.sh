@@ -1,12 +1,16 @@
-# Shared by the hooks and shell commands.
 
-# panel_key <hook-json>: cmux panel id, else Orca pane key, else the Claude session id. Same rule as common.pane_key.
+PANEL_DIR="$HOME/.claude/activity-panel"
+
+# panel_key <hook-json>: the first PANE_ENV set by a terminal adapter, else the Claude session id. Same rule as common.pane_key.
 panel_key() {
-  local raw="${CMUX_PANEL_ID:-}"
-  [ -n "$raw" ] || raw="${ORCA_PANE_KEY:-}"
+  local raw="" f
+  for f in "$PANEL_DIR"/terminals/*.sh; do
+    [ -n "$raw" ] && break
+    raw=$(PANE_ENV=""; . "$f"; [ -n "$PANE_ENV" ] && eval "printf '%s' \"\${$PANE_ENV:-}\"")
+  done
   [ -n "$raw" ] || raw=$(printf '%s' "$1" | jq -r '.session_id // empty' 2>/dev/null)
   [ -n "$raw" ] || return 0
-  printf '%s' "$raw" | LC_ALL=C tr -c 'A-Za-z0-9_.-' '_' | tail -c 80 | sed 's/^\./_/'
+  printf '%s' "$raw" | LC_ALL=C tr -c 'A-Za-z0-9_.-' '_' | tail -c 80 | sed 's/^[.-]/_/'
 }
 
 panel_port() { printf '%s' "${CLAUDE_PANEL_PORT:-47821}"; }
@@ -15,13 +19,13 @@ panel_server_pid() {
   curl -s -m 1 "http://127.0.0.1:$(panel_port)/health" 2>/dev/null | jq -r 'select(.app == "claude-panel") | .pid' 2>/dev/null
 }
 
-panel_token() { cat "$HOME/.claude/activity-panel/token" 2>/dev/null; }
+panel_token() { cat "$PANEL_DIR/token" 2>/dev/null; }
 
 panel_url() { printf 'http://127.0.0.1:%s/p/%s?t=%s' "$(panel_port)" "$1" "$(panel_token)"; }
 
 ensure_panel_server() {
   [ -n "$(panel_server_pid)" ] && return 0
-  (umask 077; /usr/bin/python3 "$HOME/.claude/activity-panel/detach.py" server.py </dev/null >> "$HOME/.claude/activity-panel/server.log" 2>&1 &)
+  (umask 077; /usr/bin/python3 "$PANEL_DIR/detach.py" server.py </dev/null >> "$PANEL_DIR/server.log" 2>&1 &)
   local i
   for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
     [ -n "$(panel_server_pid)" ] && return 0
@@ -37,13 +41,28 @@ stop_panel_server() {
   return 0
 }
 
-# cmux_panel_surfaces <key>: refs of browser surfaces in this cmux workspace that show that pane's panel.
-cmux_panel_surfaces() {
-  local pattern
-  pattern="/p/$(printf '%s' "$1" | sed 's/\./\\./g')([?/[:space:]]|$)"
-  if [ -n "${CMUX_WORKSPACE_ID:-}" ]; then
-    cmux tree --workspace "$CMUX_WORKSPACE_ID" 2>/dev/null
-  else
-    cmux tree 2>/dev/null
-  fi | grep '\[browser\]' | grep -E "$pattern" | sed -n 's/.*surface \(surface:[0-9][0-9]*\) .*/\1/p'
+panel_view_title() { printf 'claude-panel:%s' "$1"; }
+
+panel_view_command() { printf '/usr/bin/python3 %s/viewer.py %s' "$PANEL_DIR" "$1"; }
+
+# panel_terminal: the adapter file for the terminal this shell runs in; fails when none matches.
+panel_terminal() {
+  local f
+  for f in "$PANEL_DIR"/terminals/*.sh; do
+    ( . "$f"; term_detect ) && { printf '%s' "$f"; return 0; }
+  done
+  return 1
+}
+
+# panel_term <action> [args]: runs term_<action> of this terminal's adapter. 2 = no adapter, 3 = adapter lacks the action.
+panel_term() {
+  local f
+  f=$(panel_terminal) || return 2
+  ( . "$f"; type "term_$1" >/dev/null 2>&1 || exit 3; action="term_$1"; shift; "$action" "$@" )
+}
+
+panel_term_has() {
+  local f
+  f=$(panel_terminal) || return 1
+  ( . "$f"; type "term_$1" >/dev/null 2>&1 )
 }

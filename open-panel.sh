@@ -1,5 +1,6 @@
 #!/bin/bash
-# SessionStart hook, also run by `claude-panel`: open this pane's panel (cmux split or Orca tab) once.
+# SessionStart hook, also run by `claude-panel`: open this pane's panel once, through the adapter in terminals/.
+# With --force and no matching adapter, the page opens in the default browser.
 set -u
 [ -z "${CLAUDE_ACTIVITY_CHILD:-}" ] || exit 0
 umask 077
@@ -17,12 +18,11 @@ fi
 {
   ensure_panel_server || exit 0
   url=$(panel_url "$key")
-  if [ -n "${CMUX_SURFACE_ID:-}" ] && command -v cmux >/dev/null 2>&1; then
-    [ -n "$(cmux_panel_surfaces "$key")" ] && exit 0
-    cmux browser open-split "$url" >/dev/null 2>&1
-  elif [ -n "${ORCA_PANE_KEY:-}" ] && command -v orca >/dev/null 2>&1; then
-    orca tab list --json 2>/dev/null | grep -qE "/p/$(printf '%s' "$key" | sed 's/\./\\./g')([?\"]|$)" && exit 0
-    orca tab create --url "$url" --json >/dev/null 2>&1
+  if ! panel_terminal >/dev/null; then
+    [ "${1:-}" = "--force" ] && open "$url&full=1"
+    exit 0
   fi
+  [ -n "$(panel_term find "$key")" ] && exit 0
+  panel_term open "$key" "$url"
 } >/dev/null 2>&1
 exit 0

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Live activity of one pane as a terminal UI.
 
-usage: viewer.py [pane]   (default: this cmux/Orca pane)
+usage: viewer.py [pane]   (default: this pane)
 """
 import os
 import signal
@@ -21,6 +21,7 @@ FILES_SHARE = 0.4
 MIN_FILE_ROWS = 3
 NAME_MIN, NAME_MAX = 6, 14
 CLOCK_WIDTH = 9
+VIEW_TITLE = "claude-panel:"
 
 DIM, BOLD, RESET = "\033[2m", "\033[1m", "\033[0m"
 RED, GREEN, YELLOW, BLUE, CYAN, MAGENTA = (f"\033[3{n}m" for n in (1, 2, 3, 4, 6, 5))
@@ -120,7 +121,6 @@ def main():
     if not pane:
         sys.exit(__doc__)
     tail = ActivityTail(pane)
-    tail.state.pane = pane
 
     def restore_terminal(*_):
         sys.stdout.write("\033[?25h\033[0m\r\n")
@@ -131,7 +131,7 @@ def main():
         signal.signal(sig, restore_terminal)
     resized = [True]
     signal.signal(signal.SIGWINCH, lambda *_: resized.__setitem__(0, True))
-    sys.stdout.write("\033[?25l\033[2J")
+    sys.stdout.write(f"\033]2;{VIEW_TITLE}{pane}\007\033[?25l\033[2J")
     tick, last_draw = 0, 0.0
     while True:
         changed = tail.refresh()

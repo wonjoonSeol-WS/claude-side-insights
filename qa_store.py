@@ -54,8 +54,10 @@ def read_cursor(pane, sid):
 
 def write_cursor(pane, sid, entry_uuid):
     os.makedirs(session_dir(pane, sid), mode=0o700, exist_ok=True)
-    with open(cursor_path(pane, sid), "w", encoding="utf-8") as fh:
+    tmp = cursor_path(pane, sid) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         fh.write(entry_uuid)
+    os.replace(tmp, cursor_path(pane, sid))
 
 
 def pending_path(pane):
@@ -68,11 +70,6 @@ def item_key(turn_id, question):
 
 def item_id(turn_id, question):
     return hashlib.sha1(item_key(turn_id, question).encode("utf-8")).hexdigest()[:8]
-
-
-def read_record(pane, sid, turn_id):
-    rec = read_json(record_path(pane, sid, turn_id))
-    return rec if isinstance(rec, dict) else None
 
 
 def records(pane, sid):
@@ -102,17 +99,11 @@ def with_overrides(pane, recs):
 
 
 def get_item(pane, sid, wanted_id):
-    """(record, item) for the item with this id in the session, or None."""
     for rec in records(pane, sid):
         for item in rec.get("items") or []:
             if item_id(rec.get("turn_id"), item.get("question", "")) == wanted_id:
                 return rec, item
     return None
-
-
-def find_item(pane, sid, wanted_id):
-    found = get_item(pane, sid, wanted_id)
-    return (found[0].get("turn_id"), found[1].get("question", "")) if found else None
 
 
 def set_override(pane, turn_id, question, status=..., archived=None):
@@ -185,7 +176,8 @@ def apply_followups(pane, sid, candidates, followups, resolved_in):
             continue
         for item in rec.get("items") or []:
             change = changes.get(item_key(turn_id, item.get("question", "")))
-            if change:
+            current = Status.parse(item.get("status"))
+            if change and (current is None or change[0].rank > current.rank):
                 item.setdefault("first_status", item.get("status"))
                 item["status"] = change[0].value
                 if change[1]:
@@ -194,15 +186,15 @@ def apply_followups(pane, sid, candidates, followups, resolved_in):
         atomic_write_json(path, rec)
 
 
-def set_verdict(pane, sid, turn_id, question, status, answer):
-    """Replace one item's verdict after an explicit re-check (may raise or lower it)."""
+def set_verdict(pane, sid, turn_id, question, status, answer, upgrade_only=False):
     path = record_path(pane, sid, turn_id)
     rec = read_json(path)
     if not isinstance(rec, dict):
         return
     key = item_key(turn_id, question)
     for item in rec.get("items") or []:
-        if item_key(turn_id, item.get("question", "")) == key:
+        current = Status.parse(item.get("status"))
+        if item_key(turn_id, item.get("question", "")) == key and not (upgrade_only and current and status.rank <= current.rank):
             item.setdefault("first_status", item.get("status"))
             item["status"] = status.value
             if answer:

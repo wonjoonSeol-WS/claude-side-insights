@@ -10,23 +10,29 @@ _claude_panel_key() {
   ( . "$_claude_panel_dir/key.sh"; panel_key "{}" )
 }
 
+_claude_panel_term() {
+  ( . "$_claude_panel_dir/key.sh"; panel_term "$@" )
+}
+
 claude-panel() {
-  local key surfaces s
+  local key handles h
   key=$(_claude_panel_key)
   [[ -n "$key" ]] || { _claude_panel_say no_pane >&2; return 1 }
-  if [[ -n "${CMUX_SURFACE_ID:-}" ]]; then
-    surfaces=$( . "$_claude_panel_dir/key.sh"; cmux_panel_surfaces "$key" )
-    if [[ -n "$surfaces" ]]; then
-      for s in ${(f)surfaces}; do cmux close-surface --surface "$s" >/dev/null; done
-      _claude_panel_say panel_hidden
-      return
-    fi
-    "$_claude_panel_dir/open-panel.sh" --force </dev/null
-    surfaces=$( . "$_claude_panel_dir/key.sh"; cmux_panel_surfaces "$key" )
-    if [[ -n "$surfaces" ]]; then _claude_panel_say panel_shown; else _claude_panel_say panel_failed >&2; return 1; fi
+  handles=$(_claude_panel_term find "$key")
+  if [[ -n "$handles" ]] && ( . "$_claude_panel_dir/key.sh"; panel_term_has close ); then
+    for h in ${(f)handles}; do _claude_panel_term close "$h"; done
+    _claude_panel_say panel_hidden
     return
   fi
-  "$_claude_panel_dir/open-panel.sh" --force </dev/null && _claude_panel_say panel_requested
+  "$_claude_panel_dir/open-panel.sh" --force </dev/null
+  if ! ( . "$_claude_panel_dir/key.sh"; panel_term_has find ); then
+    _claude_panel_say panel_requested
+  elif [[ -n "$(_claude_panel_term find "$key")" ]]; then
+    _claude_panel_say panel_shown
+  else
+    _claude_panel_say panel_failed >&2
+    return 1
+  fi
 }
 
 claude-flow() {

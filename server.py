@@ -33,7 +33,6 @@ _tails_lock = threading.Lock()
 
 
 def tail(pane):
-    """The pane's activity reader, or None when the pane has no log."""
     with _tails_lock:
         if pane not in _tails:
             if not os.path.exists(log_path(pane)):
@@ -88,6 +87,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Content-Security-Policy", "frame-ancestors 'none'")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
@@ -120,7 +121,7 @@ class Handler(BaseHTTPRequestHandler):
         parts = [p for p in url.path.split("/") if p]
         page = method == "GET" and (not parts or parts[0] == "p")
         sent = self.param("t") if page else self.headers.get("X-Claude-Panel")
-        if parts != ["health"] and not secrets.compare_digest(sent or "", TOKEN):
+        if parts != ["health"] and not secrets.compare_digest((sent or "").encode(), TOKEN.encode()):
             return self.error(403, "err_forbidden")
         for route_method, pattern, handler in ROUTES:
             if route_method == method and len(pattern) == len(parts) and all(
@@ -185,32 +186,41 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(404, "err_not_found", pane=pane)
         self.json(rec)
 
+    def _item_or_error(self, pane, item_id):
+        """(record, item) for an item of the current session; sends the error response and returns None otherwise."""
+        if not isinstance(item_id, str) or not ITEM_ID_RE.match(item_id):
+            self.error(400, "err_need_id", pane=pane)
+            return None
+        sid = snapshot(pane)["sid"]
+        found = qa_store.get_item(pane, sid, item_id) if sid else None
+        if not found:
+            self.error(404, "err_no_id", item_id, pane=pane)
+        return found
+
     def post_override(self, pane):
         body = self.body()
-        if body is None or not isinstance(body.get("id"), str):
-            return self.error(400, "err_need_id", pane=pane)
-        sid = snapshot(pane)["sid"]
-        found = qa_store.find_item(pane, sid, body["id"]) if sid else None
+        if body is None:
+            return self.error(400, "err_bad_request", pane=pane)
+        found = self._item_or_error(pane, body.get("id"))
         if not found:
-            return self.error(404, "err_no_id", body["id"], pane=pane)
+            return
         status = ...
         if "status" in body:
             status = qa_store.Status.parse(body["status"])
             if body["status"] is not None and status is None:
                 return self.error(400, "err_bad_request", pane=pane)
         archived = body.get("archived") if isinstance(body.get("archived"), bool) else None
-        qa_store.set_override(pane, *found, status=status, archived=archived)
+        qa_store.set_override(pane, found[0].get("turn_id"), found[1].get("question", ""), status=status, archived=archived)
         self.json({"ok": True})
 
     def post_copy_question(self, pane):
         body = self.body()
-        if body is None or not isinstance(body.get("id"), str):
-            return self.error(400, "err_need_id", pane=pane)
-        sid = snapshot(pane)["sid"]
-        found = qa_store.get_item(pane, sid, body["id"]) if sid else None
+        if body is None:
+            return self.error(400, "err_bad_request", pane=pane)
+        found = self._item_or_error(pane, body.get("id"))
         if not found:
-            return self.error(404, "err_no_id", body["id"], pane=pane)
-        question = " ".join(str(found[1].get("question", "")).replace("\\", " ").split())
+            return
+        question = " ".join(str(found[1].get("question", "")).split())
         message = t("ask_message", question, pane=pane)
         try:
             copied = subprocess.run(["/usr/bin/pbcopy"], input=message.encode("utf-8"), timeout=COPY_TIMEOUT).returncode == 0
@@ -235,14 +245,16 @@ class Handler(BaseHTTPRequestHandler):
         target = self.param("target")
         turn_id = self.param("turn")
         item = self.param("item")
-        if target not in ("flow", "qa") or (turn_id is not None and not TURN_ID_RE.match(turn_id)) or (
-                item is not None and not ITEM_ID_RE.match(item)):
+        scope = self.param("scope")
+        invalid = (target not in ("flow", "qa") or (turn_id is not None and not TURN_ID_RE.match(turn_id))
+                   or (item is not None and not ITEM_ID_RE.match(item)) or (target == "flow" and (turn_id or item or scope))
+                   or (scope is not None and (scope != "open" or turn_id or item)) or (turn_id and item))
+        if invalid:
             return self.error(400, "err_bad_request", pane=pane)
         if item:
-            sid = snapshot(pane)["sid"]
-            found = qa_store.get_item(pane, sid, item) if sid else None
+            found = self._item_or_error(pane, item)
             if not found:
-                return self.error(404, "err_no_id", item, pane=pane)
+                return
             turn_id = found[0].get("turn_id")
             last = {**last, "transcript": found[0].get("transcript") or last["transcript"]}
         marker = qa_store.pending_path(pane) if target == "qa" else os.path.join(BASE, "flows", pane, "pending")
@@ -252,15 +264,16 @@ class Handler(BaseHTTPRequestHandler):
             args = ["flow.py", pane, last["transcript"], last.get("cwd") or ""]
         else:
             args = ["qa.py", pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
-            if self.param("scope") == "open":
-                only = [t for t in (self.param("turns") or "").split(",") if t]
-                if not all(TURN_ID_RE.match(t) for t in only):
+            if scope == "open":
+                only = [tid for tid in (self.param("turns") or "").split(",") if tid]
+                if not all(TURN_ID_RE.match(tid) for tid in only):
                     return self.error(400, "err_bad_request", pane=pane)
                 args.append("--open-items" + (f"={','.join(only)}" if only else ""))
         with open(os.path.join(BASE, "flow.log"), "a") as log:
             child = subprocess.Popen([sys.executable, os.path.join(BASE, args[0]), *args[1:], "--force"],
                                      stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
         Pending.claim(marker, child.pid)
+        threading.Thread(target=child.wait, daemon=True).start()
         self.json({"ok": True})
 
 

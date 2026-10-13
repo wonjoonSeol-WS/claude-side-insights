@@ -2,7 +2,11 @@
 import os
 import sys
 
+SCRIPTS = ("flow.py", "qa.py", "server.py")
+
 if __name__ == "__main__":
+    if len(sys.argv) < 2 or sys.argv[1] not in SCRIPTS:
+        sys.exit(f"usage: detach.py {{{'|'.join(SCRIPTS)}}} [args...]")
     try:
         os.setsid()
     except OSError:

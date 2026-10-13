@@ -30,10 +30,9 @@ def _new_tool(e):
 
 
 class State:
-    def __init__(self):
+    def __init__(self, pane=None):
+        self.pane = pane
         self.reset(None)
-
-    pane = None
 
     def reset(self, sid):
         self.sid, self.cwd, self.busy, self.seq = sid, None, False, 0
@@ -89,11 +88,10 @@ class State:
 
 
 class ActivityTail:
-    """Reads only the bytes appended to a pane's log since the last call."""
 
     def __init__(self, pane):
-        self.path = log_path(pane)
-        self.state, self.pos, self.inode, self.buf = State(), 0, None, b""
+        self.pane, self.path = pane, log_path(pane)
+        self.state, self.pos, self.inode, self.buf = State(pane), 0, None, b""
         self.lock = threading.Lock()
 
     def refresh(self):
@@ -105,7 +103,7 @@ class ActivityTail:
                 return False
             changed = False
             if st.st_ino != self.inode or st.st_size < self.pos:
-                self.state, self.pos, self.inode, self.buf = State(), 0, st.st_ino, b""
+                self.state, self.pos, self.inode, self.buf = State(self.pane), 0, st.st_ino, b""
                 changed = True
             if st.st_size > self.pos:
                 with open(self.path, "rb") as fh:

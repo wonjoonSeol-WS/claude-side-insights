@@ -65,5 +65,5 @@ printf '#!/bin/sh\nexec /usr/bin/python3 "$HOME/.claude/activity-panel/cli.py" "
 printf '#!/bin/sh\nexec /usr/bin/python3 "$HOME/.claude/activity-panel/viewer.py" "$@"\n' > "$HOME/.local/bin/claude-activity"
 chmod +x "$HOME/.local/bin"/claude-panel "$HOME/.local/bin"/claude-flow "$HOME/.local/bin"/claude-qa "$HOME/.local/bin"/claude-activity "$dir"/*.sh
 
-echo "Installed. Start Claude Code in a cmux or Orca pane; the panel opens on its own."
+echo "Installed. Start Claude Code in cmux, Orca, Ghostty or iTerm2 and the panel opens on its own. Elsewhere, run claude-panel."
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo "Add ~/.local/bin to PATH to use claude-panel, claude-qa and the others." ;; esac

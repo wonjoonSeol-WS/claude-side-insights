@@ -1,5 +1,6 @@
 """Paths, ids and file helpers shared by the server, the turn workers and the CLI."""
 import copy
+import glob
 import json
 import os
 import re
@@ -9,8 +10,9 @@ import threading
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PORT = 47821
-PORT = int(os.environ["CLAUDE_PANEL_PORT"]) if os.environ.get("CLAUDE_PANEL_PORT", "").isdigit() else DEFAULT_PORT
-KEY_RE = re.compile(r"^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,79}$")
+_port = os.environ.get("CLAUDE_PANEL_PORT", "")
+PORT = int(_port) if _port.isdigit() and 1024 <= int(_port) <= 65535 else DEFAULT_PORT
+KEY_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,79}$")
 TURN_ID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F-]{27}$")
 ITEM_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 TOKEN_PATH = os.path.join(BASE, "token")
@@ -24,28 +26,48 @@ def data_dir(*parts):
     return path
 
 
+_ADAPTER_SETTING = re.compile(r"^(PANE_ENV|CHILD_ENV_PREFIX)=(\w+)\s*$", re.M)
+
+
+def terminal_settings(name):
+    """Values of PANE_ENV or CHILD_ENV_PREFIX declared by the adapters in terminals/, in adapter order."""
+    values = []
+    for path in sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "terminals", "*.sh"))):
+        with open(path, encoding="utf-8") as fh:
+            values += [value for key, value in _ADAPTER_SETTING.findall(fh.read()) if key == name]
+    return values
+
+
 def pane_key(raw=None):
     """Same rule as key.sh panel_key: bytes outside [A-Za-z0-9_.-] become _, last 80, no leading dot."""
-    raw = raw if raw is not None else (os.environ.get("CMUX_PANEL_ID") or os.environ.get("ORCA_PANE_KEY") or "")
+    if raw is None:
+        raw = next((os.environ[var] for var in terminal_settings("PANE_ENV") if os.environ.get(var)), "")
     raw_bytes = raw.encode("utf-8", "surrogateescape")
     key = bytes(b if b in _KEY_BYTES else ord("_") for b in raw_bytes)[-80:].decode("ascii")
-    return "_" + key[1:] if key.startswith(".") else key
+    return "_" + key[1:] if key[:1] in (".", "-") else key
+
+
+def read_token():
+    try:
+        with open(TOKEN_PATH, encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
 
 
 def api_token():
-    """The secret the page and claude-qa must send. Created once, readable only by this user."""
+    """Reads the token, creating it on first use; concurrent first runs agree on one file."""
+    token = read_token()
+    if token:
+        os.chmod(TOKEN_PATH, 0o600)
+        return token
     try:
-        with open(TOKEN_PATH, encoding="utf-8") as fh:
-            token = fh.read().strip()
-        if token:
-            return token
-    except OSError:
-        pass
-    token = secrets.token_urlsafe(24)
-    fd = os.open(TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(TOKEN_PATH, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        return read_token()
     with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(token)
-    return token
+        fh.write(secrets.token_urlsafe(24))
+    return read_token()
 
 
 def safe_name(value, fallback="unknown"):
@@ -103,7 +125,13 @@ def json_files(directory):
 
 def process_alive(pid):
     try:
-        os.kill(int(pid), 0)
+        pid = int(pid)
+        os.kill(pid, 0)
+    except PermissionError:
         return True
     except (OSError, ValueError, TypeError):
         return False
+    try:
+        return os.waitpid(pid, os.WNOHANG) == (0, 0)
+    except ChildProcessError:
+        return True

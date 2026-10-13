@@ -7,7 +7,11 @@ import time
 SKILL_PREAMBLE = "Base directory for this skill"
 _WRAPPER_RE = re.compile(r"^<(command-|local-command-|bash-|task-notification|system-reminder|user-prompt-submit-hook)")
 _NOT_A_PROMPT_PREFIXES = ("[Request interrupted", SKILL_PREAMBLE)
-_COMMAND_RE = re.compile(r"<command-name>\s*(/?[^<\s]+)\s*</command-name>.*?<command-args>(.*?)</command-args>", re.S)
+_COMMAND_RE = re.compile(r"^\s*<command-name>\s*(/?[^<\s]+)\s*</command-name>.*?<command-args>(.*?)</command-args>", re.S)
+_LOCAL_OUTPUT = "<local-command-stdout>"
+_LOCAL_COMMANDS = {"/add-dir", "/agents", "/clear", "/compact", "/config", "/context", "/cost", "/doctor", "/exit",
+                   "/help", "/hooks", "/ide", "/login", "/logout", "/mcp", "/memory", "/model", "/permissions",
+                   "/plugin", "/resume", "/rewind", "/status", "/statusline", "/theme", "/vim"}
 
 
 def text_of(content):
@@ -73,13 +77,28 @@ def wait_until_written(path, quiet=1.0, limit=15.0, poll=0.25):
 
 def load_entries(path):
     entries = []
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            try:
-                entries.append(json.loads(line))
-            except ValueError:
-                pass
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if isinstance(entry, dict):
+                    entries.append(entry)
+    except OSError:
+        return []
+    _drop_local_commands(entries)
     return entries
+
+
+def _drop_local_commands(entries):
+    """Slash commands Claude Code runs itself (/model, /plugin ...) are followed by local output, not by Claude."""
+    for i, entry in enumerate(entries):
+        following = text_of((entries[i + 1].get("message") or {}).get("content")) if i + 1 < len(entries) else ""
+        command = _COMMAND_RE.search(text_of((entry.get("message") or {}).get("content")) or "")
+        if entry.get("type") == "user" and command and (_LOCAL_OUTPUT in following or command.group(1) in _LOCAL_COMMANDS):
+            entry["isMeta"] = True
 
 
 def turn_start(entries, turn_id=None):
@@ -110,7 +129,6 @@ def tool_results(entries):
 
 
 def assistant_blocks(entries):
-    """(type, block) for each text and tool_use block Claude wrote, skipping subagent entries."""
     for e in entries:
         content = (e.get("message") or {}).get("content")
         if e.get("type") == "assistant" and not e.get("isSidechain") and isinstance(content, list):
