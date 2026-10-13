@@ -21,6 +21,8 @@ TRACK = 14
 BAR = 16
 CODE_LINES = 12
 MAX_FILES = 30
+TOOLS_IN_FLOW = 12
+CHECK_MARK = {"pass": ("✓", GREEN), "fail": ("✗", RED)}
 WIDE_COLS = 110
 GAP = 2
 NAME_MIN, NAME_MAX = 6, 14
@@ -247,6 +249,36 @@ def _state(s, cols, pane):
     return out
 
 
+def _flow_cards(st, rec, flow, tick, cols):
+    """Changes, checks, the request and recent tools, as boxes under the step detail."""
+    pane, inner = st.pane, inner_width(cols)
+    cards = []
+    changes = flow.get("changes") or []
+    if changes:
+        body = []
+        for change in changes:
+            body += ([""] if body else []) + [f"{badge('M', ORANGE)} {paint(fit_left(change.get('file') or '', inner - 4).rstrip(), TEXT)}",
+                                              *styled(change.get("what"), inner, MUTED, indent=4)]
+        cards += [""] + box(body, cols, LINE, paint(t("changes", len(changes), pane=pane), TEXT, bold=True))
+    checks = flow.get("checks") or []
+    if checks:
+        body = []
+        for check in checks:
+            mark, color = CHECK_MARK.get(check.get("status"), ("?", FAINT))
+            body.append(f"{paint(mark, color)} {paint(fit(check.get('label') or '', inner - 2).rstrip(), TEXT)}")
+        cards += [""] + box(body, cols, LINE, paint(t("checks", pane=pane), TEXT, bold=True))
+    if rec.get("prompt"):
+        meta = " / ".join(x for x in (rec.get("model"), f"${rec['cost']:.3f}" if rec.get("cost") else "") if x)
+        cards += [""] + box([*styled(rec["prompt"], inner, MUTED), *([paint(meta, FAINT)] if meta else [])], cols, LINE,
+                            paint(t("request", pane=pane), TEXT, bold=True))
+    tools = [tool for tool in st.tools.values() if not rec.get("ts") or (tool["start"] or 0) <= rec["ts"]][-TOOLS_IN_FLOW:]
+    if tools:
+        now = time.time()
+        cards += [""] + box([_tool_line(tool, st, tick, now, inner) for tool in reversed(tools)], cols, LINE,
+                            paint(t("term_tools", len(tools), pane=pane), TEXT, bold=True))
+    return cards
+
+
 def flow_lines(st, step, tick, cols):
     pane = st.pane
     lines = []
@@ -280,6 +312,7 @@ def flow_lines(st, step, tick, cols):
         state = _state(s, inner, pane)
         body += ([""] + code if code else []) + ([""] + state if state else [])
         detail = box(body, detail_w, color, paint(f"{step + 1}. {s.get('title') or ''}", color, bold=True))
+    detail += _flow_cards(st, rec, flow, tick, detail_w)
     lines += [""] + (_side_by_side(pipeline, detail, pipe_w) if wide else pipeline + [""] + detail)
     if flow.get("summary"):
         lines += ["", *styled(flow["summary"], cols, MUTED)]
