@@ -119,7 +119,7 @@
   "st_partial": "◐ Partial",
   "st_unanswered": "✗ Unanswered",
   "state_empty": "No traced values up to this step",
-  "state_title": "State (traced example)",
+  "state_title": "State (example inferred from code)",
   "term_files": "Changed files {0}",
   "term_more": "… {0} more",
   "term_none": "(none)",

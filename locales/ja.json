@@ -119,7 +119,7 @@
   "st_partial": "◐ 一部",
   "st_unanswered": "✗ 未回答",
   "state_empty": "このステップまでに追跡した値はありません",
-  "state_title": "状態 (例で追跡)",
+  "state_title": "状態 (コードから推定した例)",
   "term_files": "編集したファイル {0}",
   "term_more": "… 他 {0} 件",
   "term_none": "(なし)",

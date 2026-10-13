@@ -119,7 +119,7 @@
   "st_partial": "◐ 일부",
   "st_unanswered": "✗ 미답변",
   "state_empty": "이 단계까지 추적한 값이 없습니다",
-  "state_title": "상태 (예시 기준)",
+  "state_title": "상태 (코드로 추정한 예시)",
   "term_files": "고친 파일 {0}",
   "term_more": "… 외 {0}개",
   "term_none": "(없음)",
