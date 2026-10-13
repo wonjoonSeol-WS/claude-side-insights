@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """List every question and request the user sent in a turn and whether Claude answered it.
 
-usage: qa.py <pane> <transcript_path> [turn_id] [--force]
+usage: qa.py <pane> <transcript_path> [turn_id] [--item=<id>] [--force]
 Without turn_id: the last turn, judged against its own replies, plus a re-check of earlier open items.
 With turn_id: that turn, judged against every reply up to the end of the transcript.
+With --item: only that item of the turn, judged against every reply up to the end of the transcript.
 """
 import os
 import sys
@@ -120,6 +121,27 @@ def build_message(turn, candidates):
     return message
 
 
+def recheck_item(pane, transcript, turn_id, wanted_id, model):
+    turn = extract(transcript, turn_id)
+    found = turn and qa_store.get_item(pane, turn["sid"], wanted_id)
+    if not found:
+        return
+    item = found[1]
+    candidate = {"turn_id": turn_id, "key": qa_store.item_key(turn_id, item.get("question", "")), "item": item}
+    message = build_message(turn, [candidate]) + (
+        "\n\nOnly re-judge the earlier open question p1, against all replies above including later turns. Return items as an empty list.")
+    with Pending(qa_store.pending_path(pane), item=wanted_id):
+        try:
+            data, _ = run_claude(SYSTEM + language_instruction(pane), SCHEMA, message, model, timeout=TIMEOUT, max_turns=MAX_TURNS)
+        except (RuntimeError, OSError):
+            return
+        verdict = next((f for f in data.get("followups") or [] if isinstance(f, dict) and f.get("id") == "p1"), None)
+        status = qa_store.Status.parse((verdict or {}).get("status"))
+        if status:
+            with qa_store.session_lock(pane, turn["sid"]):
+                qa_store.set_verdict(pane, turn["sid"], turn_id, item.get("question", ""), status, verdict.get("answer"))
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if len(args) not in (2, 3):
@@ -129,6 +151,9 @@ def main():
     settings = config.load(pane)
     if not settings["qa_auto"] and "--force" not in sys.argv:
         return
+    item = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--item=")), None)
+    if item and turn_id:
+        return recheck_item(pane, transcript, turn_id, item, settings["model"])
     turn = extract(transcript, turn_id)
     if not turn or not turn["turn_id"] or not any(text.strip() for _, text in turn["users"]):
         return

@@ -210,15 +210,23 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(409, "err_no_turn", pane=pane)
         target = self.param("target")
         turn_id = self.param("turn")
-        if target not in ("flow", "qa") or (turn_id is not None and not ID_RE.match(turn_id)):
+        item = self.param("item")
+        if target not in ("flow", "qa") or any(v is not None and not ID_RE.match(v) for v in (turn_id, item)):
             return self.error(400, "err_bad_request", pane=pane)
+        if item:
+            sid = snapshot(pane)["sid"]
+            found = qa_store.get_item(pane, sid, item) if sid else None
+            if not found:
+                return self.error(404, "err_no_id", item, pane=pane)
+            turn_id = found[0].get("turn_id")
+            last = {**last, "transcript": found[0].get("transcript") or last["transcript"]}
         marker = qa_store.pending_path(pane) if target == "qa" else os.path.join(BASE, "flows", pane, "pending")
         if Pending.active(marker):
             return self.error(409, "err_running", pane=pane)
         if target == "flow":
             args = ["flow.py", pane, last["transcript"], last.get("cwd") or ""]
         else:
-            args = ["qa.py", pane, last["transcript"]] + ([turn_id] if turn_id else [])
+            args = ["qa.py", pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
         subprocess.Popen([sys.executable, os.path.join(BASE, args[0]), *args[1:], "--force"],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         self.json({"ok": True})

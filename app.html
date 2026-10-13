@@ -486,7 +486,8 @@ function renderTurn(turn, items) {
       <div><div class="q">${esc(item.question)}${item.from === "mid-turn" ? `<small>${t("midturn")}</small>` : ""}<span class="qid" title="claude-qa set ${esc(item.id)} answered">${esc(item.id)}</span></div>
       <div class="a">${inline(item.answer)}</div>
       ${item.resolved_in ? `<div class="resolved">${t("resolved", text(`st_${item.first_status}`), text(`st_${item.auto_status}`))} ${clock(item.resolved_at)}</div>` : ""}
-      <div class="qa-tools"><button class="mini" data-qa-archive="${n}" data-focus="archive-${esc(item.id)}">${item.archived ? t("restore") : t("archive")}</button>
+      <div class="qa-tools"><button class="mini" data-qa-recheck="${n}" title="${t("recheck_item_title")}">${t("recheck_item")}</button>
+      <button class="mini" data-qa-archive="${n}" data-focus="archive-${esc(item.id)}">${item.archived ? t("restore") : t("archive")}</button>
       ${item.manual ? `<button class="mini" data-qa-reset="${n}">${t("reset_auto")}</button>` : ""}</div></div></div>`;
   }).join("");
   return `<div class="card qa-turn"><div class="qa-head"><span>${clock(turn.ts)}</span><span class="p" title="${esc(turn.prompt)}">${esc(turn.prompt)}</span>
@@ -631,9 +632,9 @@ async function postOverride(ref, body) {
   await poll(true);
 }
 
-async function regen(target, turn) {
+async function regen(target, turn, item) {
   touch();
-  const query = `target=${target}${turn ? `&turn=${encodeURIComponent(turn)}` : ""}`;
+  const query = `target=${target}${turn ? `&turn=${encodeURIComponent(turn)}` : ""}${item ? `&item=${encodeURIComponent(item)}` : ""}`;
   const r = await api("POST", `/api/${KEY}/regen?${query}`);
   if (!r.ok) return notify(r.error, true);
   notify(text(target === "qa" ? "qa_checking" : "flow_started"));
@@ -657,7 +658,8 @@ document.addEventListener("click", async e => {
   touch();
   if (d.qaPage) { S.qaPage = Number(d.qaPage); render(); return window.scrollTo(0, 0); }
   if (d.qaTurn) return regen("qa", d.qaTurn);
-  const ref = S.qaRefs[Number(d.qaCycle ?? d.qaArchive ?? d.qaReset)];
+  const ref = S.qaRefs[Number(d.qaCycle ?? d.qaArchive ?? d.qaReset ?? d.qaRecheck)];
+  if (ref && d.qaRecheck !== undefined) return regen("qa", null, ref.id);
   if (ref && d.qaCycle !== undefined) return postOverride(ref, { status: QA_CYCLE[ref.status] || QA.ANSWERED });
   if (ref && d.qaArchive !== undefined) return postOverride(ref, { archived: !ref.archived });
   if (ref && d.qaReset !== undefined) return postOverride(ref, { status: null });

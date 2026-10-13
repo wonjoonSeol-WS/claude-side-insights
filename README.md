@@ -113,7 +113,7 @@ No. The analysis runs in a separate process after the turn ends and never adds t
 That is what it is for: it lays out the changed feature as runtime steps and shows real excerpts from the current files. It runs automatically only for turns that edited files; for an explain-only turn press ↻.
 
 **A question was answered in a later turn but still shows as partial.**
-Each turn is judged against its own replies. When a turn ends, open items from earlier turns in the session (up to 20) are re-checked against it and upgraded if answered. For older items press "↻ Check with later answers" on that turn, or set the status yourself.
+Each turn is judged against its own replies. When a turn ends, open items from earlier turns in the session (up to 20) are re-checked against it and upgraded if answered. For older items press "↻ Re-check this turn" (or "↻ Re-check this question" for a single item) on that turn, or set the status yourself.
 
 **How do I hide the panel or turn it off?**
 `claude-panel` hides or shows it. To stop it opening on its own, switch off "Open panel at session start". To remove it, run `uninstall.sh` (add `--purge` to delete recorded data and settings too).

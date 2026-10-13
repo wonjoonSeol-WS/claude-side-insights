@@ -78,12 +78,18 @@ def with_overrides(pane, recs):
     return out
 
 
-def find_item(pane, sid, wanted_id):
+def get_item(pane, sid, wanted_id):
+    """(record, item) for the item with this id in the session, or None."""
     for rec in records(pane, sid):
         for item in rec.get("items") or []:
             if item_id(rec.get("turn_id"), item.get("question", "")) == wanted_id:
-                return rec.get("turn_id"), item.get("question", "")
+                return rec, item
     return None
+
+
+def find_item(pane, sid, wanted_id):
+    found = get_item(pane, sid, wanted_id)
+    return (found[0].get("turn_id"), found[1].get("question", "")) if found else None
 
 
 def set_override(pane, turn_id, question, status=..., archived=None):
@@ -156,3 +162,20 @@ def apply_followups(pane, sid, candidates, followups, resolved_in):
                     item["answer"] = change[1]
                 item["resolved_in"], item["resolved_at"] = resolved_in, time.time()
         atomic_write_json(path, rec)
+
+
+def set_verdict(pane, sid, turn_id, question, status, answer):
+    """Replace one item's verdict after an explicit re-check (may raise or lower it)."""
+    path = record_path(pane, sid, turn_id)
+    rec = read_json(path)
+    if not isinstance(rec, dict):
+        return
+    key = item_key(turn_id, question)
+    for item in rec.get("items") or []:
+        if item_key(turn_id, item.get("question", "")) == key:
+            item.setdefault("first_status", item.get("status"))
+            item["status"] = status.value
+            if answer:
+                item["answer"] = answer
+            item["rechecked_at"] = time.time()
+    atomic_write_json(path, rec)
