@@ -35,6 +35,12 @@ Or turn on auto-update in `/plugin` > Marketplaces.
 
 ![Browser panel next to a Claude Code session](docs/full/browser-flow.png)
 
+As a narrow side panel:
+
+| Terminal | Browser |
+|---|---|
+| ![Narrow terminal panel](docs/full/narrow-terminal-flow.png) | ![Narrow browser panel](docs/full/narrow-browser-flow.png) |
+
 
 **Did Claude answer everything I asked? What did it change? What is it doing now?**
 
