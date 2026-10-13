@@ -98,7 +98,7 @@
   "recheck": "↻ Re-check this turn",
   "recheck_item": "↻ Re-check this question",
   "recheck_item_title": "Re-judge only this question. Answers given in later turns count; other items stay as they are",
-  "recheck_title": "Re-judge every question in this turn. Answers given in later turns count",
+  "recheck_title": "The check for this turn failed. Extract the questions again and judge them from scratch",
   "regen": "↻ Rebuild",
   "regen_title": "Rebuild the flow for the last turn",
   "request": "Request",

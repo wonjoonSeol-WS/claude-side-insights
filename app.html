@@ -492,7 +492,7 @@ function renderTurn(turn, items) {
   }).join("");
   return `<div class="card qa-turn"><div class="qa-head"><span>${clock(turn.ts)}</span><span class="p" title="${esc(turn.prompt)}">${esc(turn.prompt)}</span>
     <span>${esc(turn.model || "")}${turn.scope === "through-end" ? t("through_end") : ""}</span>
-    <button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button></div>
+    ${turn.status !== "ok" ? `<button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button>` : ""}</div>
     ${turn.status !== "ok" ? `<div class="err-box">${esc(turn.error || text("qa_fail"))}</div>` : ""}
     <div class="qa">${rows || (turn.status === "ok" ? `<div class="empty">${t("qa_noq")}</div>` : "")}</div></div>`;
 }

@@ -5,6 +5,7 @@ usage: flow.py <pane> <transcript_path> <cwd> [--force]
 Skips turns that edited no files unless --force.
 """
 import os
+import re
 import sys
 import time
 import uuid
@@ -25,6 +26,9 @@ COMMAND_LIMIT = 600
 RESULT_TAIL = 600
 BRIEF_LIMIT = 200
 PROMPT_LIMIT = 3000
+WRITES_FILES = re.compile(
+    r"(?<![<>&|0-9])>{1,2}\s*(?!/dev/null|&)[\w~./$\"']|\bsed\s+-i\b|\btee\b|\bcat\s*>|\bgit\s+(commit|apply|mv|rm|checkout\s+--)"
+    r"|\bpython3?\s+-\s*<<|\.write\(|\bopen\([^)]*['\"][wa]['\"]|\b(mv|cp|rm|mkdir|touch|patch)\s")
 STEP_KINDS = ["input", "logic", "external", "storage", "output", "config", "test"]
 CHECK_STATUSES = ["pass", "fail", "unknown"]
 
@@ -116,6 +120,8 @@ def extract_turn(path):
                 edited.append(file_path)
                 parts += _describe_edit(name, file_path, inp)
             elif name == "Bash":
+                if WRITES_FILES.search(inp.get("command", "")):
+                    edited.append(f"(shell) {inp.get('description') or clip(inp.get('command', ''), BRIEF_LIMIT)}")
                 parts.append(f"[Bash] {inp.get('description', '')}: {clip(inp.get('command', ''), COMMAND_LIMIT)}"
                              + _describe_result(results.get(b.get("id"))))
             else:
