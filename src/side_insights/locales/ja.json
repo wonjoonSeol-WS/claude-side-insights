@@ -80,7 +80,7 @@
   "pane_override": "このパネルのみ",
   "panel_failed": "パネルを開けませんでした",
   "panel_hidden": "パネルを非表示にしました。再表示するには claude-panel を実行してください。",
-  "panel_requested": "Orca のタブでパネルを開いています",
+  "panel_requested": "ブラウザでパネルを開きました",
   "panel_shown": "パネルを表示しました",
   "pause": "❚❚ 一時停止",
   "pipeline": "パイプライン",
@@ -136,5 +136,6 @@
   "title_index": "Claude パネル",
   "tools": "ツール ({0})",
   "turns_n": "{0} ターン",
-  "unknown_err": "不明なエラー"
+  "unknown_err": "不明なエラー",
+  "panel_link": "パネル全体 (フロー、リアルタイム、Q&A): {0}"
 }

@@ -54,7 +54,7 @@ The Flow tab follows one example through every step. Its values are inferred fro
 | [cmux](https://cmux.dev) | Full panel in a browser split | yes |
 | Orca | Live view in a split | yes |
 | Ghostty 1.3+ | Live view in a split | yes |
-| iTerm2 | Live view in a split | not yet |
+| iTerm2 | Live view in a split | yes |
 | Anything else | Nothing. Use the commands below | yes |
 
 - In Orca, Ghostty and iTerm2, open Flow and Q&A with `! claude-flow`.

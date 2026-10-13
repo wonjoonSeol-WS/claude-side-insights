@@ -54,7 +54,7 @@ English、한국어、日本語に対応しています。
 | [cmux](https://cmux.dev) | パネル全体 (ブラウザ split) | 済み |
 | Orca | リアルタイム画面 (split) | 済み |
 | Ghostty 1.3 以上 | リアルタイム画面 (split) | 済み |
-| iTerm2 | リアルタイム画面 (split) | まだ |
+| iTerm2 | リアルタイム画面 (split) | 済み |
 | その他 | なし。下のコマンドを使います | 済み |
 
 - Orca、Ghostty、iTerm2 では、フローと Q&A は `! claude-flow` で開きます。

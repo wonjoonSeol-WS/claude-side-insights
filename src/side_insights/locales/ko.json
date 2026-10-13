@@ -80,7 +80,7 @@
   "pane_override": "이 패널만",
   "panel_failed": "패널을 열지 못했습니다",
   "panel_hidden": "패널을 숨겼습니다. 다시 보려면 claude-panel을 실행하세요.",
-  "panel_requested": "Orca 탭에 패널을 여는 중입니다",
+  "panel_requested": "브라우저로 패널을 열었습니다",
   "panel_shown": "패널을 열었습니다",
   "pause": "❚❚ 일시정지",
   "pipeline": "파이프라인",
@@ -136,5 +136,6 @@
   "title_index": "Claude 패널",
   "tools": "도구 ({0})",
   "turns_n": "{0}턴",
-  "unknown_err": "알 수 없는 오류"
+  "unknown_err": "알 수 없는 오류",
+  "panel_link": "전체 패널 (Flow, 실시간, Q&A): {0}"
 }

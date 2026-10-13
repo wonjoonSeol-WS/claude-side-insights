@@ -80,7 +80,7 @@
   "pane_override": "this panel only",
   "panel_failed": "Could not open the panel",
   "panel_hidden": "Panel hidden. Run claude-panel again to show it.",
-  "panel_requested": "Opening the panel in an Orca tab",
+  "panel_requested": "Opened the panel in your browser",
   "panel_shown": "Panel shown",
   "pause": "❚❚ Pause",
   "pipeline": "Pipeline",
@@ -136,5 +136,6 @@
   "title_index": "Claude panels",
   "tools": "Tools ({0})",
   "turns_n": "{0} turns",
-  "unknown_err": "Unknown error"
+  "unknown_err": "Unknown error",
+  "panel_link": "Full panel (Flow, Live, Q&A): {0}"
 }

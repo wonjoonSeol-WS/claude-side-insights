@@ -3,6 +3,15 @@
 set -u
 PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$PANEL_ROOT/shell/key.sh"
+wait_for_panel() {
+  local i
+  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    [ -n "$(panel_term find "$1")" ] && return 0
+    sleep 0.2
+  done
+  return 1
+}
+
 key=$(panel_key "{}")
 [ -n "$key" ] || { panel_py say no_pane >&2; exit 1; }
 handles=$(panel_term find "$key")
@@ -12,11 +21,14 @@ if [ -n "$handles" ] && panel_term_has close; then
   exit 0
 fi
 "$PANEL_ROOT/hooks/open-panel.sh" --force </dev/null
+status=0
 if ! panel_term_has find; then
   panel_py say panel_requested
-elif [ -n "$(panel_term find "$key")" ]; then
+elif wait_for_panel "$key"; then
   panel_py say panel_shown
 else
   panel_py say panel_failed >&2
-  exit 1
+  status=1
 fi
+panel_py say panel_link "$(panel_url "$key")&full=1"
+exit "$status"
