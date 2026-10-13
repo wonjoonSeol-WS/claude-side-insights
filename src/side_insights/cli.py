@@ -5,36 +5,22 @@
   claude-qa set <id> answered|partial|unanswered|auto
   claude-qa archive <id> | restore <id>
 """
-import http.client
-import json
 import sys
-import urllib.error
-import urllib.request
 
-from side_insights.paths import PORT, TOKEN_HEADER, pane_key, read_token
-from side_insights.i18n import t
 from side_insights.analysis.qa_store import STATUSES, Status
+from side_insights.i18n import t
+from side_insights.live.client import ServerError
+from side_insights.live.client import call as server_call
+from side_insights.paths import pane_key
 
 AUTO = "auto"
-TIMEOUT = 5
 
 
 def call(method, path, body=None):
-    req = urllib.request.Request(f"http://127.0.0.1:{PORT}{path}", method=method,
-                                 data=json.dumps(body).encode() if body is not None else None,
-                                 headers={"Content-Type": "application/json", TOKEN_HEADER: read_token() or ""})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
-            return json.load(resp)
-    except urllib.error.HTTPError as exc:
-        try:
-            body = json.load(exc)
-        except ValueError:
-            body = None
-        message = body.get("error") if isinstance(body, dict) else None
-        sys.exit(message or str(exc))
-    except (urllib.error.URLError, http.client.HTTPException, ConnectionError, ValueError):
-        sys.exit(t("server_down"))
+        return server_call(method, path, body)
+    except ServerError as exc:
+        sys.exit(exc.message or t("server_down"))
 
 
 def list_items(pane, only_open):

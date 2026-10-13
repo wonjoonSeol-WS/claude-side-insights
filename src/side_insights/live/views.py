@@ -80,13 +80,29 @@ def header(tab_keys, current, st, tick, cols):
     return [top, f"{status}  {paint(fit(where + '  /  ' + (st.sid or '-')[:8], room).rstrip(), FAINT)}", ""]
 
 
-def footer(pane, cols):
-    keys = [("1 2 3", "term_k_tabs"), ("[ ]", "term_k_flows"), ("←→", "term_k_steps"), ("↑↓", "term_k_scroll"), ("o", "term_k_open"), ("q", "term_k_quit")]
-    labelled = " ".join(f"{key_cap(k)} {paint(t(label, pane=pane), MUTED)}" for k, label in keys)
-    for line in (paint(t("term_click", pane=pane), FAINT) + " " + labelled, labelled, " ".join(key_cap(k) for k, _ in keys)):
-        if visible_width(line) <= cols:
-            return line
-    return ""
+FOOTER_KEYS = {
+    "flow": [("1 2 3", "term_k_tabs"), ("[ ]", "term_k_flows"), ("←→", "term_k_steps"), ("p", "term_k_play"), ("r", "term_k_rebuild")],
+    "live": [("1 2 3", "term_k_tabs"), ("↑↓", "term_k_scroll"), ("o", "term_k_open"), ("q", "term_k_quit")],
+    "qa": [("↑↓", "term_k_select"), ("s", "term_k_status"), ("a", "term_k_archive"), ("c", "term_k_copy"), ("r", "term_k_recheck"),
+           ("f", "term_k_open_only")],
+}
+HELP_HINT = ("h", "term_k_help")
+
+
+def footer(pane, cols, tab, toast=None):
+    """Key hints for the tab; the help hint always stays, other hints drop from the end when space runs out."""
+    if toast:
+        text, color = toast
+        return paint(fit(text, cols).rstrip(), color)
+
+    def hint(key, label):
+        return f"{key_cap(key)} {paint(t(label, pane=pane), MUTED)}"
+
+    keys, help_hint = FOOTER_KEYS[tab], hint(*HELP_HINT)
+    candidates = [paint(t("term_click", pane=pane), FAINT) + " " + " ".join([hint(*k) for k in keys] + [help_hint])]
+    candidates += [" ".join([hint(*k) for k in keys[:n]] + [help_hint]) for n in range(len(keys), -1, -1)]
+    candidates += [" ".join([key_cap(k) for k, _ in keys] + [help_hint]), help_hint, key_cap(HELP_HINT[0])]
+    return next((line for line in candidates if visible_width(line) <= cols), "")
 
 
 def _tool_line(tool, st, tick, now, cols):
@@ -161,7 +177,50 @@ def _waiting_lines(pane, waiting, eta, checking, cols):
     return box(inner, cols, ORANGE, paint(f"⏳ {t('qa_wait_t', len(waiting), pane=pane)}", ORANGE, bold=True))
 
 
-def qa_lines(st, tick, cols):
+class QaRow:
+    """A selectable row of the Q&A tab: a judged item, or a turn whose check failed."""
+
+    def __init__(self, kind, turn, item=None):
+        self.kind, self.turn, self.item = kind, turn, item
+        self.start = self.end = 0
+
+    @property
+    def key(self):
+        return self.item.get("id") if self.item else f"turn:{self.turn.get('turn_id')}"
+
+
+ROW_ITEM, ROW_FAILED_TURN = "item", "failed-turn"
+SCOPE_THROUGH_END = "through-end"
+
+
+def _status_label(status, pane):
+    return t("st_" + status, pane=pane) if status in STATUS_COLOR else "-"
+
+
+def _highlight(lines, cols):
+    return [bg(SELECTED_BG) + pad(line.replace(RESET, RESET + bg(SELECTED_BG)), cols) + RESET for line in lines]
+
+
+def _item_lines(item, inner, pane):
+    status = item.get("status")
+    chip = badge(_status_label(status, pane), STATUS_COLOR.get(status, FAINT))
+    tags = [t("midturn", pane=pane)] if item.get("from") == Source.MID_TURN.value else []
+    tags += [t("qa_archived_tag", pane=pane)] if item.get("archived") else []
+    tag = paint(" " + fit("  ".join(tags), inner - visible_width(chip) - 1).rstrip(), FAINT) if tags else ""
+    out = [f"{chip}{tag}", *styled(item.get("question"), inner, MUTED if item.get("archived") else TEXT, indent=2, bold=True)]
+    if item.get("answer"):
+        out += styled(item["answer"], inner, MUTED, indent=4)
+    first, auto = item.get("first_status"), item.get("auto_status")
+    note = None
+    if item.get("resolved_in") and first:
+        note = f"{t('resolved', _status_label(first, pane), _status_label(auto, pane), pane=pane)} {clock(item.get('resolved_at'))}"
+    elif item.get("rechecked_at") and first and first != auto:
+        note = f"{t('rechecked', _status_label(first, pane), _status_label(auto, pane), pane=pane)} {clock(item.get('rechecked_at'))}"
+    return out + (styled(note, inner, GREEN, indent=4) if note else [])
+
+
+def qa_lines(st, tick, cols, selected=None, open_only=False, show_archived=False):
+    """Screen lines plus the selectable rows, each with the line range it occupies."""
     pane = st.pane
     turns = qa_store.with_overrides(pane, qa_store.records(pane, st.sid)) if st.sid else []
     waiting = WAITING.since(st.transcript, qa_store.read_cursor(pane, st.sid)) if st.sid else []
@@ -171,7 +230,10 @@ def qa_lines(st, tick, cols):
     answered = sum(1 for i in items if i.get("status") == qa_store.Status.ANSWERED.value)
     bar = f"{progress(answered, len(items), GREEN)} {paint(f'{answered}/{len(items)}', MUTED)}"
     labelled = f"{bar} {paint(t('st_answered', pane=pane), GREEN)}"
-    lines = [labelled if visible_width(labelled) <= cols else bar]
+    lines, rows = [labelled if visible_width(labelled) <= cols else bar], []
+    filters = [label for on, label in ((open_only, t("qa_open_only", pane=pane)), (show_archived, t("qa_archived", pane=pane))) if on]
+    if filters:
+        lines.append(paint(fit("  ".join(f"[{f}]" for f in filters), cols).rstrip(), BLUE))
     if pending:
         elapsed = time.time() - float(pending.get("since") or time.time())
         lines.append(f"{progress(min(elapsed, eta), eta, ORANGE)} {paint(SPINNER[tick % len(SPINNER)] + ' ' + t('qa_checking', pane=pane), ORANGE)} "
@@ -182,33 +244,63 @@ def qa_lines(st, tick, cols):
     elif not pending:
         lines += styled(t("qa_eta", eta, pane=pane), cols, FAINT) + [""]
     if not turns:
-        return lines + [paint(t("qa_empty_t", pane=pane), TEXT, bold=True), *styled(t("qa_empty_d", pane=pane), cols, MUTED)]
+        return lines + [paint(t("qa_empty_t", pane=pane), TEXT, bold=True), *styled(t("qa_empty_d", pane=pane), cols, MUTED)], rows
     inner = inner_width(cols)
+    shown_turns = 0
     for turn in turns:
-        body = []
-        if turn.get("status") != RecordStatus.OK.value:
-            body.append(badge(t("qa_fail", pane=pane), RED))
-        shown = [i for i in turn.get("items") or [] if not i.get("archived")]
-        if turn.get("status") == RecordStatus.OK.value and not shown:
+        failed = turn.get("status") != RecordStatus.OK.value
+        shown = [i for i in turn.get("items") or [] if (show_archived or not i.get("archived"))
+                 and not (open_only and i.get("status") == qa_store.Status.ANSWERED.value)]
+        if (open_only or show_archived) and not shown and not failed:
+            continue
+        shown_turns += 1
+        meta = (turn.get("model") or "") + (t("through_end", pane=pane) if turn.get("scope") == SCOPE_THROUGH_END else "")
+        body, turn_rows = ([paint(fit(meta, inner).rstrip(), FAINT), ""] if meta else []), []
+        if failed:
+            row = QaRow(ROW_FAILED_TURN, turn)
+            row.start, part = len(body), [badge(t("qa_fail", pane=pane), RED), *styled(t("recheck_title", pane=pane), inner, MUTED, indent=2)]
+            body += _highlight(part, inner) if row.key == selected else part
+            row.end = len(body)
+            turn_rows.append(row)
+        if not failed and not shown:
             body.append(paint(t("qa_noq", pane=pane), FAINT))
         for n, item in enumerate(shown):
-            status = item.get("status")
-            label = t("st_" + status, pane=pane) if status in STATUS_COLOR else status or "-"
-            chip = badge(label, STATUS_COLOR.get(status, FAINT))
-            mid = t("midturn", pane=pane) if item.get("from") == Source.MID_TURN.value else ""
-            mid = paint(" " + fit(mid, inner - visible_width(chip) - 1).rstrip(), FAINT) if mid else ""
-            body += ([""] if n else []) + [f"{chip}{mid}",
-                                            *styled(item.get("question"), inner, TEXT, indent=2, bold=True)]
-            if item.get("answer"):
-                body += styled(item["answer"], inner, MUTED, indent=4)
+            if n:
+                body.append("")
+            row = QaRow(ROW_ITEM, turn, item)
+            part = _item_lines(item, inner, pane)
+            row.start = len(body)
+            body += _highlight(part, inner) if row.key == selected else part
+            row.end = len(body)
+            turn_rows.append(row)
         stamp = clock(turn.get("ts"))
         prompt = fit((turn.get("prompt") or "").replace("\n", " "), cols - width(stamp) - 8).rstrip()
+        base = len(lines) + 2
+        for row in turn_rows:
+            row.start, row.end = row.start + base, row.end + base
+        rows += turn_rows
         lines += box(body, cols, LINE, f"{paint(stamp, FAINT)} {paint(prompt, MUTED)}") + [""]
-    return lines
+    if not shown_turns:
+        lines.append(paint(t("qa_all_done" if open_only and not show_archived else "qa_nothing_shown", pane=pane), TEXT, bold=True))
+    return lines, rows
+
+
+def _legend_lines(steps, cols, pane):
+    """The step kinds this flow uses, plus the changed marker, wrapped to the box width."""
+    kinds = list(dict.fromkeys(s.get("kind") if s.get("kind") in KIND_COLOR else StepKind.LOGIC.value for s in steps))
+    entries = [(KIND_COLOR[k], t("kind_" + k, pane=pane)) for k in kinds] + [(YELLOW, t("changed_this", pane=pane))]
+    lines, line = [], ""
+    for color, label in entries:
+        part = f"{paint('●', color)} {paint(fit(label, cols - 2).rstrip(), MUTED)}"
+        if line and visible_width(line) + 2 + visible_width(part) > cols:
+            lines.append(line)
+            line = ""
+        line = f"{line}  {part}" if line else part
+    return lines + ([line] if line else [])
 
 
 def _pipeline(steps, step, cols, pane):
-    lines = []
+    lines = [*_legend_lines(steps, cols, pane), ""]
     for i, s in enumerate(steps):
         color = KIND_COLOR.get(s.get("kind"), MUTED)
         selected = i == step
