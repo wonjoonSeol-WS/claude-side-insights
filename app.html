@@ -91,6 +91,19 @@ table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
 table.data td { border-top: 1px solid var(--line); padding: 7px 8px; vertical-align: top; overflow-wrap: anywhere; }
 table.data td:first-child { color: var(--muted); width: 34%; }
 .before { text-decoration: line-through; color: var(--faint); margin-right: 8px; }
+.example { background: var(--panel-2); border-radius: 8px; padding: 8px 10px; margin-bottom: 12px; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.example b { color: var(--text); margin-right: 6px; }
+.state { padding: 0; overflow: hidden; }
+.state h3 { padding: 16px 16px 0; }
+.state table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.state td { border-top: 1px solid var(--line); padding: 8px 16px; vertical-align: top; overflow-wrap: anywhere; }
+.state td:first-child { color: var(--muted); width: 1%; white-space: nowrap; font-family: var(--mono); font-size: 12px; }
+@media (max-width: 1250px) { .state td:first-child { white-space: normal; width: 40%; } }
+.state td:last-child { font-family: var(--mono); font-size: 12.5px; }
+.state tr.now { background: rgba(231,199,62,.13); }
+.state tr.now td:first-child { color: var(--hl-line); }
+.state tr.now td:last-child::after { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--hl-line); margin-left: 8px; vertical-align: middle; }
+.state .step-no { color: var(--faint); font-size: 11px; margin-left: 6px; font-family: inherit; }
 .after { color: var(--hl-line); font-family: var(--mono); }
 
 .rows { display: flex; flex-direction: column; }
@@ -160,6 +173,8 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .keys .card:hover { border-color: var(--faint); }
 .keys .path { color: var(--faint); margin: 4px 0 8px; overflow-wrap: anywhere; }
 .keys .counts { color: var(--muted); font-size: 13px; }
+.toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 13px; z-index: 20; max-width: calc(100% - 32px); }
+.toast.err { border-color: rgba(229,96,79,.6); color: #f2b3aa; }
 .space-between { display: flex; justify-content: space-between; gap: 8px; }
 </style>
 </head>
@@ -181,6 +196,7 @@ const EDIT_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const QA_PAGE = 10;
 const POLL_MS = 1000;
 const AUTOPLAY_MS = 3500;
+const TOAST_MS = 4000;
 const RECENT_TOUCH_MS = 30000;
 const MIN_HIGHLIGHT = 3;
 const TOOLS_IN_FLOW = 12;
@@ -209,7 +225,7 @@ const S = {
   state: null, flows: [], pending: null, qa: { turns: [], pending: false }, flowCache: {}, flowId: null,
   seenFlows: null, wasBusy: false, playing: null, error: null, sig: null, panes: null,
   qaPage: 1, qaOnlyOpen: false, qaArchived: false, qaRefs: [], busyIds: new Set(),
-  config: null, scope: SCOPE.GLOBAL, settingsMsg: null, returnFocus: null, polling: false,
+  config: null, scope: SCOPE.GLOBAL, settingsMsg: null, returnFocus: null, polling: false, toast: null,
 };
 const touch = () => { S.lastTouch = Date.now(); };
 const recentlyTouched = () => Date.now() - S.lastTouch < RECENT_TOUCH_MS;
@@ -323,7 +339,8 @@ function render() {
   const active = document.activeElement;
   const focusKey = active && active.dataset ? active.dataset.focus : null;
   const y = window.scrollY;
-  app.innerHTML = (KEY ? renderPanel() : renderIndex()) + renderDialog();
+  app.innerHTML = (KEY ? renderPanel() : renderIndex()) + renderDialog()
+    + (S.toast ? `<div class="toast ${S.toast.error ? "err" : ""}" role="status">${esc(S.toast.text)}</div>` : "");
   window.scrollTo(0, y);
   const again = focusKey && app.querySelector(`[data-focus="${focusKey}"]`);
   if (again) again.focus();
@@ -389,6 +406,7 @@ function renderFlow() {
     <button class="btn primary" data-act="play">${S.playing ? t("pause") : t("play")}</button></div></div>
     <div class="progress"><i style="width:${((i + 1) / steps.length) * 100}%"></i></div>`;
   const pipeline = `<div class="card"><h3>${t("pipeline")}</h3>
+    ${flow.example ? `<div class="example"><b>${t("example_label")}</b>${inline(flow.example)}</div>` : ""}
     <div class="legend">${kindsUsed.map(k => `<span style="--c:${kindColor(k)}">${kindLabel(k)}</span>`).join("")}<span style="--c:var(--hl-line)">${t("changed_this")}</span></div>
     <ol class="steps">${steps.map((s, n) => `<li><button class="step ${n === i ? "on" : ""} ${s.changed ? "changed" : ""}" data-step="${n}" style="--c:${kindColor(s.kind)}" aria-current="${n === i}">
       <span class="num">${n + 1}</span><span><span class="t">${esc(s.title)}${s.changed ? `<span class="chg">${t("changed_short")}</span>` : ""}</span><span class="l">${esc(s.location)}</span></span></button></li>`).join("")}</ol>
@@ -396,17 +414,16 @@ function renderFlow() {
   const needles = list(step.highlight).map(h => String(h).trim()).filter(h => h.length >= MIN_HIGHLIGHT);
   const code = step.code ? `<div class="label">${t("code")}</div><pre class="code">${String(step.code).replace(/\n$/, "").split("\n")
     .map(line => `<span class="${needles.some(h => line.includes(h)) ? "hl" : ""}">${esc(line) || " "}</span>`).join("")}</pre>` : "";
-  const data = list(step.data).length ? `<div class="label">${t("data")}</div><table class="data">${list(step.data).map(d => `<tr><td class="mono">${esc(d.name)}</td>
-    <td>${d.before ? `<span class="before mono">${esc(d.before)}</span>` : ""}<span class="after">${esc(d.after)}</span></td></tr>`).join("")}</table>` : "";
   const flowNumber = S.flows.length - S.flows.findIndex(f => f.id === S.flowId);
   const detail = `<div class="card">
     <div class="ctx">${t("flow_n", flowNumber)} / ${esc(flow.title)}  ${clock(rec.ts)}</div>
     <div class="h"><h2>${circled(i + 1)} ${esc(step.title)}</h2><span class="badge" style="--c:${kindColor(step.kind)}">${kindLabel(step.kind)}</span>
     ${step.changed ? `<span class="badge" style="--c:var(--hl-line)">${t("changed_this")}</span>` : ""}</div>
-    <code class="loc">${esc(step.location)}</code>${prose(step.explanation)}${data}${code}</div>`;
+    <code class="loc">${esc(step.location)}</code>${prose(step.explanation)}${code}</div>`;
   const checks = list(flow.checks);
   const cost = Number(rec.cost);
   const side = `<div class="side">
+    ${stateCard(steps, i)}
     <div class="card"><h3>${t("changes", list(flow.changes).length)}</h3><div class="rows">${list(flow.changes).map(c => `<div class="row"><span class="k M">M</span>
       <div class="v"><div class="path">${esc(c.file)}</div>${inline(c.what)}</div></div>`).join("") || `<div class="empty">${t("none")}</div>`}</div></div>
     ${checks.length ? `<div class="card"><h3>${t("checks")}</h3><div class="rows">${checks.map(c => `<div class="row">
@@ -414,6 +431,24 @@ function renderFlow() {
     <div class="card"><h3>${t("request")}</h3><div class="request">${esc(rec.prompt)}</div><div class="meta">${esc(rec.model || "")}${cost ? ` / $${cost.toFixed(3)}` : ""}</div></div>
     ${toolsCard(TOOLS_IN_FLOW)}</div>`;
   return top + `<div class="grid">${pipeline}${detail}${side}</div>`;
+}
+
+function stateAt(steps, current) {
+  const state = new Map();
+  steps.slice(0, current + 1).forEach((s, n) => list(s.data).forEach(d => {
+    if (d && d.name) state.set(String(d.name), { after: d.after, before: d.before, step: n });
+  }));
+  return state;
+}
+
+function stateCard(steps, current) {
+  if (!steps.some(s => list(s.data).length)) return "";
+  const rows = [...stateAt(steps, current)].map(([name, v]) => {
+    const now = v.step === current;
+    const before = now && v.before && v.before !== v.after ? `<span class="before">${esc(v.before)}</span>` : "";
+    return `<tr class="${now ? "now" : ""}"><td>${esc(name)}${now ? "" : `<span class="step-no">${circled(v.step + 1)}</span>`}</td><td>${before}${esc(v.after)}</td></tr>`;
+  }).join("");
+  return `<div class="card state"><h3>${t("state_title")}</h3><table>${rows || `<tr><td colspan="2" class="empty">${t("state_empty")}</td></tr>`}</table></div>`;
 }
 
 function isTurnShown(turn, items) {
@@ -566,6 +601,13 @@ async function saveSetting(update) {
   render();
 }
 
+function notify(message, error) {
+  S.toast = { text: message, error };
+  render();
+  clearTimeout(notify.timer);
+  notify.timer = setTimeout(() => { S.toast = null; render(); }, TOAST_MS);
+}
+
 function stopAutoplay() {
   if (S.playing) clearInterval(S.playing);
   S.playing = null;
@@ -587,20 +629,16 @@ async function postOverride(ref, body) {
   render();
   const r = await api("POST", `/api/${KEY}/qa/override`, { id: ref.id, ...body });
   S.busyIds.delete(ref.id);
-  if (!r.ok) S.error = r.error;
+  if (!r.ok) notify(r.error, true);
   await poll(true);
-  S.error = null;
 }
 
-async function regen(target, turn, button) {
+async function regen(target, turn) {
   touch();
   const query = `target=${target}${turn ? `&turn=${encodeURIComponent(turn)}` : ""}`;
   const r = await api("POST", `/api/${KEY}/regen?${query}`);
-  if (!r.ok) {
-    button.textContent = r.error;
-    return;
-  }
-  if (turn) button.textContent = text("checking_dots");
+  if (!r.ok) return notify(r.error, true);
+  notify(text(target === "qa" ? "qa_checking" : "flow_started"));
   await poll(true);
 }
 
@@ -620,7 +658,7 @@ document.addEventListener("click", async e => {
   if (d.resetSetting) return saveSetting({ [d.resetSetting]: null });
   touch();
   if (d.qaPage) { S.qaPage = Number(d.qaPage); render(); return window.scrollTo(0, 0); }
-  if (d.qaTurn) return regen("qa", d.qaTurn, el);
+  if (d.qaTurn) return regen("qa", d.qaTurn);
   const ref = S.qaRefs[Number(d.qaCycle ?? d.qaArchive ?? d.qaReset)];
   if (ref && d.qaCycle !== undefined) return postOverride(ref, { status: QA_CYCLE[ref.status] || QA.ANSWERED });
   if (ref && d.qaArchive !== undefined) return postOverride(ref, { archived: !ref.archived });
@@ -636,8 +674,8 @@ document.addEventListener("click", async e => {
     return render();
   }
   if (d.act === "full") return api("POST", `/api/${KEY}/open`);
-  if (d.act === "regen") return regen("flow", null, el);
-  if (d.act === "qa-regen") return regen("qa", null, el);
+  if (d.act === "regen") return regen("flow", null);
+  if (d.act === "qa-regen") return regen("qa", null);
 });
 
 document.addEventListener("change", e => {

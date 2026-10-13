@@ -20,7 +20,7 @@ The panel and the analysis are available in English, Korean and Japanese.
 
 ![Q&A tab](docs/qa.png)
 
-**Logic flow**: the changed feature as steps in execution order, with real code and the changed lines highlighted.
+**Logic flow**: the changed feature as steps in execution order, with real code and the changed lines highlighted. One concrete example is traced through every step; the state panel shows its values up to the current step, with this step's changes highlighted.
 
 ![Logic flow tab](docs/flow.png)
 

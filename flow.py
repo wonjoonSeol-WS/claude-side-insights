@@ -30,9 +30,10 @@ CHECK_STATUSES = ["pass", "fail", "unknown"]
 
 SCHEMA = {
     "type": "object",
-    "required": ["title", "summary", "steps", "changes"],
+    "required": ["title", "summary", "example", "steps", "changes"],
     "properties": {
         "title": {"type": "string", "description": "The work in 3 to 6 words"},
+        "example": {"type": "string", "description": "One concrete input traced through every step, e.g. a request with its values"},
         "summary": {"type": "string", "description": "What changed and why, 2 sentences"},
         "steps": {
             "type": "array", "minItems": 2, "maxItems": 14,
@@ -49,7 +50,7 @@ SCHEMA = {
                     "highlight": {"type": "array", "items": {"type": "string"}, "description": "Substrings of the changed lines in code"},
                     "data": {
                         "type": "array",
-                        "description": "Values or state this step changes (optional)",
+                        "description": "State of the traced example that this step reads or changes, with concrete values",
                         "items": {"type": "object", "required": ["name", "after"],
                                   "properties": {"name": {"type": "string"}, "before": {"type": "string"}, "after": {"type": "string"}}},
                     },
@@ -70,6 +71,7 @@ List the steps in the order data moves through the changed feature when it runs 
 - explanation: 2 to 5 sentences, one per line. The first line says what the step does; the following lines say what changed and why. Use lines starting with "- " for details. Mark guesses as guesses.
 - Wrap function, variable and file names and commands in `backticks`, also in summary and changes.what.
 - Put one or two key words per line in **bold** and mark caveats or changed behaviour with ==highlight==. Do not overuse either.
+- Trace the one concrete example from "example" through every step. In each step's data list the state names (variables, fields, rows, response codes) this step reads or changes and their concrete values for that example; give "before" only when the step changes the value. Use the same name for the same state in every step so it can be followed across steps.
 - code must be a real excerpt you confirmed with Read. Never invent symbols. Use kind "test" for test files.
 - checks: only tests, builds or checks that actually ran in the conversation. Empty if none.
 - Do not use the em dash (U+2014) or the middle dot (U+00B7); use a hyphen, comma or slash."""
