@@ -27,11 +27,6 @@ export type Env = {
 
 export const Status = { ANSWERED: 'answered', PARTIAL: 'partial', UNANSWERED: 'unanswered' } as const
 export type StatusValue = (typeof Status)[keyof typeof Status]
-export const STATUS_CYCLE: Record<string, StatusValue> = {
-  [Status.ANSWERED]: Status.PARTIAL,
-  [Status.PARTIAL]: Status.UNANSWERED,
-  [Status.UNANSWERED]: Status.ANSWERED,
-}
 export const ToolState = { RUN: 'run', OK: 'ok', ERR: 'err', LOST: 'lost' } as const
 export const RecordStatus = { OK: 'ok', ERROR: 'error' } as const
 export const Source = { PROMPT: 'prompt', MID_TURN: 'mid-turn' } as const

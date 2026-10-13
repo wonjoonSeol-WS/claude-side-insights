@@ -312,10 +312,7 @@ test('pane draws the three tabs and its keys act on the server', async ($, on) =
     expect(await ui.find({ type: 'Markdown', text: /\*\*Answer\*\*/ }), "{ type: 'Markdown', text: /\\*\\*Answer\\*\\*/ }").toBeDefined()
     expect((await ui.find({ type: 'Link' }))?.props.href).toBe(surface === 'desktop' ? 'http://localhost:47821/p/demo?t=tok&full=1' : undefined)
 
-    calls.length = 0
-    await ui.press({ key: 'status' })
-    const override = calls.find(c => c.url.endsWith(`/api/${KEY}/qa/override`))
-    expect(JSON.parse(override?.body ?? '{}')).toEqual({ id: 'i2', status: 'unanswered' })
+    expect(await ui.find({ key: 'status' }), 'no manual status key').toBeUndefined()
 
     await ui.press({ key: 'item-0-i1' })
     expect(await ui.find({ key: 'copy' }), 'no copy for an answered question').toBeUndefined()
@@ -546,7 +543,7 @@ test('h opens a help card with the panel keys and the Claude Code pane keys, and
     await ui.press({ key: 'help' })
     expect(await ui.find({ key: 'help-cc' }), "{ key: 'help-cc' }").toBeDefined()
     expect(await ui.find({ type: 'Text', text: / ctrl\+x ← ↑ / }), 'the grow keys').toBeDefined()
-    expect(await ui.find({ type: 'Text', text: / s / }), 'a Q&A key').toBeDefined()
+    expect(await ui.find({ type: 'Text', text: / a / }), 'a Q&A key').toBeDefined()
     expect(await ui.find({ key: 'qa-tiles' }), 'help replaces the tab body').toBeUndefined()
     await ui.press({ key: 'tab-qa' })
     expect(await ui.find({ key: 'help-cc' }), 'a tab press leaves help').toBeUndefined()
@@ -569,19 +566,25 @@ test('a key the pane does not use is caught with a hint instead of falling throu
   }
 })
 
-test('the undo key shows only for a question whose status was set by hand', async ($, on) => {
+test('re-checking a question marked by hand clears the mark first, so the check can change it', async ($, on) => {
   const manual = { ...STATE.qa.turns[0], items: STATE.qa.turns[0].items.map(i => (i.id === 'i2' ? { ...i, manual: true } : i)) }
-  const { clock } = setup(on, { current: { ...STATE, qa: { ...STATE.qa, turns: [manual, ...STATE.qa.turns.slice(1)] } }, up: true })
+  const { clock, calls } = setup(on, { current: { ...STATE, qa: { ...STATE.qa, turns: [manual, ...STATE.qa.turns.slice(1)] } }, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
-  for (const surface of SURFACES) {
-    const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...PANE_PROPS })
-    await ui.press({ key: 'item-2-i3' })
-    expect(await ui.find({ key: 'auto' }), 'no undo for an automatic status').toBeUndefined()
-    await ui.press({ key: 'item-1-i2' })
-    expect(await ui.find({ key: 'auto' }), 'undo for a status set by hand').toBeDefined()
-    await ui.unmount()
-  }
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'item-2-i3' })
+  calls.length = 0
+  await ui.press({ key: 'recheck' })
+  await ui.press({ key: 'recheck' })
+  expect(calls.some(c => c.url.endsWith('/qa/override')), 'an automatic item is re-checked as is').toBe(false)
+  expect(calls.some(c => c.url.includes('item=i3'))).toBe(true)
+  await ui.press({ key: 'item-1-i2' })
+  calls.length = 0
+  await ui.press({ key: 'recheck' })
+  await ui.press({ key: 'recheck' })
+  const order = calls.filter(c => c.method === 'POST').map(c => (c.url.endsWith('/qa/override') ? `override ${c.body}` : c.url.includes('/regen') ? 'regen' : c.url))
+  expect(order).toEqual(['override {"id":"i2","status":null}', 'regen'])
+  await ui.unmount()
 })
 
 const HUNK_TEXT = '@@ -1,2 +1,2 @@\n-old line\n+new line\n same'

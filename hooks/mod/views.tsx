@@ -53,8 +53,6 @@ export type Actions = {
   flowBy: (delta: number) => void
   stepTo: (step: number) => void
   select: (id: string) => void
-  cycleStatus: () => void
-  autoStatus: () => void
   archive: () => void
   copy: (press: UiPressArgument) => void
   recheck: () => void
@@ -133,8 +131,6 @@ const HINTS: Record<TabValue, [string, string][]> = {
   ],
   [Tab.QA]: [
     ['1-3', 'term_k_tabs'],
-    ['s', 'term_k_status'],
-    ['u', 'reset_auto'],
     ['a', 'term_k_archive'],
     ['c', 'term_k_copy'],
     ['r', 'term_k_recheck'],
@@ -990,8 +986,6 @@ export const qa = (c: Ctx) => {
       <Text color={hex(n.total && n.answered === n.total ? c.p.green : c.p.text)} bold>{`${percent}%`}</Text>
     </Box>,
     <Box key="qa-keys" flexDirection="row" flexWrap="wrap" columnGap={2} marginTop={1}>
-      <Button key="status" plain hotkey="s" label={c.t('term_k_status')} onPress={() => c.act.cycleStatus()} />
-      {selectedItem?.manual ? <Button key="auto" plain hotkey="u" label={c.t('reset_auto')} onPress={() => c.act.autoStatus()} /> : null}
       <Button key="archive" plain hotkey="a" label={c.t('term_k_archive')} onPress={() => c.act.archive()} />
       {canCopy(selectedItem) ? <Button key="copy" plain hotkey="c" label={c.t('term_k_copy')} onPress={press => c.act.copy(press)} /> : null}
       <Button key="recheck" plain hotkey="r" label={c.t('term_k_recheck')} onPress={() => c.act.recheck()} />

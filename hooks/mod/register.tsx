@@ -5,8 +5,6 @@ import {
   FETCH_ERROR,
   RecordStatus,
   Regen,
-  STATUS_CYCLE,
-  Status,
   cells,
   connect,
   counts,
@@ -471,13 +469,6 @@ const actions = (copyText: Copy): Actions => ({
     mod.view.selected = id
     redraw()
   },
-  cycleStatus: withItem((item, api) => {
-    const status = STATUS_CYCLE[item.status ?? ''] ?? Status.ANSWERED
-    void run(() => api.setStatus(item.id, status), t('term_status_set', t(`st_${status}`)))
-  }),
-  autoStatus: withItem((item, api) => {
-    void run(() => api.setStatus(item.id, null), t('term_status_auto'))
-  }),
   archive: withItem((item, api) => {
     const archived = !item.archived
     void run(() => api.setArchived(item.id, archived), t(archived ? 'term_archived' : 'term_restored'))
@@ -507,7 +498,16 @@ const actions = (copyText: Copy): Actions => ({
       }
       const turn = rowTurn(id)
       const params = turn ? { target: Regen.QA, turn } : { target: Regen.QA, item: id }
-      return run(() => api.regen(params), t('qa_checking'))
+      const marked = !turn && allItems().find(i => i.id === id)?.manual
+      return run(async () => {
+        if (marked) {
+          const cleared = await api.setStatus(id, null)
+          if (!isOk(cleared)) {
+            return cleared
+          }
+        }
+        return api.regen(params)
+      }, t('qa_checking'))
     })
   },
   rebuild: () => {
