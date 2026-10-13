@@ -110,6 +110,7 @@
   "mod_settings_saved": "Saved. Applies from the next analysis.",
   "mod_spinner_waiting": "{0} questions waiting",
   "mod_step_changes": "Changed in this step",
+  "mod_step_checks": "Checks for this step",
   "mod_toast_flow": "Flow ready: {0}",
   "mod_toast_open": "Open questions from the last turn: {0}",
   "mod_view_commit": "last commit (git show)",

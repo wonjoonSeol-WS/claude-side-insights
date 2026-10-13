@@ -112,7 +112,7 @@ export type FlowRecord = {
     example?: string
     steps?: FlowStep[]
     changes?: { file?: string; what?: string }[]
-    checks?: { label?: string; status?: string }[]
+    checks?: { label?: string; status?: string; steps?: number[] }[]
   }
 }
 

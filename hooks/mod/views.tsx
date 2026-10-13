@@ -866,7 +866,22 @@ const stepChangeList = (c: Ctx, own: Change[]) => {
   )
 }
 
-const stepCard = (c: Ctx, s: FlowStep, step: number, total: number, changes: Change[] = []) => {
+type Check = NonNullable<NonNullable<FlowRecord['flow']>['checks']>[number]
+
+const checkLine = (c: Ctx, ck: Check, key: string) => {
+  const { Text } = c.ui
+  const [mark, color] = ck.status === CheckStatus.PASS ? ['✓', c.p.green] : ck.status === CheckStatus.FAIL ? ['✗', c.p.red] : ['?', c.p.faint]
+  return (
+    <Text key={key}>
+      <Text color={hex(color)} bold>
+        {mark}
+      </Text>{' '}
+      <Text color={hex(c.p.text)}>{ck.label ?? ''}</Text>
+    </Text>
+  )
+}
+
+const stepCard = (c: Ctx, s: FlowStep, step: number, total: number, changes: Change[] = [], checks: Check[] = []) => {
   const { Box, Text, Code } = c.ui
   const color = kindColor(c.p, s.kind)
   const lang = language(s.location)
@@ -915,6 +930,17 @@ const stepCard = (c: Ctx, s: FlowStep, step: number, total: number, changes: Cha
   const own = stepChanges(s, changes)
   if (own.length) {
     body.push(stepChangeList(c, own))
+  }
+  const ownChecks = checks.filter(ck => ck.steps?.includes(step + 1))
+  if (ownChecks.length) {
+    body.push(
+      <Box key="step-checks" flexDirection="column" marginTop={1}>
+        <Text color={hex(c.p.green)} bold>
+          {c.t('mod_step_checks')}
+        </Text>
+        {ownChecks.map((ck, i) => checkLine(c, ck, `step-check-${i}`))}
+      </Box>,
+    )
   }
   return card(c, 'step', `${step + 1}. ${s.title ?? ''}`, body, color)
 }
@@ -1127,7 +1153,7 @@ export const flow = (c: Ctx) => {
 {label(c, c.t('regen'))}</Button>
         </Box>,
       ])
-  const detail = [...(steps[step] ? [stepCard(c, steps[step], step, steps.length, f.changes ?? [])] : []), ...(steps.length > 0 ? [stateCard(c, steps, step)] : [])]
+  const detail = [...(steps[step] ? [stepCard(c, steps[step], step, steps.length, f.changes ?? [], f.checks ?? [])] : []), ...(steps.length > 0 ? [stateCard(c, steps, step)] : [])]
   return (
     <Box flexDirection="column">
       {top}

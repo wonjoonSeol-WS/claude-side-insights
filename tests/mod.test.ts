@@ -92,7 +92,10 @@ const FLOW = {
       { title: 'Claim the key', location: 'src/checkout/idempotency.ts / claim', kind: 'logic', changed: true, explanation: '==409 on a second click==', code: 'claim(key)', highlight: ['claim'], data: [{ name: 'keys[k-91]', before: '(none)', after: 'in_progress' }] },
     ],
     changes: [{ file: 'src/checkout/idempotency.ts', what: 'New key store' }],
-    checks: [{ label: 'npm test (23 passed)', status: 'pass' }],
+    checks: [
+      { label: 'npm test (23 passed)', status: 'pass' },
+      { label: 'claim test (409 on a second click)', status: 'pass', steps: [2] },
+    ],
   },
 }
 
@@ -783,4 +786,21 @@ test('the palette follows the setting first, then Claude Code\'s theme, then the
   expect(resolvePalette(undefined, undefined, undefined).base, 'nothing known').toEqual(DARK.base)
   expect(resolvePalette('light', 'dark', true).code, 'code keeps the background its syntax colors were made for').toEqual(DARK.code)
   expect(resolvePalette('dark', 'light', false).code).toEqual(LIGHT.code)
+})
+
+test('a step lists only the checks that name it, and the flow card still lists every check', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-flow' })
+  expect(await ui.find({ key: 'step-checks' }), 'no check names step 1').toBeUndefined()
+  await ui.press({ key: 'step-next' })
+  const own = await ui.find({ key: 'step-checks' })
+  expect(own?.text).toContain('claim test')
+  expect(own?.text, 'a whole-change check is not tied to step 2').not.toContain('npm test')
+  const all = await ui.find({ key: 'checks' })
+  expect(all?.text).toContain('npm test')
+  expect(all?.text).toContain('claim test')
+  await ui.unmount()
 })

@@ -84,7 +84,9 @@ SCHEMA = {
         "changes": {"type": "array", "items": {"type": "object", "required": ["file", "what"],
                                                 "properties": {"file": {"type": "string"}, "what": {"type": "string"}}}},
         "checks": {"type": "array", "items": {"type": "object", "required": ["label", "status"],
-                                               "properties": {"label": {"type": "string"}, "status": {"type": "string", "enum": CHECK_STATUSES}}}},
+                                               "properties": {"label": {"type": "string"}, "status": {"type": "string", "enum": CHECK_STATUSES},
+                                                              "steps": {"type": "array", "items": {"type": "integer"},
+                                                                        "description": "1-based numbers of the steps this check exercises"}}}},
     },
 }
 
@@ -97,7 +99,7 @@ List the steps in the order data moves through the changed feature when it runs 
 - Put one or two key words per line in **bold** and mark caveats or changed behaviour with ==highlight==. Do not overuse either.
 - Trace the one concrete example from "example" through every step. In each step's data list the state names (variables, fields, rows, response codes) this step reads or changes and their concrete values for that example; give "before" only when the step changes the value. Use the same name for the same state in every step so it can be followed across steps.
 - code must be a real excerpt you confirmed with Read. Never invent symbols. Use kind "test" for test files.
-- checks: only tests, builds or checks that actually ran in the conversation. Empty if none.
+- checks: only tests, builds or checks that actually ran in the conversation. Empty if none. Set steps to the 1-based numbers of the steps a check exercises; leave it empty when it covers the whole change.
 Write for a person skimming the panel, not for a machine:
 - Lead with the point in one short sentence, then add detail only if it helps.
 - Use plain, everyday words and natural phrasing for the output language; avoid stiff or translated-sounding sentences.

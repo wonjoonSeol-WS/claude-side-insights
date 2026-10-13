@@ -110,6 +110,7 @@
   "mod_settings_saved": "保存しました。次の分析から適用されます。",
   "mod_spinner_waiting": "質問{0}件が待機中",
   "mod_step_changes": "このステップでの変更",
+  "mod_step_checks": "このステップの検証",
   "mod_toast_flow": "フローができました: {0}",
   "mod_toast_open": "前のターンで答えが足りない質問: {0}件",
   "mod_view_commit": "最後のコミット (git show)",
