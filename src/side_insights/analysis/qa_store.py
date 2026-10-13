@@ -153,6 +153,14 @@ def open_items(pane, sid, current_turn, limit=None):
     return found[:limit]
 
 
+def counts(overridden_records):
+    """Answered, partial, unanswered, open and total counts over the non-archived items of records from with_overrides."""
+    items = [i for rec in overridden_records for i in rec.get("items") or [] if not i.get("archived")]
+    by = {s: sum(1 for i in items if i.get("status") == s.value) for s in Status}
+    return {"answered": by[Status.ANSWERED], "partial": by[Status.PARTIAL], "unanswered": by[Status.UNANSWERED],
+            "open": by[Status.PARTIAL] + by[Status.UNANSWERED], "total": len(items)}
+
+
 def all_open_items(pane, sid):
     """Every unanswered or partial item of the session, minus archived or manually set ones, oldest turn first."""
     started = {rec.get("turn_id"): rec.get("ts") or 0 for rec in records(pane, sid)}

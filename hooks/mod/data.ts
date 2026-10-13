@@ -18,6 +18,7 @@ export type Env = {
   data?: string
   port?: string
   legacyPort?: string
+  child?: string
   session: string
 }
 
@@ -32,6 +33,16 @@ export const ToolState = { RUN: 'run', OK: 'ok', ERR: 'err', LOST: 'lost' } as c
 export const RecordStatus = { OK: 'ok', ERROR: 'error' } as const
 export const Source = { PROMPT: 'prompt', MID_TURN: 'mid-turn' } as const
 export const Regen = { QA: 'qa', FLOW: 'flow' } as const
+export const Kind = {
+  INPUT: 'input',
+  LOGIC: 'logic',
+  EXTERNAL: 'external',
+  STORAGE: 'storage',
+  OUTPUT: 'output',
+  CONFIG: 'config',
+  TEST: 'test',
+} as const
+export const CheckStatus = { PASS: 'pass', FAIL: 'fail' } as const
 
 export type Tool = {
   tool: string
@@ -59,11 +70,12 @@ export type QaItem = {
 }
 export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[] }
 export type Waiting = { ts?: number; text: string; mid_turn?: boolean }
+export type QaCounts = { answered: number; partial: number; unanswered: number; open: number; total: number }
 export type PanelState = {
   activity: { sid?: string | null; cwd?: string | null; busy?: boolean; tools: Tool[]; files: FileChange[] }
   flows: FlowRef[]
   pending: unknown
-  qa: { sid?: string | null; turns: QaTurn[]; pending: boolean; waiting: Waiting[]; eta: number; auto: boolean }
+  qa: { sid?: string | null; turns: QaTurn[]; pending: boolean; waiting: Waiting[]; eta: number; auto: boolean; counts?: QaCounts }
 }
 export type FlowStep = {
   title?: string
@@ -97,7 +109,7 @@ const KEY_MAX_BYTES = 80
 const LANGS = ['en', 'ko', 'ja'] as const
 const DEFAULT_LANG = 'en'
 const TOKEN_HEADER = 'X-Side-Insights'
-const FETCH_ERROR = -1
+export const FETCH_ERROR = -1
 
 export type Conn = { base: string; page: string; key: string; dataDir: string }
 
@@ -126,6 +138,12 @@ export const connect = (env: Env): Conn => {
 
 export type Reply<T> = { status: number; data?: T; error?: string }
 
+export const isOk = (reply: Reply<unknown>) => reply.status >= 200 && reply.status < 300
+
+const TURN_ROW = 'turn:'
+export const turnRow = (turnId: string) => `${TURN_ROW}${turnId}`
+export const rowTurn = (row: string) => (row.startsWith(TURN_ROW) ? row.slice(TURN_ROW.length) : undefined)
+
 export class Api {
   private token: string | undefined
 
@@ -151,24 +169,29 @@ export class Api {
     if (!this.token && !(await this.readToken())) {
       return { status: FETCH_ERROR }
     }
+    let res: HttpResponse
     try {
-      const res = await this.io.fetch(`${this.conn.base}${path}`, {
+      res = await this.io.fetch(`${this.conn.base}${path}`, {
         method,
         headers: { [TOKEN_HEADER]: this.token ?? '', 'Content-Type': 'application/json' },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       })
-      const parsed = res.text ? (JSON.parse(res.text) as unknown) : undefined
-      if (!res.ok) {
-        const error = (parsed as { error?: string } | undefined)?.error
-        if (res.status === 403) {
-          this.token = undefined
-        }
-        return { status: res.status, error }
-      }
-      return { status: res.status, data: parsed as T }
     } catch {
       return { status: FETCH_ERROR }
     }
+    let parsed: unknown
+    try {
+      parsed = res.text ? JSON.parse(res.text) : undefined
+    } catch {
+      parsed = undefined
+    }
+    if (!res.ok) {
+      if (res.status === 403) {
+        this.token = undefined
+      }
+      return { status: res.status, error: (parsed as { error?: string } | undefined)?.error }
+    }
+    return { status: res.status, data: parsed as T }
   }
 
   state = () => this.call<PanelState>('GET', `/api/${this.conn.key}/state`)
@@ -176,6 +199,7 @@ export class Api {
   config = () => this.call<{ effective?: { lang?: string } }>('GET', `/api/config?pane=${encodeURIComponent(this.conn.key)}`)
   setStatus = (id: string, status: string | null) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, status })
   setArchived = (id: string, archived: boolean) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, archived })
+  open = (mode: string) => this.call('POST', `/api/${this.conn.key}/open?mode=${encodeURIComponent(mode)}`)
 
   regen(params: Record<string, string | undefined>) {
     const query = Object.entries(params)
@@ -188,6 +212,8 @@ export class Api {
 
 export type Messages = Record<string, string>
 
+export const langCode = (lang: string | undefined): string => LANGS.find(l => l === lang) ?? DEFAULT_LANG
+
 export const loadMessages = async (io: Io, lang: string | undefined): Promise<Messages> => {
   const read = async (code: string): Promise<Messages> => {
     try {
@@ -196,18 +222,25 @@ export const loadMessages = async (io: Io, lang: string | undefined): Promise<Me
       return {}
     }
   }
-  const code = LANGS.find(l => l === lang) ?? DEFAULT_LANG
+  const code = langCode(lang)
   const fallback = await read(DEFAULT_LANG)
   return code === DEFAULT_LANG ? fallback : { ...fallback, ...(await read(code)) }
 }
 
 export const format = (messages: Messages, key: string, ...args: (string | number)[]): string =>
-  (messages[key] ?? key).replace(/\{(\d+)\}/g, (m, i: string) => String(args[Number(i)] ?? m))
+  (Object.hasOwn(messages, key) ? (messages[key] ?? key) : key).replace(/\{(\d+)\}/g, (m, i: string) =>
+    Object.hasOwn(args, Number(i)) ? String(args[Number(i)]) : m,
+  )
 
-export const counts = (turns: QaTurn[]) => {
-  const items = turns.flatMap(t => (t.items ?? []).filter(i => !i.archived))
+export const counts = (qa: PanelState['qa'] | undefined): QaCounts => {
+  if (qa?.counts) {
+    return qa.counts
+  }
+  const items = (qa?.turns ?? []).flatMap(t => (t.items ?? []).filter(i => !i.archived))
   const of = (s: string) => items.filter(i => i.status === s).length
-  return { answered: of(Status.ANSWERED), partial: of(Status.PARTIAL), unanswered: of(Status.UNANSWERED), total: items.length }
+  const partial = of(Status.PARTIAL)
+  const unanswered = of(Status.UNANSWERED)
+  return { answered: of(Status.ANSWERED), partial, unanswered, open: partial + unanswered, total: items.length }
 }
 
 const WIDE = /[ᄀ-ᅟ⺀-꓏가-힣豈-﫿︰-﹏＀-｠￠-￦]/

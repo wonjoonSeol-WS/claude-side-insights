@@ -1,6 +1,8 @@
-import type { Elements, RenderChildren, UiPressArgument } from 'claude-code'
+import type { Elements, RenderChildren, RenderSurface, UiPressArgument } from 'claude-code'
 
 import {
+  CheckStatus,
+  Kind,
   RecordStatus,
   Source,
   Status,
@@ -10,7 +12,9 @@ import {
   duration,
   fit,
   highlight,
+  turnRow,
   type FlowRecord,
+  type FlowRef,
   type FlowStep,
   type PanelState,
   type QaItem,
@@ -30,7 +34,7 @@ export const TAB_KEYS: [string, TabValue][] = [
 
 export type View = {
   tab: TabValue
-  flowIndex: number
+  flowId?: string
   step: number
   selected?: string
   openOnly: boolean
@@ -60,11 +64,13 @@ export type Ctx = {
   t: (key: string, ...args: (string | number)[]) => string
   cols: number
   view: View
+  surface: RenderSurface
+  selected?: string
   flow?: FlowRecord
   flowLoading: boolean
   act: Actions
   pageUrl: string
-  down: boolean
+  problem?: string
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -73,13 +79,13 @@ const STATUS_COLOR: Record<string, string> = {
   [Status.UNANSWERED]: 'error',
 }
 const KIND_COLOR: Record<string, string> = {
-  input: 'subtle',
-  logic: 'suggestion',
-  external: 'warning',
-  storage: 'success',
-  output: 'merged',
-  config: 'subtle',
-  test: 'ide',
+  [Kind.INPUT]: 'subtle',
+  [Kind.LOGIC]: 'suggestion',
+  [Kind.EXTERNAL]: 'warning',
+  [Kind.STORAGE]: 'success',
+  [Kind.OUTPUT]: 'merged',
+  [Kind.CONFIG]: 'subtle',
+  [Kind.TEST]: 'ide',
 }
 const TOOL_MARK: Record<string, [string, string]> = {
   [ToolState.OK]: ['✓', 'success'],
@@ -87,7 +93,7 @@ const TOOL_MARK: Record<string, [string, string]> = {
   [ToolState.RUN]: ['⠋', 'warning'],
 }
 const LOST_MARK: [string, string] = ['–', 'inactive']
-const CHECK_MARK: Record<string, [string, string]> = { pass: ['✓', 'success'], fail: ['✗', 'error'] }
+const CHECK_MARK: Record<string, [string, string]> = { [CheckStatus.PASS]: ['✓', 'success'], [CheckStatus.FAIL]: ['✗', 'error'] }
 const LANGUAGE: Record<string, string> = {
   ts: 'typescript',
   tsx: 'tsx',
@@ -109,6 +115,42 @@ const LANGUAGE: Record<string, string> = {
 const MAX_FILES = 30
 const MAX_TOOLS = 40
 const TOOLS_IN_FLOW = 12
+const MAX_TURNS = 20
+const LINK_SURFACES = new Set<RenderSurface>(['terminal', 'desktop'])
+const OPEN_STATUSES = new Set<string>([Status.PARTIAL, Status.UNANSWERED])
+const HINTS: Record<TabValue, [string, string][]> = {
+  [Tab.FLOW]: [
+    ['1 2 3', 'term_k_tabs'],
+    ['p n', 'term_k_flows'],
+    ['k j', 'term_k_steps'],
+    ['r', 'term_k_rebuild'],
+    ['o', 'term_k_open'],
+  ],
+  [Tab.LIVE]: [
+    ['1 2 3', 'term_k_tabs'],
+    ['o', 'term_k_open'],
+  ],
+  [Tab.QA]: [
+    ['1 2 3', 'term_k_tabs'],
+    ['s', 'term_k_status'],
+    ['u', 'reset_auto'],
+    ['a', 'term_k_archive'],
+    ['c', 'term_k_copy'],
+    ['r', 'term_k_recheck'],
+    ['f', 'term_k_open_only'],
+    ['v', 'qa_archived'],
+    ['o', 'term_k_open'],
+  ],
+}
+
+export const isOpen = (item: QaItem) => OPEN_STATUSES.has(item.status ?? '')
+export const canCopy = (item: QaItem | undefined) => !!item && isOpen(item) && !item.archived && !item.manual
+
+export const currentFlow = (flows: FlowRef[], flowId: string | undefined) => {
+  const found = flows.findIndex(f => f.id === flowId)
+  const index = found < 0 ? 0 : found
+  return { index, ref: flows[index] }
+}
 const BAR = 16
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'])
 
@@ -139,16 +181,28 @@ export const header = (c: Ctx) => {
       </Box>
       <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="open" plain hotkey="o" label={c.t('full')} onPress={() => c.act.openBrowser()} />
-        {c.pageUrl ? <Link href={c.pageUrl} label={c.t('mod_browser_link')} /> : null}
+        {c.pageUrl && LINK_SURFACES.has(c.surface) ? <Link href={c.pageUrl} label={c.t('full_title')} /> : null}
       </Box>
-      {c.down && <Text color="error">{c.t('mod_server_down')}</Text>}
+      {c.problem ? <Text color="error">{c.problem}</Text> : null}
     </Box>
   )
 }
 
-export const footer = (c: Ctx) => {
+export const noteOrHints = (c: Ctx) => {
   const { Text } = c.ui
-  return c.view.note ? <Text color={c.view.note.color}>{c.view.note.text}</Text> : <Text dimColor>{c.t('mod_keys_' + c.view.tab)}</Text>
+  if (c.view.note) {
+    return <Text color={c.view.note.color}>{c.view.note.text}</Text>
+  }
+  return (
+    <Text dimColor>
+      {HINTS[c.view.tab].map(([key, label]) => (
+        <Text key={`hint-${key}`}>
+          <Text color="suggestion">{key}</Text> {c.t(label)}
+          {'  '}
+        </Text>
+      ))}
+    </Text>
+  )
 }
 
 const card = (c: Ctx, key: string, title: string, children: RenderChildren[], color = 'inactive') => {
@@ -202,7 +256,11 @@ export const live = (c: Ctx) => {
     </Text>
   ))
   if (files.length > MAX_FILES) {
-    fileLines.push(<Text dimColor>{c.t('term_more', files.length - MAX_FILES)}</Text>)
+    fileLines.push(
+      <Text key="files-more" dimColor>
+        {c.t('term_more', files.length - MAX_FILES)}
+      </Text>,
+    )
   }
   const toolLines = [...tools]
     .reverse()
@@ -221,8 +279,8 @@ export const live = (c: Ctx) => {
         <Text color="success">✓</Text> {c.t('term_ok')} <Text color="error">✗</Text> {c.t('term_err')} – {c.t('term_lost')}{' '}
         <Text color="warning">⠋</Text> {c.t('term_run')}
       </Text>
-      {card(c, 'files', c.t('term_files', files.length), fileLines.length ? fileLines : [<Text dimColor>{c.t('term_none')}</Text>])}
-      {card(c, 'tools', c.t('term_tools', tools.length), toolLines.length ? toolLines : [<Text dimColor>{c.t('term_not_yet')}</Text>])}
+      {card(c, 'files', c.t('term_files', files.length), fileLines.length ? fileLines : [<Text key="files-none" dimColor>{c.t('term_none')}</Text>])}
+      {card(c, 'tools', c.t('term_tools', tools.length), toolLines.length ? toolLines : [<Text key="tools-none" dimColor>{c.t('term_not_yet')}</Text>])}
     </Box>
   )
 }
@@ -245,7 +303,7 @@ const stateCard = (c: Ctx, steps: FlowStep[], step: number) => {
     )
   })
   const changed = [...values.values()].some(v => v.now)
-  return card(c, 'state', c.t('state_title'), lines.length ? lines : [<Text dimColor>{c.t('state_empty')}</Text>], changed ? 'warning' : 'inactive')
+  return card(c, 'state', c.t('state_title'), lines.length ? lines : [<Text key="state-none" dimColor>{c.t('state_empty')}</Text>], changed ? 'warning' : 'inactive')
 }
 
 const language = (location: string | undefined) => {
@@ -260,16 +318,20 @@ const stepCard = (c: Ctx, s: FlowStep, step: number) => {
   const lang = language(s.location)
   const hits = (s.highlight ?? []).filter(Boolean)
   const body = [
-    <Text dimColor wrap="truncate-start">
+    <Text key="where" dimColor wrap="truncate-start">
       {s.location ?? ''}
     </Text>,
     <Markdown key="explain" text={highlight(s.explanation ?? '')} />,
   ]
   if (s.code) {
-    body.push(<Code source={s.code} {...(lang ? { language: lang } : {})} />)
+    body.push(<Code key="code" source={s.code} {...(lang ? { language: lang } : {})} />)
   }
   if (hits.length) {
-    body.push(<Text color="warning">▌ {hits.join(', ')}</Text>)
+    body.push(
+      <Text key="hits" color="warning">
+        ▌ {hits.join(', ')}
+      </Text>,
+    )
   }
   return card(c, 'step', `${step + 1}. ${s.title ?? ''}`, body, color)
 }
@@ -292,7 +354,7 @@ const flowCards = (c: Ctx, rec: FlowRecord) => {
             </Text>{' '}
             {ch.file ?? ''}
           </Text>,
-          <Text dimColor>{`    ${ch.what ?? ''}`}</Text>,
+          <Text key={`chg-what-${i}`} dimColor>{`    ${ch.what ?? ''}`}</Text>,
         ]),
       ),
     )
@@ -317,7 +379,7 @@ const flowCards = (c: Ctx, rec: FlowRecord) => {
   }
   if (rec.prompt) {
     const meta = [rec.model, rec.cost ? `$${rec.cost.toFixed(3)}` : ''].filter(Boolean).join(' / ')
-    out.push(card(c, 'request', c.t('request'), [<Markdown dimColor text={rec.prompt} />, ...(meta ? [<Text dimColor>{meta}</Text>] : [])]))
+    out.push(card(c, 'request', c.t('request'), [<Markdown key="prompt" dimColor text={rec.prompt} />, ...(meta ? [<Text key="meta" dimColor>{meta}</Text>] : [])]))
   }
   const now = Date.now() / 1000
   const tools = (c.s?.activity.tools ?? []).filter(x => !rec.ts || (x.start ?? 0) <= rec.ts).slice(-TOOLS_IN_FLOW)
@@ -332,7 +394,11 @@ export const flow = (c: Ctx) => {
   const flows = c.s?.flows ?? []
   const top: RenderChildren[] = []
   if (c.s?.pending) {
-    top.push(<Text color="warning">⠋ {c.t('flow_gen')}</Text>)
+    top.push(
+      <Text key="flow-gen" color="warning">
+        ⠋ {c.t('flow_gen')}
+      </Text>,
+    )
   }
   if (!flows.length) {
     return (
@@ -343,11 +409,10 @@ export const flow = (c: Ctx) => {
       </Box>
     )
   }
-  const index = Math.max(0, Math.min(c.view.flowIndex, flows.length - 1))
-  const ref = flows[index]
+  const { index, ref } = currentFlow(flows, c.view.flowId)
   if (flows.length > 1) {
     top.push(
-      <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+      <Box key="flow-nav" flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="flow-prev" plain hotkey="p" label={c.t('mod_prev_flow')} onPress={() => c.act.flowBy(-1)} />
         <Button key="flow-next" plain hotkey="n" label={c.t('mod_next_flow')} onPress={() => c.act.flowBy(1)} />
         <Text dimColor>
@@ -370,6 +435,7 @@ export const flow = (c: Ctx) => {
     return (
       <Box flexDirection="column">
         {top}
+        <Text bold>{ref?.title ?? ''}</Text>
         <Text color="error" bold>
           {c.t('flow_fail')}
         </Text>
@@ -380,7 +446,7 @@ export const flow = (c: Ctx) => {
   const f = rec.flow ?? {}
   const steps = f.steps ?? []
   const step = Math.max(0, Math.min(c.view.step, steps.length - 1))
-  const kinds = [...new Set(steps.map(s => (s.kind && KIND_COLOR[s.kind] ? s.kind : 'logic')))]
+  const kinds = [...new Set(steps.map(s => (s.kind && KIND_COLOR[s.kind] ? s.kind : Kind.LOGIC)))]
   return (
     <Box flexDirection="column">
       {top}
@@ -405,22 +471,30 @@ export const flow = (c: Ctx) => {
       )}
       {f.summary && <Markdown text={highlight(f.summary)} />}
       {card(c, 'pipeline', c.t('pipeline'), [
-        <Text dimColor>
+        <Text key="legend" dimColor>
           {kinds.map(k => (
             <Text key={`kind-${k}`}>
-              <Text color={KIND_COLOR[k]}>●</Text> {c.t(`kind_${k}`)}{'  '}
+              <Text color={KIND_COLOR[k]}>●</Text> {c.t(`kind_${k}`)}
+              {'  '}
             </Text>
           ))}
           <Text color="warning">●</Text> {c.t('changed_this')}
         </Text>,
         ...steps.map((s, i) => (
-          <Button key={`step-${i}`} plain dimColor={i !== step} onPress={() => c.act.stepTo(i)}>
-            {i === step ? '▶ ' : '  '}
-            <Text color={KIND_COLOR[s.kind ?? ''] ?? 'suggestion'}>{`${i + 1}`}</Text> {fit(s.title ?? '', Math.max(8, c.cols - 16))}
-            {s.changed ? <Text color="warning"> {c.t('changed_short')}</Text> : ''}
-          </Button>
+          <Box key={`step-row-${i}`} flexDirection="row" columnGap={1}>
+            <Text>{i === step ? '▶' : ' '}</Text>
+            <Text color={KIND_COLOR[s.kind ?? ''] ?? 'suggestion'}>{`${i + 1}`}</Text>
+            <Button
+              key={`step-${i}`}
+              plain
+              dimColor={i !== step}
+              label={fit(s.title ?? '', Math.max(8, c.cols - 16))}
+              onPress={() => c.act.stepTo(i)}
+            />
+            {s.changed ? <Text color="warning">{c.t('changed_short')}</Text> : null}
+          </Box>
         )),
-        <Box flexDirection="row" columnGap={1}>
+        <Box key="step-keys" flexDirection="row" columnGap={1}>
           <Button key="step-prev" plain hotkey="k" label={c.t('prev_step')} onPress={() => c.act.stepTo(step - 1)} />
           <Button key="step-next" plain hotkey="j" label={c.t('next_step')} onPress={() => c.act.stepTo(step + 1)} />
           <Button key="rebuild" plain hotkey="r" label={c.t('regen')} onPress={() => c.act.rebuild()} />
@@ -433,16 +507,33 @@ export const flow = (c: Ctx) => {
   )
 }
 
-export const visibleTurns = (c: Pick<Ctx, 'view'>, turns: QaTurn[]) =>
+export const visibleTurns = (view: View, turns: QaTurn[]) =>
   turns
     .map(turn => {
       const failed = turn.status !== undefined && turn.status !== RecordStatus.OK
-      const shown = (turn.items ?? []).filter(
-        i => (c.view.showArchived || !i.archived) && !(c.view.openOnly && i.status === Status.ANSWERED),
-      )
+      const shown = (turn.items ?? []).filter(i => (view.showArchived || !i.archived) && !(view.openOnly && i.status === Status.ANSWERED))
       return { turn, failed, shown }
     })
-    .filter(({ failed, shown }) => failed || shown.length || !(c.view.openOnly || c.view.showArchived))
+    .filter(({ failed, shown }) => failed || shown.length || !(view.openOnly || view.showArchived))
+
+export const qaPage = (view: View, turns: QaTurn[]) => {
+  const all = visibleTurns(view, turns)
+  const shown = all.slice(0, MAX_TURNS)
+  return { shown, more: all.length - shown.length }
+}
+
+const rowIds = (shown: ReturnType<typeof visibleTurns>) =>
+  shown.flatMap(({ turn, failed, shown: items }) => [...(failed ? [turnRow(turn.turn_id)] : []), ...items.map(i => i.id)])
+
+export const isShown = (view: View, turns: QaTurn[], id: string) => rowIds(qaPage(view, turns).shown).includes(id)
+
+export const selection = (view: View, turns: QaTurn[]): string | undefined => {
+  const { shown } = qaPage(view, turns)
+  if (view.selected && rowIds(shown).includes(view.selected)) {
+    return view.selected
+  }
+  return shown.flatMap(x => x.shown).find(isOpen)?.id
+}
 
 const itemNote = (c: Ctx, item: QaItem) => {
   const first = item.first_status
@@ -455,9 +546,8 @@ const itemNote = (c: Ctx, item: QaItem) => {
   return undefined
 }
 
-const itemView = (c: Ctx, item: QaItem) => {
+const itemView = (c: Ctx, item: QaItem, n: number) => {
   const { Box, Text, Button, Markdown } = c.ui
-  const selected = c.view.selected === item.id
   const tags = [
     ...(item.from === Source.MID_TURN ? [c.t('midturn')] : []),
     ...(item.archived ? [c.t('qa_archived_tag')] : []),
@@ -465,17 +555,15 @@ const itemView = (c: Ctx, item: QaItem) => {
   ]
   const note = itemNote(c, item)
   return (
-    <Box key={`item-box-${item.id}`} flexDirection="column">
-      <Button key={`item-${item.id}`} plain onPress={() => c.act.select(item.id)}>
-        {selected ? '▶ ' : '  '}
+    <Box key={`item-box-${n}-${item.id}`} flexDirection="column">
+      <Box key={`row-${n}-${item.id}`} flexDirection="row" columnGap={1}>
+        <Text>{c.selected === item.id ? '▶' : ' '}</Text>
         <Text color={STATUS_COLOR[item.status ?? ''] ?? 'inactive'} bold>
           [{statusLabel(c, item.status)}]
-        </Text>{' '}
-        <Text bold={!item.archived} dimColor={!!item.archived}>
-          {item.question ?? ''}
         </Text>
-        {tags.length ? <Text dimColor> {tags.join('  ')}</Text> : ''}
-      </Button>
+        <Button key={`item-${n}-${item.id}`} plain dimColor={!!item.archived} label={item.question ?? ''} onPress={() => c.act.select(item.id)} />
+        {tags.length ? <Text dimColor>{tags.join('  ')}</Text> : null}
+      </Box>
       {item.answer ? <Markdown dimColor text={highlight(item.answer)} /> : null}
       {note ? <Text color="success">{`    ${note}`}</Text> : null}
     </Box>
@@ -486,12 +574,13 @@ export const qa = (c: Ctx) => {
   const { Box, Text, Button } = c.ui
   const q = c.s?.qa
   const turns = q?.turns ?? []
-  const n = counts(turns)
+  const n = counts(q)
   const filters = [c.view.openOnly ? c.t('qa_open_only') : '', c.view.showArchived ? c.t('qa_archived') : ''].filter(Boolean)
   const waiting = q?.waiting ?? []
   const eta = q?.eta ?? 0
+  const selectedItem = turns.flatMap(x => x.items ?? []).find(i => i.id === c.selected)
   const top = [
-    <Text>
+    <Text key="qa-bar">
       <Text color="success">{bar(n.answered, n.total)}</Text>{' '}
       <Text dimColor>
         {n.answered}/{n.total}
@@ -500,21 +589,29 @@ export const qa = (c: Ctx) => {
       {n.partial ? <Text color="warning"> ◐ {n.partial}</Text> : ''}
       {n.unanswered ? <Text color="error"> ✗ {n.unanswered}</Text> : ''}
     </Text>,
-    <Box flexDirection="row" flexWrap="wrap" columnGap={1}>
+    <Box key="qa-keys" flexDirection="row" flexWrap="wrap" columnGap={1}>
       <Button key="status" plain hotkey="s" label={c.t('term_k_status')} onPress={() => c.act.cycleStatus()} />
       <Button key="auto" plain hotkey="u" label={c.t('reset_auto')} onPress={() => c.act.autoStatus()} />
       <Button key="archive" plain hotkey="a" label={c.t('term_k_archive')} onPress={() => c.act.archive()} />
-      <Button key="copy" plain hotkey="c" label={c.t('term_k_copy')} onPress={press => c.act.copy(press)} />
+      {canCopy(selectedItem) ? <Button key="copy" plain hotkey="c" label={c.t('term_k_copy')} onPress={press => c.act.copy(press)} /> : null}
       <Button key="recheck" plain hotkey="r" label={c.t('term_k_recheck')} onPress={() => c.act.recheck()} />
       <Button key="open-only" plain hotkey="f" label={c.t('qa_open_only')} dimColor={!c.view.openOnly} onPress={() => c.act.toggleOpenOnly()} />
       <Button key="archived" plain hotkey="v" label={c.t('qa_archived')} dimColor={!c.view.showArchived} onPress={() => c.act.toggleArchived()} />
     </Box>,
   ]
   if (filters.length) {
-    top.push(<Text color="suggestion">{filters.map(f => `[${f}]`).join('  ')}</Text>)
+    top.push(
+      <Text key="filters" color="suggestion">
+        {filters.map(f => `[${f}]`).join('  ')}
+      </Text>,
+    )
   }
   if (q?.pending) {
-    top.push(<Text color="warning">⠋ {c.t('qa_checking')}</Text>)
+    top.push(
+      <Text key="checking" color="warning">
+        ⠋ {c.t('qa_checking')}
+      </Text>,
+    )
   }
   if (waiting.length) {
     const note = q?.pending ? c.t('qa_wait_checking') : q?.auto ? c.t('qa_wait_d', eta) : c.t('qa_wait_off')
@@ -524,7 +621,9 @@ export const qa = (c: Ctx) => {
         'waiting',
         `⏳ ${c.t('qa_wait_t', waiting.length)}`,
         [
-          <Text dimColor>{note}</Text>,
+          <Text key="wait-note" dimColor>
+            {note}
+          </Text>,
           ...waiting.map((w, i) => (
             <Text key={`wait-${i}`} wrap="truncate-end">
               <Text color="warning">• </Text>
@@ -537,7 +636,11 @@ export const qa = (c: Ctx) => {
       ),
     )
   } else if (!q?.pending) {
-    top.push(<Text dimColor>{c.t('qa_eta', eta)}</Text>)
+    top.push(
+      <Text key="eta" dimColor>
+        {c.t('qa_eta', eta)}
+      </Text>,
+    )
   }
   if (!turns.length) {
     return (
@@ -548,36 +651,46 @@ export const qa = (c: Ctx) => {
       </Box>
     )
   }
-  const shown = visibleTurns(c, turns)
-  const boxes = shown.map(({ turn, failed, shown: items }) => {
-    const rowId = `turn:${turn.turn_id}`
+  const page = qaPage(c.view, turns)
+  let row = 0
+  const boxes = page.shown.map(({ turn, failed, shown: items }, ti) => {
+    const rowId = turnRow(turn.turn_id)
     const body: RenderChildren[] = []
     if (turn.model) {
-      body.push(<Text dimColor>{turn.model}</Text>)
+      body.push(
+        <Text key="model" dimColor>
+          {turn.model}
+        </Text>,
+      )
     }
     if (failed) {
       body.push(
-        <Button key={`fail-${turn.turn_id}`} plain onPress={() => c.act.select(rowId)}>
-          {c.view.selected === rowId ? '▶ ' : '  '}
+        <Box key={`fail-row-${ti}`} flexDirection="row" columnGap={1}>
+          <Text>{c.selected === rowId ? '▶' : ' '}</Text>
           <Text color="error" bold>
             [{c.t('qa_fail')}]
-          </Text>{' '}
-          <Text dimColor>{c.t('recheck_title')}</Text>
-        </Button>,
+          </Text>
+          <Button key={`fail-${ti}-${turn.turn_id}`} plain dimColor label={c.t('recheck_title')} onPress={() => c.act.select(rowId)} />
+        </Box>,
       )
     }
     if (!failed && !items.length) {
-      body.push(<Text dimColor>{c.t('qa_noq')}</Text>)
+      body.push(
+        <Text key="noq" dimColor>
+          {c.t('qa_noq')}
+        </Text>,
+      )
     }
-    body.push(...items.map(item => itemView(c, item)))
+    body.push(...items.map(item => itemView(c, item, row++)))
     const prompt = (turn.prompt ?? '').replace(/\n/g, ' ')
-    return card(c, `turn-${turn.turn_id}`, `${clock(turn.ts)} ${fit(prompt, Math.max(10, c.cols - 12))}`, body)
+    return card(c, `turn-${ti}-${turn.turn_id}`, `${clock(turn.ts)} ${fit(prompt, Math.max(10, c.cols - 12))}`, body)
   })
   return (
     <Box flexDirection="column">
       {top}
       {boxes}
-      {!shown.length && <Text bold>{c.t(c.view.openOnly && !c.view.showArchived ? 'qa_all_done' : 'qa_nothing_shown')}</Text>}
+      {page.more > 0 && <Text dimColor>{c.t('term_more', page.more)}</Text>}
+      {!page.shown.length && <Text bold>{c.t(c.view.openOnly && !c.view.showArchived ? 'qa_all_done' : 'qa_nothing_shown')}</Text>}
     </Box>
   )
 }

@@ -1,6 +1,8 @@
 import { expect, mock, test, type Engine } from 'claude-code/testing'
 import type { HttpResponse, On } from 'claude-code'
 
+import { cells, connect } from '../hooks/mod/data'
+
 const SURFACES = ['terminal', 'desktop'] as const
 const KEY = 'demo'
 const PLUGIN = 'side-insights'
@@ -12,11 +14,14 @@ const EN: Record<string, string> = {
   mod_band_flow: 'Flow: {0}',
   mod_band_hint: '/si to open',
   mod_band_waiting: '{0} waiting, checked ~{1}s after the turn',
-  mod_server_down: 'Side insights server is not running. Run ! claude-panel to start it.',
   mod_spinner_waiting: '{0} questions waiting',
   mod_toast_flow: 'Flow ready: {0}',
   mod_toast_open: 'Open questions from the last turn: {0}',
   qa_checking: 'Checking questions',
+  qa_wait_off: 'Automatic checks are off. Press ↻ to check.',
+  server_down: 'The panel server is not running. Run ! claude-panel to start it.',
+  term_failed: 'Could not do that: {0}',
+  flow_fail: 'Could not build the flow',
   term_confirm: 'Press {0} again to run it (one Claude call)',
   term_status_set: 'Status set to {0}',
 }
@@ -85,45 +90,75 @@ const FLOW = {
   },
 }
 
+const KO: Record<string, string> = {
+  mod_band_flow: '흐름: {0}',
+  mod_band_hint: '/si 로 열기',
+  mod_band_waiting: '{0}개 대기 중, 턴이 끝나고 약 {1}초 뒤 확인',
+}
+
 type Call = { url: string; method: string; body?: string }
+
+type World = {
+  current: unknown
+  up: boolean
+  stateStatus?: number
+  flowStatus?: number
+  lang?: string
+  sid?: string
+  env?: Record<string, string>
+  taken?: string[]
+}
 
 const reply = (status: number, data: unknown): { value: HttpResponse } => ({
   value: { status, ok: status >= 200 && status < 300, headers: {}, text: JSON.stringify(data) },
 })
 
-const setup = (on: On, state: { current: unknown; up: boolean }) => {
+const setup = (on: On, world: World) => {
   const calls: Call[] = []
   const toasts: string[] = []
   const copied: string[] = []
   const runs: string[][] = []
-  mock.env(on, { CMUX_PANEL_ID: KEY, HOME: '/home/u' })
+  const registered: string[] = []
+  mock.env(on, world.env ?? { CMUX_PANEL_ID: KEY, HOME: '/home/u' })
   const clock = mock.clock(on, { now: 1_000_000 })
   on('session.start', async ($, e) => ({ cwd: e.cwd }))
-  on('session.id', async () => ({ value: 's1' }))
-  on('command.register', async ($, e) => ({ value: { command: e.name } }))
+  on('session.id', async () => ({ value: world.sid ?? 's1' }))
+  on('command.register', async ($, e) => {
+    if (world.taken?.includes(e.name)) {
+      throw new Error(`/${e.name} is taken`)
+    }
+    registered.push(e.name)
+    return { value: { command: e.name } }
+  })
   on('fs.read', async ($, e) => ({
-    value: e.path.endsWith('/token') ? 'tok\n' : e.path.endsWith('/en.json') ? JSON.stringify(EN) : '{}',
+    value: e.path.endsWith('/token')
+      ? 'tok\n'
+      : e.path.endsWith('/en.json')
+        ? JSON.stringify(EN)
+        : e.path.endsWith('/ko.json')
+          ? JSON.stringify(KO)
+          : '{}',
   }))
   on('http.fetch', async ($, e) => {
     calls.push({ url: e.url, method: e.init?.method ?? 'GET', body: e.init?.body })
     expect(e.init?.headers?.['X-Side-Insights']).toBe('tok')
-    if (!state.up) {
-      return reply(502, {})
+    if (!world.up) {
+      throw new Error('connect ECONNREFUSED 127.0.0.1:47821')
     }
     const path = e.url.replace('http://127.0.0.1:47821', '')
     if (path.startsWith('/api/config')) {
-      return reply(200, { effective: { lang: 'en' } })
+      return reply(200, { effective: { lang: world.lang ?? 'en' } })
     }
-    if (path === `/api/${KEY}/state`) {
-      return reply(200, state.current)
+    if (path.endsWith('/state')) {
+      return world.stateStatus ? reply(world.stateStatus, { error: 'Request refused. Reopen the panel and try again.' }) : reply(200, world.current)
     }
     if (path === `/api/${KEY}/flow/f2`) {
-      return reply(200, FLOW)
+      return world.flowStatus ? reply(world.flowStatus, { error: 'Flow file is unreadable' }) : reply(200, FLOW)
     }
     if (e.init?.method === 'POST') {
       return reply(200, { ok: true })
     }
-    return reply(404, { error: 'err_not_found' })
+    return reply(404, { error: 'Not found' })
   })
   on('process.run', async ($, e) => {
     runs.push([...e.argv])
@@ -137,12 +172,14 @@ const setup = (on: On, state: { current: unknown; up: boolean }) => {
     copied.push(e.text)
     return { value: { isCopied: true as const } }
   })
+  on('ui.open', async () => ({ value: undefined }))
+  on('classic.SessionStart', async () => ({}))
   on('ui.render', { component: 'AbovePrompt' }, async () => ({ type: 'Box', props: { key: 'engine-band' }, children: [] }))
-  return { calls, toasts, copied, runs, clock }
+  return { calls, toasts, copied, runs, registered, clock }
 }
 
-const start = async ($: Engine, clock: { settle: () => Promise<void> }) => {
-  await $.session.start({ cwd: '/repo', surface: 'terminal', isInteractive: true })
+const start = async ($: Engine, clock: { settle: () => Promise<void> }, isInteractive = true) => {
+  await $.session.start({ cwd: '/repo', surface: isInteractive ? 'terminal' : null, isInteractive })
   await clock.settle()
 }
 
@@ -157,34 +194,82 @@ const PANE_PROPS = {
   props: { title: 'Side insights', isFocused: true, bodyColumns: 90, placement: 'dock' as const, scroll: { offset: 0, bodyRows: 60 }, view: {} },
 }
 
+const RUN_SI = { command: 'si', args: '', origin: { kind: 'composer' as const }, presentation: { isFullscreen: true, columns: 120 } }
+
+const bandText = async ($: Engine, cols: number, surface: (typeof SURFACES)[number] = 'terminal') => {
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...BAND(cols) })
+  const text = (await ui.find({ key: 'side-insights-band' }))?.text
+  const engine = await ui.find({ key: 'engine-band' })
+  await ui.unmount()
+  return { text, engine }
+}
+
+test('pane key: terminal ids win in cmux, orca, iterm order, then the session id', async () => {
+  const base = { home: '/h', session: 'sess-1' }
+  const cases: [Record<string, string>, string][] = [
+    [{ cmux: 'cmux-1', orca: 'orca-1', iterm: 'w0t0p0:AB' }, 'cmux-1'],
+    [{ cmux: '', orca: 'orca-1', iterm: 'w0t0p0:AB' }, 'orca-1'],
+    [{ iterm: 'w0t0p0:AB' }, 'w0t0p0_AB'],
+    [{}, 'sess-1'],
+  ]
+  for (const [env, key] of cases) {
+    expect(connect({ ...base, ...env }).key).toBe(key)
+  }
+})
+
 test('band shows Q&A counts, the waiting count with ETA and the latest flow', async ($, on) => {
   const { clock } = setup(on, { current: STATE, up: true })
   await start($, clock)
   for (const surface of SURFACES) {
-    const wide = await $.ui.mount({ plugin: PLUGIN, surface, ...BAND(200) })
-    const line = (await wide.find({ type: 'Text' }))?.text ?? ''
-    expect(line).toContain('Q&A ✓ 2  ◐ 1  ✗ 1')
-    expect(line).toContain('2 waiting, checked ~34s after the turn')
-    expect(line).toContain('Flow: Retry-safe checkout')
-    expect(line).toContain('/si to open')
-    expect(line).not.toContain(String.fromCharCode(0xb7))
-    await wide.unmount()
-    const narrow = await $.ui.mount({ plugin: PLUGIN, surface, ...BAND(40) })
-    const short = (await narrow.find({ type: 'Text' }))?.text ?? ''
+    const wide = (await bandText($, 200, surface)).text ?? ''
+    expect(wide).toContain('Q&A ✓ 2  ◐ 1  ✗ 1')
+    expect(wide).toContain('2 waiting, checked ~34s after the turn')
+    expect(wide).toContain('Flow: Retry-safe checkout')
+    expect(wide).toContain('/si to open')
+    expect(wide).not.toContain(String.fromCharCode(0xb7))
+    const short = (await bandText($, 40, surface)).text ?? ''
     expect(short).not.toContain('/si to open')
-    expect(short.length).toBeLessThanOrEqual(40)
-    await narrow.unmount()
+    expect(cells(short)).toBeLessThanOrEqual(40)
   }
 })
 
-test('band yields to the engine when there is nothing to show', async ($, on) => {
-  const empty = { ...STATE, flows: [], qa: { ...STATE.qa, turns: [], waiting: [] } }
-  const { clock } = setup(on, { current: empty, up: true })
+test('band uses the server counts and says when automatic checks are off', async ($, on) => {
+  const counts = { answered: 7, partial: 0, unanswered: 3, open: 3, total: 10 }
+  const { clock } = setup(on, { current: { ...STATE, qa: { ...STATE.qa, auto: false, counts } }, up: true })
+  await start($, clock)
+  const line = (await bandText($, 200)).text ?? ''
+  expect(line).toContain('Q&A ✓ 7  ◐ 0  ✗ 3')
+  expect(line).toContain('2  Automatic checks are off')
+  expect(line).not.toContain('checked ~34s')
+})
+
+test('band fits a Korean line by display width', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true, lang: 'ko' })
+  await start($, clock)
+  const wide = (await bandText($, 200)).text ?? ''
+  expect(wide).toContain('흐름: Retry-safe checkout')
+  for (const cols of [30, 45, 60]) {
+    const line = (await bandText($, cols)).text ?? ''
+    expect(cells(line)).toBeLessThanOrEqual(cols)
+    expect(line.length).toBeLessThan(cells(line))
+  }
+})
+
+test('band sits on top of what the engine draws, and yields when there is nothing to show', async ($, on) => {
+  const world: World = { current: STATE, up: true }
+  const { clock } = setup(on, world)
   await start($, clock)
   for (const surface of SURFACES) {
-    const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...BAND(120) })
-    expect(await ui.find({ key: 'engine-band' }), "{ key: 'engine-band' }").toBeDefined()
-    await ui.unmount()
+    const both = await bandText($, 120, surface)
+    expect(both.text).toContain('Q&A')
+    expect(both.engine, "{ key: 'engine-band' }").toBeDefined()
+  }
+  world.current = { ...STATE, flows: [], qa: { ...STATE.qa, turns: [], waiting: [] } }
+  await clock.advance(2000)
+  for (const surface of SURFACES) {
+    const only = await bandText($, 120, surface)
+    expect(only.text).toBeUndefined()
+    expect(only.engine, "{ key: 'engine-band' }").toBeDefined()
   }
 })
 
@@ -202,21 +287,22 @@ test('spinner gets the waiting count as a suffix', async ($, on) => {
     component: 'Spinner',
     props: { word: 'Baking', message: null, suffix: '…', mode: 'responding' },
   })
-  expect(seen.at(-1)).toBe('… (2 questions waiting)')
+  expect(seen.at(-1)).toBe('… - 2 questions waiting')
   await ui.unmount()
 })
 
 test('pane draws the three tabs and its keys act on the server', async ($, on) => {
   const { clock, calls, copied } = setup(on, { current: STATE, up: true })
   await start($, clock)
+  await $.command.run(RUN_SI)
   const first = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
-  expect((await first.find({ key: 'item-i2' }))?.text).toContain('▶')
+  expect((await first.find({ key: 'row-1-i2' }))?.text).toContain('▶')
   await first.unmount()
   for (const surface of SURFACES) {
     const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...PANE_PROPS })
     expect(await ui.find({ key: 'tab-flow' }), "{ key: 'tab-flow' }").toBeDefined()
-    await ui.press({ key: 'item-i2' })
-    expect((await ui.find({ key: 'item-i2' }))?.text).toContain('▶')
+    await ui.press({ key: 'item-1-i2' })
+    expect((await ui.find({ key: 'row-1-i2' }))?.text).toContain('▶')
     expect(await ui.find({ type: 'Markdown', text: /\*\*Answer\*\*/ }), "{ type: 'Markdown', text: /\\*\\*Answer\\*\\*/ }").toBeDefined()
     expect((await ui.find({ type: 'Link' }))?.props.href).toBe('http://localhost:47821/p/demo?t=tok&full=1')
 
@@ -225,8 +311,11 @@ test('pane draws the three tabs and its keys act on the server', async ($, on) =
     const override = calls.find(c => c.url.endsWith(`/api/${KEY}/qa/override`))
     expect(JSON.parse(override?.body ?? '{}')).toEqual({ id: 'i2', status: 'unanswered' })
 
-    await ui.press({ key: 'item-i3' })
-    expect((await ui.find({ key: 'item-i3' }))?.text).toContain('▶')
+    await ui.press({ key: 'item-0-i1' })
+    expect(await ui.find({ key: 'copy' }), 'no copy for an answered question').toBeUndefined()
+
+    await ui.press({ key: 'item-2-i3' })
+    expect((await ui.find({ key: 'row-2-i3' }))?.text).toContain('▶')
     await ui.press({ key: 'copy' })
     expect(copied.at(-1)).toBe('Please answer: Is the load test done?')
 
@@ -237,16 +326,29 @@ test('pane draws the three tabs and its keys act on the server', async ($, on) =
     await ui.press({ key: 'recheck' })
     expect(calls.find(c => c.url.includes('/regen'))?.url).toContain('target=qa&item=i3')
 
+    calls.length = 0
+    await ui.press({ key: 'recheck' })
     await ui.press({ key: 'tab-flow' })
+    await ui.press({ key: 'rebuild' })
+    expect(calls.some(c => c.url.includes('/regen')), 'a Q&A confirm does not arm the flow rebuild').toBe(false)
+    await ui.press({ key: 'rebuild' })
+    expect(calls.find(c => c.url.includes('/regen'))?.url).toContain('target=flow')
+
     await ui.press({ key: 'step-0' })
     expect(calls.filter(c => c.url.endsWith(`/api/${KEY}/flow/f2`))).toHaveLength(surface === 'terminal' ? 1 : 0)
     expect(await ui.find({ key: 'step-1' }), "{ key: 'step-1' }").toBeDefined()
     expect(await ui.find({ type: 'Code', text: /req.header/ }), "{ type: 'Code', text: /req.header/ }").toBeDefined()
     await ui.press({ key: 'step-next' })
-    expect((await ui.find({ key: 'step-1' }))?.text).toContain('▶')
+    expect((await ui.find({ key: 'step-row-1' }))?.text).toContain('▶')
+    await ui.press({ key: 'step-next' })
+    expect((await ui.find({ key: 'step-row-1' }))?.text, 'the step stays on the last one').toContain('▶')
     expect(await ui.find({ type: 'Code', text: 'claim(key)' }), "{ type: 'Code', text: 'claim(key)' }").toBeDefined()
     expect(await ui.find({ type: 'Text', text: /\(none\) → in_progress/ }), "{ type: 'Text', text: /\\(none\\) → in_progress/ }").toBeDefined()
     expect(await ui.find({ type: 'Text', text: /npm test \(23 passed\)/ }), "{ type: 'Text', text: /npm test \\(23 passed\\)/ }").toBeDefined()
+
+    calls.length = 0
+    await ui.press({ key: 'open' })
+    expect(calls.find(c => c.method === 'POST' && c.url.includes('/open'))?.url).toBe(`http://127.0.0.1:47821/api/${KEY}/open?mode=flow`)
 
     await ui.press({ key: 'tab-live' })
     expect(await ui.find({ type: 'Text', text: /src\/a\.ts/ }), "{ type: 'Text', text: /src\\/a\\.ts/ }").toBeDefined()
@@ -257,29 +359,137 @@ test('pane draws the three tabs and its keys act on the server', async ($, on) =
   }
 })
 
-test('toasts when a new flow finishes and when a verdict leaves questions open', async ($, on) => {
-  const state = { current: STATE as unknown, up: true }
-  const { clock, toasts } = setup(on, state)
+test('the browser link is drawn only where a local page can open', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'vscode', ...PANE_PROPS })
+  expect(await ui.find({ type: 'Link' })).toBeUndefined()
+  expect(await ui.find({ key: 'open' }), "{ key: 'open' }").toBeDefined()
+  await ui.unmount()
+})
+
+test('a failed turn row re-checks that turn', async ($, on) => {
+  const failed = { turn_id: 't5', ts: 1791905400, status: 'error', prompt: 'broken turn', items: [] }
+  const { clock, calls } = setup(on, { current: { ...STATE, qa: { ...STATE.qa, turns: [failed, ...STATE.qa.turns] } }, up: true })
+  await start($, clock)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'fail-0-t5' })
+  await ui.press({ key: 'recheck' })
+  await ui.press({ key: 'recheck' })
+  expect(calls.find(c => c.url.includes('/regen'))?.url).toContain('target=qa&turn=t5')
+  await ui.unmount()
+})
+
+test('a selection that the filter hides is cleared', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'item-0-i1' })
+  expect((await ui.find({ key: 'row-0-i1' }))?.text).toContain('▶')
+  await ui.press({ key: 'open-only' })
+  expect(await ui.find({ key: 'row-0-i1' })).toBeUndefined()
+  expect((await ui.find({ key: 'row-0-i2' }))?.text, 'falls back to the first open question').toContain('▶')
+  await ui.press({ key: 'open-only' })
+  expect((await ui.find({ key: 'row-1-i2' }))?.text).toContain('▶')
+  await ui.unmount()
+})
+
+test('a new flow arriving keeps the flow on screen', async ($, on) => {
+  const world: World = { current: STATE, up: true }
+  const { clock } = setup(on, world)
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-flow' })
+  await ui.press({ key: 'flow-next' })
+  expect(await ui.find({ type: 'Text', text: '2/2' }), "{ text: '2/2' }").toBeDefined()
+  world.current = { ...STATE, flows: [{ id: 'f3', ts: 1791905300, status: 'ok', title: 'Login rate limit' }, ...STATE.flows] }
+  await clock.advance(2000)
+  expect(await ui.find({ type: 'Text', text: '3/3' }), "{ text: '3/3' }").toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Cart total rounding' }), 'still on f1').toBeDefined()
+  await ui.unmount()
+})
+
+test('a flow that fails to load shows the error once instead of refetching', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true, flowStatus: 500 })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-flow' })
+  await clock.advance(6000)
+  expect(await ui.find({ type: 'Text', text: 'Could not build the flow' }), 'flow_fail').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Flow file is unreadable' }), 'server error').toBeDefined()
+  expect(calls.filter(c => c.url.endsWith('/flow/f2'))).toHaveLength(1)
+  await ui.unmount()
+})
+
+test('toasts once per poll when a new flow finishes and a verdict leaves questions open', async ($, on) => {
+  const world: World = { current: STATE, up: true }
+  const { clock, toasts } = setup(on, world)
   await start($, clock)
   expect(toasts).toEqual([])
-  state.current = {
+  world.current = {
     ...STATE,
     flows: [{ id: 'f3', ts: 1791905300, status: 'ok', title: 'Login rate limit' }, ...STATE.flows],
     qa: { ...STATE.qa, turns: [turn('t3', [{ id: 'i9', status: 'partial', question: 'And mobile?' }]), ...STATE.qa.turns] },
   }
   await clock.advance(2000)
-  expect(toasts).toContain('Flow ready: Login rate limit')
-  expect(toasts).toContain('Open questions from the last turn: 1')
+  expect(toasts).toEqual(['Flow ready: Login rate limit  |  Open questions from the last turn: 1'])
+})
+
+test('a run without a person at the prompt polls once and never toasts', async ($, on) => {
+  const world: World = { current: STATE, up: true }
+  const { clock, toasts, calls } = setup(on, world)
+  await start($, clock, false)
+  const polls = () => calls.filter(c => c.url.endsWith('/state')).length
+  expect(polls()).toBe(1)
+  world.current = { ...STATE, flows: [{ id: 'f3', ts: 1791905300, status: 'ok', title: 'Login rate limit' }, ...STATE.flows] }
+  await clock.advance(20_000)
+  expect(polls()).toBe(1)
+  expect(toasts).toEqual([])
+})
+
+test('a child analysis session skips the timer too', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true, env: { CMUX_PANEL_ID: KEY, HOME: '/home/u', SIDE_INSIGHTS_CHILD: '1' } })
+  await start($, clock)
+  await clock.advance(20_000)
+  expect(calls.filter(c => c.url.endsWith('/state'))).toHaveLength(1)
+})
+
+test('a taken command name does not stop the other one or the band', async ($, on) => {
+  const { clock, registered } = setup(on, { current: STATE, up: true, taken: ['si'] })
+  await start($, clock)
+  expect(registered).toEqual(['side-insights'])
+  expect((await bandText($, 200)).text).toContain('Q&A ✓ 2')
+})
+
+test('/clear moves to the new session key and forgets the old state', async ($, on) => {
+  const world: World = { current: STATE, up: true, sid: 'sess-a', env: { HOME: '/home/u' } }
+  const { clock, calls } = setup(on, world)
+  await start($, clock)
+  expect(calls.some(c => c.url.endsWith('/api/sess-a/state'))).toBe(true)
+  world.sid = 'sess-b'
+  world.current = { ...STATE, flows: [], qa: { ...STATE.qa, turns: [], waiting: [] } }
+  calls.length = 0
+  await $.classic.SessionStart({
+    hook_event_name: 'SessionStart',
+    source: 'clear',
+    session_id: 'sess-b',
+    transcript_path: '/t/sess-b.jsonl',
+    cwd: '/repo',
+  })
+  await clock.settle()
+  expect(calls.some(c => c.url.endsWith('/api/sess-b/state'))).toBe(true)
+  expect(calls.some(c => c.url.includes('/api/sess-a/'))).toBe(false)
+  expect((await bandText($, 200)).text).toBeUndefined()
 })
 
 test('a server that is down shows the hint and is started at most once a minute', async ($, on) => {
-  const state = { current: STATE as unknown, up: false }
-  const { clock, runs } = setup(on, state)
+  const world: World = { current: STATE, up: false }
+  const { clock, runs } = setup(on, world)
   await start($, clock)
   for (const surface of SURFACES) {
-    const ui = await $.ui.mount({ plugin: PLUGIN, surface, ...BAND(120) })
-    expect((await ui.find({ type: 'Text' }))?.text).toContain('! claude-panel')
-    await ui.unmount()
+    expect((await bandText($, 120, surface)).text).toContain('! claude-panel')
   }
   const starts = () => runs.filter(r => r.join(' ').includes('ensure_panel_server')).length
   expect(starts()).toBe(1)
@@ -289,3 +499,15 @@ test('a server that is down shows the hint and is started at most once a minute'
   await clock.advance(60_000)
   expect(starts()).toBe(2)
 })
+
+for (const status of [403, 500]) {
+  test(`HTTP ${status} shows the server message and never starts the server`, async ($, on) => {
+    const { clock, runs } = setup(on, { current: STATE, up: true, stateStatus: status })
+    await start($, clock)
+    await clock.advance(10_000)
+    const line = (await bandText($, 200)).text ?? ''
+    expect(line).toContain('Could not do that: Request refused. Reopen the panel and try again.')
+    expect(line).not.toContain('claude-panel')
+    expect(runs).toEqual([])
+  })
+}

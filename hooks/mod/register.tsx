@@ -2,6 +2,7 @@ import type { Register, RenderSurface, UiCopyResult, UiPressArgument } from 'cla
 
 import {
   Api,
+  FETCH_ERROR,
   RecordStatus,
   Regen,
   STATUS_CYCLE,
@@ -11,18 +12,38 @@ import {
   counts,
   fit,
   format,
+  isOk,
+  langCode,
   loadMessages,
+  rowTurn,
   type Env,
   type Io,
   type FlowRecord,
   type Messages,
   type PanelState,
   type QaItem,
+  type Reply,
 } from './data'
-import { Tab, flow, footer, header, live, qa, visibleTurns, type Actions, type Ctx, type TabValue, type View } from './views'
+import {
+  Tab,
+  currentFlow,
+  flow,
+  header,
+  isOpen,
+  isShown,
+  live,
+  noteOrHints,
+  qa,
+  selection,
+  type Actions,
+  type Ctx,
+  type TabValue,
+  type View,
+} from './views'
 
 const PANE = 'side-insights'
 const PANE_TITLE = 'Side insights'
+const COMMANDS = ['side-insights', 'si']
 const COMMAND_DESCRIPTION = 'Open the side insights pane: Flow, Live and Q&A'
 const POLL_MS = 2000
 const IDLE_EVERY = 3
@@ -32,17 +53,24 @@ const START_TIMEOUT_MS = 8000
 const CONFIRM_MS = 4000
 const NOTE_MS = 5000
 const SEP = '  |  '
-const OPEN_STATUSES = new Set<string>([Status.PARTIAL, Status.UNANSWERED])
 
 type Mod = {
   io?: Io
   api?: Api
+  env?: Env
   timer?: { cancel: () => void }
+  quiet: boolean
   ticks: number
+  polling: boolean
+  pollAgain: boolean
   state?: PanelState
+  stateText?: string
   down: boolean
+  httpError?: string
   lastStart: number
+  lang?: string
   messages: Messages
+  messageCache: Map<string, Messages>
   flows: Map<string, FlowRecord>
   flowLoading?: string
   seenFlows?: Set<string>
@@ -53,14 +81,20 @@ type Mod = {
   noteUntil: number
 }
 
+const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false })
+
 const mod: Mod = {
+  quiet: false,
   ticks: 0,
+  polling: false,
+  pollAgain: false,
   down: false,
   lastStart: -Infinity,
   messages: {},
+  messageCache: new Map(),
   flows: new Map(),
   paneOpen: false,
-  view: { tab: Tab.QA, flowIndex: 0, step: 0, openOnly: false, showArchived: false },
+  view: freshView(),
   noteUntil: 0,
 }
 
@@ -68,18 +102,27 @@ const t = (key: string, ...args: (string | number)[]) => format(mod.messages, ke
 
 const redraw = () => mod.io?.invalidate()
 
-const say = (text: string, color = 'success') => {
+const now = async () => (mod.io ? mod.io.now() : 0)
+
+const say = async (text: string, color = 'success') => {
   mod.view.note = { text, color }
-  mod.noteUntil = Date.now() + NOTE_MS
+  mod.noteUntil = (await now()) + NOTE_MS
   redraw()
 }
 
+const problem = (): string | undefined => {
+  if (mod.down) {
+    return t('server_down')
+  }
+  return mod.httpError ? t('term_failed', mod.httpError) : undefined
+}
+
 const startServer = async (io: Io) => {
-  const now = await io.now()
-  if (now - mod.lastStart < START_RETRY_MS) {
+  const at = await io.now()
+  if (at - mod.lastStart < START_RETRY_MS) {
     return
   }
-  mod.lastStart = now
+  mod.lastStart = at
   try {
     await io.run(['/bin/bash', '-c', '. "$1/shell/key.sh" && ensure_panel_server', '_', io.root], {
       timeoutMs: START_TIMEOUT_MS,
@@ -97,103 +140,201 @@ const toasts = (io: Io, s: PanelState) => {
     mod.seenTurns = new Set(turns.map(x => x.turn_id))
     return
   }
+  const parts: string[] = []
   for (const f of ready.filter(f => !mod.seenFlows?.has(f.id))) {
     mod.seenFlows.add(f.id)
-    io.toast(t('mod_toast_flow', f.title))
+    parts.push(t('mod_toast_flow', f.title))
   }
+  let open = 0
   for (const turn of turns.filter(x => !mod.seenTurns?.has(x.turn_id))) {
     mod.seenTurns.add(turn.turn_id)
-    const open = (turn.items ?? []).filter(i => !i.archived && OPEN_STATUSES.has(i.status ?? '')).length
-    if (open) {
-      io.toast(t('mod_toast_open', open))
-    }
+    open += (turn.items ?? []).filter(i => !i.archived && isOpen(i)).length
+  }
+  if (open) {
+    parts.push(t('mod_toast_open', open))
+  }
+  if (parts.length && !mod.quiet) {
+    io.toast(parts.join(SEP))
   }
 }
 
+const flowId = () => currentFlow(mod.state?.flows ?? [], mod.view.flowId).ref?.id
+
 const loadFlow = async () => {
-  const id = mod.state?.flows[Math.min(mod.view.flowIndex, mod.state.flows.length - 1)]?.id
+  const id = flowId()
   if (!mod.api || !id || mod.flows.has(id) || mod.flowLoading === id) {
     return
   }
+  const api = mod.api
   mod.flowLoading = id
-  const reply = await mod.api.flow(id)
+  const reply = await api.flow(id)
+  if (api !== mod.api) {
+    return
+  }
   mod.flowLoading = undefined
   if (reply.data) {
     mod.flows.set(id, reply.data)
+  } else if (reply.status !== FETCH_ERROR) {
+    mod.flows.set(id, { status: RecordStatus.ERROR, error: reply.error ?? t('unknown_err') })
   }
   redraw()
+}
+
+const loadConfig = async (io: Io, api: Api) => {
+  const config = await api.config()
+  const lang = config.data ? langCode(config.data.effective?.lang) : (mod.lang ?? langCode(undefined))
+  if (lang === mod.lang && Object.keys(mod.messages).length) {
+    return
+  }
+  const cached = mod.messageCache.get(lang) ?? (await loadMessages(io, lang))
+  mod.messageCache.set(lang, cached)
+  mod.lang = lang
+  mod.messages = cached
+}
+
+const pruneSelection = () => {
+  const id = mod.view.selected
+  if (id && mod.state && !isShown(mod.view, mod.state.qa.turns, id)) {
+    mod.view.selected = undefined
+  }
+}
+
+const pollOnce = async (io: Io, api: Api) => {
+  mod.ticks += 1
+  const s = mod.state
+  const idle = !!s && !mod.paneOpen && !s.activity.busy && !s.qa.waiting.length && !s.qa.pending
+  if (idle && mod.ticks % IDLE_EVERY !== 0) {
+    return
+  }
+  const wasDown = mod.down
+  if (mod.ticks === 1 || mod.ticks % CONFIG_EVERY === 0 || !Object.keys(mod.messages).length) {
+    await loadConfig(io, api)
+  }
+  const reply = await api.state()
+  if (api !== mod.api) {
+    return
+  }
+  let changed = false
+  if (reply.data) {
+    const text = JSON.stringify(reply.data)
+    changed = text !== mod.stateText || mod.down || !!mod.httpError
+    mod.state = reply.data
+    mod.stateText = text
+    mod.down = false
+    mod.httpError = undefined
+    if (wasDown) {
+      await loadConfig(io, api)
+    }
+    toasts(io, reply.data)
+    pruneSelection()
+    if (mod.paneOpen && mod.view.tab === Tab.FLOW) {
+      await loadFlow()
+    }
+  } else if (reply.status === FETCH_ERROR) {
+    changed = !mod.down
+    mod.down = true
+    mod.httpError = undefined
+    await startServer(io)
+  } else {
+    const error = reply.error ?? `HTTP ${reply.status}`
+    changed = mod.down || error !== mod.httpError
+    mod.down = false
+    mod.httpError = error
+  }
+  if (mod.view.note && (await io.now()) > mod.noteUntil) {
+    mod.view.note = undefined
+    changed = true
+  }
+  if (changed) {
+    redraw()
+  }
 }
 
 const poll = async () => {
   const io = mod.io
-  if (!io || !mod.api) {
+  const api = mod.api
+  if (!io || !api) {
     return
   }
-  mod.ticks += 1
-  const s = mod.state
-  const quiet = !!s && !mod.paneOpen && !s.activity.busy && !s.qa.waiting.length && !s.qa.pending
-  if (quiet && mod.ticks % IDLE_EVERY !== 0) {
+  if (mod.polling) {
+    mod.pollAgain = true
     return
   }
-  if (mod.ticks === 1 || mod.ticks % CONFIG_EVERY === 0 || !Object.keys(mod.messages).length) {
-    const config = await mod.api.config()
-    if (config.data || !Object.keys(mod.messages).length) {
-      mod.messages = await loadMessages(io, config.data?.effective?.lang)
-    }
+  mod.polling = true
+  try {
+    do {
+      mod.pollAgain = false
+      await pollOnce(io, api)
+    } while (mod.pollAgain && api === mod.api)
+  } finally {
+    mod.polling = false
   }
-  const reply = await mod.api.state()
-  if (reply.data) {
-    mod.state = reply.data
-    mod.down = false
-    toasts(io, reply.data)
-    if (mod.paneOpen && mod.view.tab === Tab.FLOW) {
-      await loadFlow()
-    }
-  } else {
-    mod.down = true
-    await startServer(io)
-  }
-  if (mod.view.note && Date.now() > mod.noteUntil) {
-    mod.view.note = undefined
-  }
-  redraw()
+}
+
+const reset = () => {
+  mod.ticks = 0
+  mod.state = undefined
+  mod.stateText = undefined
+  mod.down = false
+  mod.httpError = undefined
+  mod.seenFlows = undefined
+  mod.seenTurns = undefined
+  mod.flows = new Map()
+  mod.flowLoading = undefined
+  mod.confirm = undefined
+  mod.polling = false
+  mod.pollAgain = false
+  mod.view = { ...freshView(), tab: mod.view.tab }
 }
 
 const bind = (io: Io, env: Env) => {
   mod.io = io
+  mod.env = env
+  reset()
   mod.api = new Api(io, connect(env))
   void poll()
 }
 
-const confirmed = (key: string) => {
-  const now = Date.now()
-  if (mod.confirm?.key === key && mod.confirm.until > now) {
+const confirmed = async (key: string) => {
+  const at = await now()
+  if (mod.confirm?.key === key && mod.confirm.until > at) {
     mod.confirm = undefined
     return true
   }
-  mod.confirm = { key, until: now + CONFIRM_MS }
-  say(t('term_confirm', key), 'warning')
+  mod.confirm = { key, until: at + CONFIRM_MS }
+  await say(t('term_confirm', 'r'), 'warning')
   return false
 }
 
-const run = async (action: () => Promise<{ status: number; error?: string }>, done: string) => {
+const run = async (action: () => Promise<Reply<unknown>>, done: string) => {
   const reply = await action()
-  if (reply.status >= 200 && reply.status < 300) {
-    say(done)
+  if (isOk(reply)) {
+    await say(done)
     await poll()
   } else {
-    say(t('term_failed', reply.error ? t(reply.error) : t('mod_server_down')), 'error')
+    await say(t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err'))), 'error')
   }
-}
-
-const selectedItem = (): QaItem | undefined => {
-  const id = mod.view.selected
-  return id ? allItems().find(i => i.id === id) : undefined
 }
 
 const allItems = () => (mod.state?.qa.turns ?? []).flatMap(x => x.items ?? [])
 
+const selectedId = () => (mod.state ? selection(mod.view, mod.state.qa.turns) : undefined)
+
+const selectedItem = (): QaItem | undefined => {
+  const id = selectedId()
+  return id ? allItems().find(i => i.id === id) : undefined
+}
+
 type Copy = (text: string, surface: RenderSurface) => Promise<UiCopyResult>
+
+const withItem = (act: (item: QaItem, api: Api) => void) => () => {
+  const item = selectedItem()
+  if (!item || !mod.api) {
+    void say(t('mod_no_item'), 'warning')
+    return
+  }
+  act(item, mod.api)
+}
 
 const actions = (copyText: Copy): Actions => ({
   setTab: (tab: TabValue) => {
@@ -204,14 +345,18 @@ const actions = (copyText: Copy): Actions => ({
     }
   },
   flowBy: delta => {
-    const n = mod.state?.flows.length ?? 0
-    mod.view.flowIndex = Math.max(0, Math.min(n - 1, mod.view.flowIndex + delta))
+    const flows = mod.state?.flows ?? []
+    if (!flows.length) {
+      return
+    }
+    const { index } = currentFlow(flows, mod.view.flowId)
+    mod.view.flowId = flows[Math.max(0, Math.min(flows.length - 1, index + delta))]?.id
     mod.view.step = 0
     redraw()
     void loadFlow()
   },
   stepTo: step => {
-    const id = mod.state?.flows[mod.view.flowIndex]?.id
+    const id = flowId()
     const steps = (id && mod.flows.get(id)?.flow?.steps?.length) || 1
     mod.view.step = Math.max(0, Math.min(steps - 1, step))
     redraw()
@@ -220,33 +365,22 @@ const actions = (copyText: Copy): Actions => ({
     mod.view.selected = id
     redraw()
   },
-  cycleStatus: () => {
-    const item = selectedItem()
-    if (!item || !mod.api) {
-      return say(t('mod_no_item'), 'warning')
-    }
+  cycleStatus: withItem((item, api) => {
     const status = STATUS_CYCLE[item.status ?? ''] ?? Status.ANSWERED
-    void run(() => mod.api!.setStatus(item.id, status), t('term_status_set', t(`st_${status}`)))
-  },
-  autoStatus: () => {
-    const item = selectedItem()
-    if (!item || !mod.api) {
-      return say(t('mod_no_item'), 'warning')
-    }
-    void run(() => mod.api!.setStatus(item.id, null), t('term_status_auto'))
-  },
-  archive: () => {
-    const item = selectedItem()
-    if (!item || !mod.api) {
-      return say(t('mod_no_item'), 'warning')
-    }
+    void run(() => api.setStatus(item.id, status), t('term_status_set', t(`st_${status}`)))
+  }),
+  autoStatus: withItem((item, api) => {
+    void run(() => api.setStatus(item.id, null), t('term_status_auto'))
+  }),
+  archive: withItem((item, api) => {
     const archived = !item.archived
-    void run(() => mod.api!.setArchived(item.id, archived), t(archived ? 'term_archived' : 'term_restored'))
-  },
+    void run(() => api.setArchived(item.id, archived), t(archived ? 'term_archived' : 'term_restored'))
+  }),
   copy: (press: UiPressArgument) => {
     const item = selectedItem()
     if (!item) {
-      return say(t('mod_no_item'), 'warning')
+      void say(t('mod_no_item'), 'warning')
+      return
     }
     const text = t('ask_message', (item.question ?? '').split(/\s+/).filter(Boolean).join(' '))
     void copyText(text, press.surface).then(
@@ -255,57 +389,61 @@ const actions = (copyText: Copy): Actions => ({
     )
   },
   recheck: () => {
-    const id = mod.view.selected
-    if (!id || !mod.api) {
-      return say(t('mod_no_item'), 'warning')
-    }
-    if (!confirmed('r')) {
+    const id = selectedId()
+    const api = mod.api
+    if (!id || !api) {
+      void say(t('mod_no_item'), 'warning')
       return
     }
-    const params = id.startsWith('turn:') ? { target: Regen.QA, turn: id.slice('turn:'.length) } : { target: Regen.QA, item: id }
-    void run(() => mod.api!.regen(params), t('qa_checking'))
+    void confirmed(`qa:r:${id}`).then(ok => {
+      if (!ok) {
+        return
+      }
+      const turn = rowTurn(id)
+      const params = turn ? { target: Regen.QA, turn } : { target: Regen.QA, item: id }
+      return run(() => api.regen(params), t('qa_checking'))
+    })
   },
   rebuild: () => {
-    if (!mod.api || !confirmed('r')) {
+    const api = mod.api
+    if (!api) {
       return
     }
-    void run(() => mod.api!.regen({ target: Regen.FLOW }), t('flow_started'))
+    void confirmed('flow:r').then(ok => (ok ? run(() => api.regen({ target: Regen.FLOW }), t('flow_started')) : undefined))
   },
   toggleOpenOnly: () => {
     mod.view.openOnly = !mod.view.openOnly
-    say(`${t('qa_open_only')}: ${t(mod.view.openOnly ? 'on' : 'off')}`, 'suggestion')
+    pruneSelection()
+    void say(`${t('qa_open_only')}: ${t(mod.view.openOnly ? 'on' : 'off')}`, 'suggestion')
   },
   toggleArchived: () => {
     mod.view.showArchived = !mod.view.showArchived
-    say(`${t('qa_archived')}: ${t(mod.view.showArchived ? 'on' : 'off')}`, 'suggestion')
+    pruneSelection()
+    void say(`${t('qa_archived')}: ${t(mod.view.showArchived ? 'on' : 'off')}`, 'suggestion')
   },
   openBrowser: () => {
-    if (!mod.api || !mod.io) {
+    const api = mod.api
+    if (!api) {
       return
     }
-    void mod.io.run(['/usr/bin/open', mod.api.pageUrl()], {}).catch(() => say(t('mod_server_down'), 'error'))
+    void api.open(mod.view.tab).then(reply => {
+      if (!isOk(reply)) {
+        return say(t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err'))), 'error')
+      }
+    })
   },
 })
 
-const defaultSelection = () => {
-  if (mod.view.selected || !mod.state) {
-    return
-  }
-  const first = visibleTurns(mod, mod.state.qa.turns)
-    .flatMap(x => x.shown)
-    .find(i => OPEN_STATUSES.has(i.status ?? ''))
-  mod.view.selected = first?.id
-}
-
 const bandLine = (cols: number): string | undefined => {
-  if (mod.down) {
-    return fit(t('mod_server_down'), cols)
+  const issue = problem()
+  if (issue) {
+    return fit(issue, cols)
   }
   const s = mod.state
   if (!s) {
     return undefined
   }
-  const n = counts(s.qa.turns)
+  const n = counts(s.qa)
   const waiting = s.qa.waiting.length
   const latest = s.flows.find(f => f.status === RecordStatus.OK)
   const parts: string[] = []
@@ -315,7 +453,7 @@ const bandLine = (cols: number): string | undefined => {
   if (s.qa.pending) {
     parts.push(`⠋ ${t('qa_checking')}`)
   } else if (waiting) {
-    parts.push(`⏳ ${t('mod_band_waiting', waiting, s.qa.eta)}`)
+    parts.push(`⏳ ${s.qa.auto ? t('mod_band_waiting', waiting, s.qa.eta) : `${waiting}  ${t('qa_wait_off')}`}`)
   }
   if (s.pending) {
     parts.push(`⠋ ${t('flow_gen')}`)
@@ -325,19 +463,24 @@ const bandLine = (cols: number): string | undefined => {
   if (!parts.length) {
     return undefined
   }
-  const hint = t('mod_band_hint')
-  const line = [...parts, hint].join(SEP)
-  if (cells(line) <= cols) {
-    return line
-  }
-  const bare = parts.join(SEP)
-  return fit(bare, cols)
+  const line = [...parts, t('mod_band_hint')].join(SEP)
+  return cells(line) <= cols ? line : fit(parts.join(SEP), cols)
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    await $.command.register({ name: 'side-insights', description: COMMAND_DESCRIPTION, immediate: true })
-    await $.command.register({ name: 'si', description: COMMAND_DESCRIPTION, immediate: true })
+    const [cmux, orca, iterm, home, data, port, legacyPort, child, session] = await Promise.all([
+      $.env.get('CMUX_PANEL_ID'),
+      $.env.get('ORCA_PANE_KEY'),
+      $.env.get('ITERM_SESSION_ID'),
+      $.env.get('HOME'),
+      $.env.get('SIDE_INSIGHTS_DATA'),
+      $.env.get('SIDE_INSIGHTS_PORT'),
+      $.env.get('CLAUDE_PANEL_PORT'),
+      $.env.get('SIDE_INSIGHTS_CHILD'),
+      $.session.id(),
+    ])
+    mod.quiet = !e.isInteractive || !!child
     bind(
       {
         fetch: (url, init) => $.http.fetch(url, init),
@@ -348,56 +491,59 @@ export const register: Register = on => {
         now: () => $.clock.now(),
         root: $.plugin.root,
       },
-      {
-        cmux: await $.env.get('CMUX_PANEL_ID'),
-        orca: await $.env.get('ORCA_PANE_KEY'),
-        iterm: await $.env.get('ITERM_SESSION_ID'),
-        home: await $.env.get('HOME'),
-        data: await $.env.get('SIDE_INSIGHTS_DATA'),
-        port: await $.env.get('SIDE_INSIGHTS_PORT'),
-        legacyPort: await $.env.get('CLAUDE_PANEL_PORT'),
-        session: await $.session.id(),
-      },
+      { cmux, orca, iterm, home, data, port, legacyPort, child, session },
     )
     mod.timer?.cancel()
-    mod.timer = $.clock.every(POLL_MS, () => void poll())
-    return next(e)
-  })
-
-  on('command.run', { command: 'side-insights' }, async $ => {
-    mod.paneOpen = true
-    await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true })
-    void poll()
-    return {}
-  })
-
-  on('command.run', { command: 'si' }, async $ => {
-    mod.paneOpen = true
-    await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true })
-    void poll()
-    return {}
-  })
-
-  on('ui.close', async ($, e, next) => {
-    if (e.id === PANE) {
-      mod.paneOpen = false
+    mod.timer = mod.quiet ? undefined : $.clock.every(POLL_MS, () => void poll())
+    for (const name of COMMANDS) {
+      try {
+        await $.command.register({ name, description: COMMAND_DESCRIPTION, immediate: true })
+      } catch {
+        continue
+      }
     }
     return next(e)
   })
 
+  on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
+    if (mod.io && mod.env) {
+      bind(mod.io, { ...mod.env, session: await $.session.id() })
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
+  on('command.run', { command: ['side-insights', 'si'] }, async $ => {
+    mod.paneOpen = true
+    await $.ui.open({ id: PANE, title: PANE_TITLE, focus: true })
+    void poll()
+    return {}
+  }).catch(($, e, next) => next(e))
+
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    mod.paneOpen = false
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const below = await next(e)
     if (e.props.hasSurvey) {
-      return next(e)
+      return below
     }
     const line = bandLine(e.props.bodyColumns)
     if (!line) {
-      return next(e)
+      return below
     }
-    const { Text } = $.ui.resolve(e)
+    const { Box, Text } = $.ui.resolve(e)
+    const issue = !!problem()
     return (
-      <Text color={mod.down ? 'warning' : undefined} dimColor={!mod.down} wrap="truncate-end">
-        {line}
-      </Text>
+      <Box flexDirection="column">
+        <Box key="side-insights-band">
+          <Text color={issue ? 'warning' : undefined} dimColor={!issue} wrap="truncate-end">
+            {line}
+          </Text>
+        </Box>
+        {below}
+      </Box>
     )
   })
 
@@ -406,35 +552,34 @@ export const register: Register = on => {
     if (!waiting) {
       return next(e)
     }
-    return next({ ...e, props: { ...e.props, suffix: `${e.props.suffix} (${t('mod_spinner_waiting', waiting)})` } })
+    return next({ ...e, props: { ...e.props, suffix: `${e.props.suffix} - ${t('mod_spinner_waiting', waiting)}` } })
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    mod.paneOpen = true
-    defaultSelection()
     const ui = $.ui.resolve(e)
     const { Box } = ui
-    const id = mod.state?.flows[Math.min(mod.view.flowIndex, Math.max(0, (mod.state?.flows.length ?? 1) - 1))]?.id
+    const id = flowId()
     const c: Ctx = {
       ui,
       s: mod.state,
       t,
       cols: e.props.bodyColumns,
       view: mod.view,
+      surface: e.surface,
+      selected: selectedId(),
       flow: id ? mod.flows.get(id) : undefined,
       flowLoading: !!id && mod.flowLoading === id,
       act: actions((text, surface) => $.ui.copy({ text, surface })),
       pageUrl: mod.api?.pageUrl() ?? '',
-      down: mod.down,
+      problem: problem(),
     }
     const body = mod.view.tab === Tab.FLOW ? flow(c) : mod.view.tab === Tab.LIVE ? live(c) : qa(c)
     return (
       <Box flexDirection="column" width={e.props.bodyColumns}>
         {header(c)}
-        {footer(c)}
+        {noteOrHints(c)}
         {body}
       </Box>
     )
   })
 }
-

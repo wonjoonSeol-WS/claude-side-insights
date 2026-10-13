@@ -219,7 +219,8 @@ class Handler(BaseHTTPRequestHandler):
         waiting = waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"])) if snap["sid"] else []
         self.json({"activity": snap, "flows": pane_flows, "pending": pending,
                    "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending), "waiting": waiting,
-                          "eta": eta_seconds(records), "auto": config.load(pane)["qa_auto"]}})
+                          "eta": eta_seconds(records), "auto": config.load(pane)["qa_auto"],
+                          "counts": qa_store.counts(records)}})
 
     def get_flow(self, pane, flow_id):
         rec = read_json(flow_store.record_path(pane, flow_id))

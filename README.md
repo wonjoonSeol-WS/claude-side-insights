@@ -90,16 +90,16 @@ The Flow tab follows one example through every step. Its values are inferred fro
 
 ## Inside Claude Code (mod)
 
-Claude Code 2.1.287 or later also loads the same panel inside Claude Code itself, next to everything above. Nothing else changes: the terminal panels, the browser page and the commands keep working as before.
+Claude Code 2.1.287 or later (tested with Claude Code 2.1.296) also loads the same panel inside Claude Code itself, next to everything above. Nothing else changes: the terminal panels, the browser page and the commands keep working as before.
 
-- **Band above the prompt**: one line with the Q&A counts (answered, partial, unanswered), the questions waiting for the turn to end and when they get checked, and the latest flow. It stays empty when there is nothing to show.
+- **Band above the prompt**: one line with the Q&A counts (answered, partial, unanswered), the questions waiting for the turn to end and when they get checked, and the latest flow. When there is nothing to show it adds nothing, except to say the server is not running.
 - **Spinner**: while Claude works, it adds how many of your questions are waiting.
 - **`/side-insights`** (or **`/si`**): opens a pane with the three tabs. It works while Claude is still running a turn.
   - `1` `2` `3`: Flow, Live, Q&A
   - Flow: `p` `n` switch flows, `k` `j` move between steps (or click a step), `r` rebuilds the flow
-  - Q&A: click a question to select it, then `s` changes its status, `u` goes back to the automatic verdict, `a` archives, `c` copies, `r` re-checks, `f` shows open ones only, `v` shows archived ones
+  - Q&A: click a question to select it, then `s` changes its status, `u` goes back to the automatic verdict, `a` archives, `c` copies an open question, `r` re-checks, `f` shows open ones only, `v` shows archived ones
   - `o`: the full page in your browser
-- **Notices**: a short note when a new flow is ready, and when a turn's check leaves questions open.
+- **Notices**: one short note when a new flow is ready or a turn's check leaves questions open.
 
 It reads from the same local server. If the server is not running, the band says so and the mod tries to start it once a minute; `! claude-panel` starts it at once.
 
