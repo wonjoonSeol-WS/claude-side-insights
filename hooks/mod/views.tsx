@@ -52,6 +52,8 @@ export type View = {
   settings: boolean
   scope: ScopeValue
   file?: string
+  toolFilter?: string
+  statusFilter?: string
   note?: { text: string; color: string }
 }
 
@@ -76,6 +78,8 @@ export type Actions = {
   openFile: (path: string) => void
   fileBy: (delta: number) => void
   closeDiff: () => void
+  filterTools: (state: string) => void
+  filterStatus: (status: string) => void
 }
 
 export type Ctx = {
@@ -490,16 +494,26 @@ const card = (c: Ctx, key: string, title: RenderChildren, children: RenderChildr
   )
 }
 
-const tile = (c: Ctx, key: string, value: string | number, label: string, color: Rgb, dim = false) => {
-  const { Box, Text } = c.ui
+const tile = (c: Ctx, key: string, value: string | number, label: string, color: Rgb, dim = false, press?: { on: boolean; act: () => void }) => {
+  const { Box, Text, Button } = c.ui
+  const on = !!press?.on
+  const body = [
+    <Text key={`${key}-value`} color={hex(dim && !on ? c.p.faint : color)} bold>
+      {String(value)}
+    </Text>,
+    <Text key={`${key}-label`} color={hex(on ? c.p.text : c.p.muted)} bold={on}>
+      {`\n${label}`}
+    </Text>,
+  ]
   return (
-    <Box key={key} flexDirection="column" borderStyle="round" borderColor={hex(dim ? c.p.line : color)} backgroundColor={hex(c.p.card)} paddingX={2} flexGrow={1} minWidth={14}>
-      <Text color={hex(dim ? c.p.faint : color)} bold>
-        {String(value)}
-      </Text>
-      <Text color={hex(c.p.muted)} wrap="truncate-end">
-        {label}
-      </Text>
+    <Box key={key} flexDirection="column" borderStyle={on ? 'bold' : 'round'} borderColor={hex(dim && !on ? c.p.line : color)} backgroundColor={on ? tint(c.p, color, 0.18) : hex(c.p.card)} paddingX={2} flexGrow={1} minWidth={14}>
+      {press ? (
+        <Button key={`${key}-press`} plain onPress={press.act}>
+          {body}
+        </Button>
+      ) : (
+        body
+      )}
     </Box>
   )
 }
@@ -605,6 +619,12 @@ const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
   )
 }
 
+const FILTER_LABEL: Record<string, string> = { [ToolState.OK]: 'term_ok', [ToolState.ERR]: 'term_err', [ToolState.RUN]: 'term_run' }
+
+const statusPress = (c: Ctx, status: string) => ({ on: c.view.statusFilter === status, act: () => c.act.filterStatus(status) })
+
+const filterPress = (c: Ctx, state: string) => ({ on: c.view.toolFilter === state, act: () => c.act.filterTools(state) })
+
 export const live = (c: Ctx) => {
   const { Box, Text, Button } = c.ui
   const tools = c.s?.activity.tools ?? []
@@ -633,7 +653,9 @@ export const live = (c: Ctx) => {
       </Text>,
     )
   }
-  const toolLines = [...tools]
+  const filter = c.view.toolFilter
+  const shownTools = filter ? tools.filter(x => x.state === filter) : tools
+  const toolLines = [...shownTools]
     .reverse()
     .slice(0, MAX_TOOLS)
     .map((tool, i) => toolLine(c, tool, i, now))
@@ -645,18 +667,24 @@ export const live = (c: Ctx) => {
       </Box>,
     )
   }
-  const filesCard = card(c, 'files', c.t('term_files', files.length), fileLines.length ? fileLines : [<Text key="files-none" color={hex(c.p.faint)}>{c.t('term_none')}</Text>], files.length ? c.p.purple : undefined)
-  const toolsCard = card(c, 'tools', c.t('term_tools', tools.length), toolLines.length ? toolLines : [<Text key="tools-none" color={hex(c.p.faint)}>{c.t('term_not_yet')}</Text>], tools.length ? c.p.blue : undefined)
+  fileLines.push(
+    <Box key="files-note" marginTop={1}>
+      <Text color={hex(c.p.faint)}>{c.t('mod_edited_note')}</Text>
+    </Box>,
+  )
+  const filesCard = card(c, 'files', c.t('mod_edited_files', files.length), fileLines.length > 1 ? fileLines : [<Text key="files-none" color={hex(c.p.faint)}>{c.t('term_none')}</Text>, ...fileLines], files.length ? c.p.purple : undefined)
+  const toolsTitle = filter ? `${c.t('term_tools', `${shownTools.length} / ${tools.length}`)}  ${c.t(FILTER_LABEL[filter] ?? 'term_ok')}` : c.t('term_tools', tools.length)
+  const toolsCard = card(c, 'tools', toolsTitle, toolLines.length ? toolLines : [<Text key="tools-none" color={hex(c.p.faint)}>{c.t(filter ? 'mod_filter_none' : 'term_not_yet')}</Text>], tools.length ? c.p.blue : undefined)
   const wide = split(c.cols)
   const layout = wide ? twoColumns(c, 'live-cols', [filesCard], [toolsCard], wide.left) : [filesCard, toolsCard]
   const diff = diffCard(c)
   return (
     <Box flexDirection="column">
       {tiles(c, 'live-tiles', [
-        tile(c, 'tile-ok', ok, c.t('term_ok'), c.p.green, !ok),
-        tile(c, 'tile-err', failed, c.t('term_err'), c.p.red, !failed),
-        tile(c, 'tile-run', running, c.t('term_run'), c.p.orange, !running),
-        tile(c, 'tile-files', files.length, c.t('term_files', '').trim(), c.p.purple, !files.length),
+        tile(c, 'tile-ok', ok, c.t('term_ok'), c.p.green, !ok, filterPress(c, ToolState.OK)),
+        tile(c, 'tile-err', failed, c.t('term_err'), c.p.red, !failed, filterPress(c, ToolState.ERR)),
+        tile(c, 'tile-run', running, c.t('term_run'), c.p.orange, !running, filterPress(c, ToolState.RUN)),
+        tile(c, 'tile-files', files.length, c.t('mod_edited_tile'), c.p.purple, !files.length),
       ])}
       <Box marginTop={1}>
         {bar(
@@ -1048,10 +1076,12 @@ export const visibleTurns = (view: View, turns: QaTurn[]) =>
   turns
     .map(turn => {
       const failed = turn.status !== undefined && turn.status !== RecordStatus.OK
-      const shown = (turn.items ?? []).filter(i => (view.showArchived || !i.archived) && !(view.openOnly && i.status === Status.ANSWERED))
+      const shown = (turn.items ?? []).filter(
+        i => (view.showArchived || !i.archived) && !(view.openOnly && i.status === Status.ANSWERED) && (!view.statusFilter || i.status === view.statusFilter),
+      )
       return { turn, failed, shown }
     })
-    .filter(({ failed, shown }) => failed || shown.length || !(view.openOnly || view.showArchived))
+    .filter(({ failed, shown }) => failed || shown.length || !(view.openOnly || view.showArchived || view.statusFilter))
 
 export const qaPage = (view: View, turns: QaTurn[]) => {
   const all = visibleTurns(view, turns)
@@ -1127,9 +1157,9 @@ export const qa = (c: Ctx) => {
   const percent = n.total ? Math.round((100 * n.answered) / n.total) : 0
   const top: RenderChildren[] = [
     tiles(c, 'qa-tiles', [
-      tile(c, 'tile-answered', n.answered, c.t('st_answered'), c.p.green, !n.answered),
-      tile(c, 'tile-partial', n.partial, c.t('st_partial'), c.p.orange, !n.partial),
-      tile(c, 'tile-unanswered', n.unanswered, c.t('st_unanswered'), c.p.red, !n.unanswered),
+      tile(c, 'tile-answered', n.answered, c.t('st_answered'), c.p.green, !n.answered, statusPress(c, Status.ANSWERED)),
+      tile(c, 'tile-partial', n.partial, c.t('st_partial'), c.p.orange, !n.partial, statusPress(c, Status.PARTIAL)),
+      tile(c, 'tile-unanswered', n.unanswered, c.t('st_unanswered'), c.p.red, !n.unanswered, statusPress(c, Status.UNANSWERED)),
       ...(waiting.length ? [tile(c, 'tile-waiting', waiting.length, `⏳ ${c.t('qa_wait_t', '').replace(/\s*\(\s*\)\s*$/, '')}`, c.p.blue)] : []),
     ]),
     <Box key="qa-meter" flexDirection="row" columnGap={1} marginTop={1}>

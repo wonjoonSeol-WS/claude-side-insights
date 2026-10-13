@@ -479,6 +479,15 @@ const actions = (copyText: Copy): Actions => ({
       void showDiff(next.path)
     }
   },
+  filterStatus: status => {
+    mod.view.statusFilter = mod.view.statusFilter === status ? undefined : status
+    pruneSelection()
+    redraw()
+  },
+  filterTools: state => {
+    mod.view.toolFilter = mod.view.toolFilter === state ? undefined : state
+    redraw()
+  },
   closeDiff: () => {
     dropDiff()
     redraw()
