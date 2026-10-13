@@ -633,9 +633,9 @@ async function postOverride(ref, body) {
   await poll(true);
 }
 
-async function regen(target, turn, item) {
+async function regen(target, turn, item, scope) {
   touch();
-  const query = `target=${target}${turn ? `&turn=${encodeURIComponent(turn)}` : ""}${item ? `&item=${encodeURIComponent(item)}` : ""}`;
+  const query = `target=${target}${turn ? `&turn=${encodeURIComponent(turn)}` : ""}${item ? `&item=${encodeURIComponent(item)}` : ""}${scope ? `&scope=${scope}` : ""}`;
   const r = await api("POST", `/api/${KEY}/regen?${query}`);
   if (!r.ok) return notify(r.error, true);
   notify(text(target === "qa" ? "qa_checking" : "flow_started"));
@@ -680,7 +680,7 @@ document.addEventListener("click", async e => {
   }
   if (d.act === "full") return api("POST", `/api/${KEY}/open`);
   if (d.act === "regen") return regen("flow", null);
-  if (d.act === "qa-regen") return regen("qa", null);
+  if (d.act === "qa-regen") return regen("qa", null, null, "open");
 });
 
 document.addEventListener("change", e => {

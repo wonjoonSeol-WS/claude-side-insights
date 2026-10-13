@@ -260,6 +260,8 @@ class Handler(BaseHTTPRequestHandler):
             args = ["flow.py", pane, last["transcript"], last.get("cwd") or ""]
         else:
             args = ["qa.py", pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
+            if self.param("scope") == "open":
+                args.append("--open-items")
         subprocess.Popen([sys.executable, os.path.join(BASE, args[0]), *args[1:], "--force"],
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
         self.json({"ok": True})

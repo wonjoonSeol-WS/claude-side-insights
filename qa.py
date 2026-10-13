@@ -5,6 +5,7 @@ usage: qa.py <pane> <transcript_path> [turn_id] [--item=<id>] [--force]
 Without turn_id: the last turn, judged against its own replies, plus a re-check of earlier open items.
 With turn_id: that turn, judged against every reply up to the end of the transcript.
 With --item: only that item of the turn, judged against every reply up to the end of the transcript.
+With --open-items: every open item of the session, each judged against every reply after it.
 """
 import os
 import sys
@@ -18,6 +19,7 @@ from transcript import assistant_blocks, clip, is_prompt, load_entries, queued_p
 
 MAX_REPLY = 40000
 MAX_FOLLOWUPS = 20
+MAX_OPEN_RECHECK = 40
 TIMEOUT = 600
 MAX_TURNS = 3
 USER_LIMIT = 3000
@@ -142,6 +144,34 @@ def recheck_item(pane, transcript, turn_id, wanted_id, model):
                 qa_store.set_verdict(pane, turn["sid"], turn_id, item.get("question", ""), status, verdict.get("answer"))
 
 
+def recheck_open(pane, transcript, model):
+    sid = (extract(transcript) or {}).get("sid")
+    if not sid:
+        return
+    with qa_store.session_lock(pane, sid):
+        candidates = qa_store.all_open_items(pane, sid, MAX_OPEN_RECHECK)
+    if not candidates:
+        return
+    turn = extract(transcript, candidates[0]["turn_id"])
+    if not turn:
+        return
+    message = build_message(turn, candidates) + (
+        "\n\nOnly re-judge the earlier open questions, each against every reply that came after it, including later turns. "
+        "Return items as an empty list.")
+    with Pending(qa_store.pending_path(pane), scope="open"):
+        try:
+            data, _ = run_claude(SYSTEM + language_instruction(pane), SCHEMA, message, model, timeout=TIMEOUT, max_turns=MAX_TURNS)
+        except (RuntimeError, OSError):
+            return
+        verdicts = {f.get("id"): f for f in data.get("followups") or [] if isinstance(f, dict)}
+        with qa_store.session_lock(pane, sid):
+            for n, cand in enumerate(candidates):
+                verdict = verdicts.get(f"p{n + 1}") or {}
+                status = qa_store.Status.parse(verdict.get("status"))
+                if status and (status.value != cand["item"].get("status") or verdict.get("answer")):
+                    qa_store.set_verdict(pane, sid, cand["turn_id"], cand["item"].get("question", ""), status, verdict.get("answer"))
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     if len(args) not in (2, 3):
@@ -151,6 +181,8 @@ def main():
     settings = config.load(pane)
     if not settings["qa_auto"] and "--force" not in sys.argv:
         return
+    if "--open-items" in sys.argv:
+        return recheck_open(pane, transcript, settings["model"])
     item = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--item=")), None)
     if item and turn_id:
         return recheck_item(pane, transcript, turn_id, item, settings["model"])

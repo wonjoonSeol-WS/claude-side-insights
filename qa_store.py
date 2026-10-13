@@ -139,6 +139,13 @@ def open_items(pane, sid, current_turn, limit):
     return found[:limit]
 
 
+def all_open_items(pane, sid, limit):
+    """Every unanswered or partial item of the session, minus archived or manually set ones, oldest turn first."""
+    found = open_items(pane, sid, None, limit)
+    order = {rec.get("turn_id"): -(rec.get("ts") or 0) for rec in records(pane, sid)}
+    return sorted(found, key=lambda c: -order.get(c["turn_id"], 0))
+
+
 def apply_followups(pane, sid, candidates, followups, resolved_in):
     """Raise the status of earlier items that a later turn answered. Never lowers a status."""
     by_id = {f.get("id"): f for f in followups or [] if isinstance(f, dict)}
