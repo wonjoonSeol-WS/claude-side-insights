@@ -49,8 +49,13 @@ import {
 
 const PANE = 'side-insights'
 const PANE_TITLE = 'Side insights'
-const COMMANDS = ['side-insights', 'si']
-const COMMAND_DESCRIPTION = 'Open the side insights pane: Flow, Live and Q&A'
+const PANE_COMMANDS = ['side-insights', 'si']
+const BROWSER_COMMAND = 'si-browser'
+const COMMANDS: { name: string; description: string }[] = [
+  ...PANE_COMMANDS.map(name => ({ name, description: 'Open the side insights pane: Flow, Live and Q&A' })),
+  { name: BROWSER_COMMAND, description: 'Show or hide the side insights browser panel (a cmux split, or your browser)' },
+]
+const BROWSER_TIMEOUT_MS = 15_000
 const POLL_MS = 2000
 const IDLE_EVERY = 3
 const CONFIG_EVERY = 15
@@ -393,6 +398,23 @@ const showDiff = async (path: string) => {
   }
 }
 
+const openBrowserPanel = async (): Promise<string> => {
+  const io = mod.io
+  const api = mod.api
+  if (!io || !api) {
+    return t('panel_failed')
+  }
+  if (mod.env?.cmux) {
+    const out = await io.run([`${io.root}/bin/claude-panel`], { timeoutMs: BROWSER_TIMEOUT_MS }).catch(() => undefined)
+    return out ? [out.stdout, out.stderr].map(x => x.trim()).filter(Boolean).join('\n') || t('panel_shown') : t('panel_failed')
+  }
+  const reply = await api.open('')
+  if (!isOk(reply)) {
+    return t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err')))
+  }
+  return `${t('panel_requested')}\n${api.pageUrl()}`
+}
+
 const allItems = () => (mod.state?.qa.turns ?? []).flatMap(x => x.items ?? [])
 
 const selectedId = () => (mod.state ? selection(mod.view, mod.state.qa.turns) : undefined)
@@ -447,6 +469,12 @@ const actions = (copyText: Copy): Actions => ({
     if (tab === Tab.FLOW) {
       void loadFlow()
     }
+  },
+  flowTo: id => {
+    mod.view.flowId = id
+    mod.view.step = 0
+    redraw()
+    void loadFlow()
   },
   flowBy: delta => {
     const flows = mod.state?.flows ?? []
@@ -607,9 +635,9 @@ export const register: Register = on => {
     )
     mod.timer?.cancel()
     mod.timer = mod.quiet ? undefined : $.clock.every(POLL_MS, () => void poll())
-    for (const name of COMMANDS) {
+    for (const { name, description } of COMMANDS) {
       try {
-        await $.command.register({ name, description: COMMAND_DESCRIPTION, immediate: true })
+        await $.command.register({ name, description, immediate: true })
       } catch {
         continue
       }
@@ -623,6 +651,8 @@ export const register: Register = on => {
     }
     return next(e)
   }).catch(($, e, next) => next(e))
+
+  on('command.run', { command: 'si-browser' }, async () => ({ text: await openBrowserPanel() })).catch(($, e, next) => next(e))
 
   on('command.run', { command: ['side-insights', 'si'] }, async $ => {
     mod.paneOpen = true

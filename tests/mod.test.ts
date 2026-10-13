@@ -462,7 +462,7 @@ test('a child analysis session skips the timer too', async ($, on) => {
 test('a taken command name does not stop the other one or the band', async ($, on) => {
   const { clock, registered } = setup(on, { current: STATE, up: true, taken: ['si'] })
   await start($, clock)
-  expect(registered).toEqual(['side-insights'])
+  expect(registered).toEqual(['side-insights', 'si-browser'])
   expect((await bandText($, 200)).text).toContain('Q&A ✓ 2')
 })
 
@@ -613,3 +613,35 @@ for (const k of DIFF_CASES) {
     await ui.unmount()
   })
 }
+
+test('/si-browser toggles the cmux browser split through claude-panel inside cmux', async ($, on) => {
+  const { clock, runs } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  runs.length = 0
+  await $.command.run({ ...RUN_SI, command: 'si-browser' })
+  expect(runs.some(r => r[0]?.endsWith('/bin/claude-panel'))).toBe(true)
+})
+
+test('/si-browser opens the full page in the browser outside cmux', async ($, on) => {
+  const { clock, calls, runs } = setup(on, { current: STATE, up: true, env: { HOME: '/home/u' } })
+  await start($, clock)
+  runs.length = 0
+  calls.length = 0
+  await $.command.run({ ...RUN_SI, command: 'si-browser' })
+  expect(runs.some(r => r[0]?.endsWith('/bin/claude-panel'))).toBe(false)
+  expect(calls.some(c => c.method === 'POST' && c.url.includes('/open'))).toBe(true)
+})
+
+test('the Flow tab shows every flow title as a pill, and pressing one opens it', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-flow' })
+  expect((await ui.find({ key: 'flow-tab-f2' }))?.text).toContain('Retry-safe checkout')
+  expect((await ui.find({ key: 'flow-tab-f1' }))?.text).toContain('Cart total rounding')
+  calls.length = 0
+  await ui.press({ key: 'flow-tab-f1' })
+  expect(calls.some(c => c.url.endsWith(`/api/${KEY}/flow/f1`))).toBe(true)
+  await ui.unmount()
+})

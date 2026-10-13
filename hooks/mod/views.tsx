@@ -8,6 +8,7 @@ import {
   Source,
   Status,
   ToolState,
+  cells,
   clock,
   counts,
   duration,
@@ -51,6 +52,7 @@ export type View = {
 export type Actions = {
   setTab: (tab: TabValue) => void
   flowBy: (delta: number) => void
+  flowTo: (id: string) => void
   stepTo: (step: number) => void
   select: (id: string) => void
   archive: () => void
@@ -773,6 +775,61 @@ const stepSegments = (c: Ctx, steps: FlowStep[], step: number): Segment[] =>
     return { value: 1, color: i === step ? mix(color, c.p.heroText, 0.3) : i < step ? color : mix(c.p.base, color, 0.3) }
   })
 
+const FLOW_TAB_TITLE = 26
+const FLOW_TAB_GAP = 1
+const FLOW_TAB_MORE = 6
+const FLOW_TAB_ROWS = 2
+
+const flowTabLabel = (f: FlowRef) => `${fit(f.title || '-', FLOW_TAB_TITLE)}  ${clock(f.ts)}`
+
+export const flowWindow = (widths: number[], index: number, budget: number) => {
+  let first = index
+  let last = index
+  let used = widths[index] ?? 0
+  const fits = (extra: number) => used + FLOW_TAB_GAP + extra <= budget
+  while (true) {
+    const right = last + 1 < widths.length && fits(widths[last + 1] ?? 0)
+    if (right) {
+      last += 1
+      used += FLOW_TAB_GAP + (widths[last] ?? 0)
+    }
+    const left = first > 0 && fits(widths[first - 1] ?? 0)
+    if (left) {
+      first -= 1
+      used += FLOW_TAB_GAP + (widths[first] ?? 0)
+    }
+    if (!right && !left) {
+      return { first, last }
+    }
+  }
+}
+
+const flowTabs = (c: Ctx, flows: FlowRef[], index: number) => {
+  const { Box, Text, Button } = c.ui
+  const labels = flows.map(flowTabLabel)
+  const widths = labels.map(l => cells(l) + 2)
+  const { first, last } = flowWindow(widths, index, FLOW_TAB_ROWS * innerCols(c.cols) - 2 * FLOW_TAB_MORE - FLOW_TAB_ROWS * FLOW_TAB_TITLE)
+  return (
+    <Box key="flow-tabs" flexDirection="row" flexWrap="wrap" columnGap={FLOW_TAB_GAP} marginTop={1}>
+      {first > 0 ? <Text key="flow-tabs-before" color={hex(c.p.faint)}>{`‹ +${first}`}</Text> : null}
+      {flows.slice(first, last + 1).map((f, i) => {
+        const at = first + i
+        const on = at === index
+        const failed = f.status !== RecordStatus.OK
+        const color = failed ? c.p.red : c.p.blue
+        return (
+          <Button key={`flow-tab-${f.id}`} plain onPress={() => c.act.flowTo(f.id)}>
+            <Text backgroundColor={tint(c.p, on ? color : c.p.line, on ? 0.6 : 0.5)} color={hex(on ? c.p.text : failed ? c.p.red : c.p.muted)} bold={on}>
+              {` ${labels[at]} `}
+            </Text>
+          </Button>
+        )
+      })}
+      {last + 1 < flows.length ? <Text key="flow-tabs-after" color={hex(c.p.faint)}>{`+${flows.length - last - 1} ›`}</Text> : null}
+    </Box>
+  )
+}
+
 export const flow = (c: Ctx) => {
   const { Box, Text, Button, Markdown } = c.ui
   const flows = c.s?.flows ?? []
@@ -790,7 +847,8 @@ export const flow = (c: Ctx) => {
   const { index, ref } = currentFlow(flows, c.view.flowId)
   if (flows.length > 1) {
     top.push(
-      <Box key="flow-nav" flexDirection="row" flexWrap="wrap" columnGap={1} marginTop={1}>
+      flowTabs(c, flows, index),
+      <Box key="flow-nav" flexDirection="row" flexWrap="wrap" columnGap={1}>
         <Button key="flow-prev" plain hotkey="p" label={`‹ ${c.t('mod_prev_flow')}`} dimColor={index === 0} onPress={() => c.act.flowBy(-1)} />
         <Text color={hex(c.p.faint)}>{`${index + 1} / ${flows.length}`}</Text>
         <Button key="flow-next" plain hotkey="n" label={`${c.t('mod_next_flow')} ›`} dimColor={index === flows.length - 1} onPress={() => c.act.flowBy(1)} />
