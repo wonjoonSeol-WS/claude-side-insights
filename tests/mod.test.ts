@@ -2,6 +2,7 @@ import { expect, mock, test, type Engine } from 'claude-code/testing'
 import type { HttpResponse, On } from 'claude-code'
 
 import { cells, connect } from '../hooks/mod/data'
+import { changeFiles } from '../hooks/mod/views'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const KEY = 'demo'
@@ -728,5 +729,31 @@ test('pressing a Q&A tile shows only questions with that status, and pressing it
   expect(await ui.find({ type: 'Button', text: 'Does it retry?' }), 'an answered one is hidden').toBeUndefined()
   await ui.press({ key: 'tile-unanswered-press' })
   expect(await ui.find({ type: 'Button', text: 'Does it retry?' }), 'cleared').toBeDefined()
+  await ui.unmount()
+})
+
+test('a change entry naming several files is split into one path per file', () => {
+  expect(changeFiles('~/repo/README.md, README.ko.md, README.ja.md')).toEqual(['~/repo/README.md', '~/repo/README.ko.md', '~/repo/README.ja.md'])
+  expect(changeFiles('src/a.ts, lib/b.ts')).toEqual(['src/a.ts', 'lib/b.ts'])
+  expect(changeFiles('src/only.ts')).toEqual(['src/only.ts'])
+})
+
+test('the diff card switches between the uncommitted diff, the last commit and the whole file', async ($, on) => {
+  const git = (a: string[]) =>
+    a.includes('log') ? { exitCode: 0, stdout: `abc1234 Add retries\n\n${HUNK_TEXT}\n` } : a.includes('HEAD') ? { exitCode: 0, stdout: `${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }
+  const { clock, runs } = setup(on, { current: STATE, up: true, git })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await $.ui.mount({ plugin: PLUGIN, surface: 'terminal', ...PANE_PROPS })
+  await ui.press({ key: 'tab-live' })
+  await ui.press({ key: 'file-0' })
+  expect(await ui.find({ type: 'Text', text: /git diff HEAD/ }), 'opens on the uncommitted diff').toBeDefined()
+  await ui.press({ key: 'diff-view-commit' })
+  expect(await ui.find({ type: 'Text', text: /abc1234 Add retries/ }), 'the last commit even though there are uncommitted changes').toBeDefined()
+  await ui.press({ key: 'diff-view-file' })
+  const code = await ui.find({ type: 'Code' })
+  expect(code?.props.format, 'the whole file is plain code').toBeUndefined()
+  expect(code?.props.startLine).toBe(1)
+  expect(runs.some(r => r.includes('log')), 'git log ran for the commit view').toBe(true)
   await ui.unmount()
 })

@@ -17,8 +17,10 @@ import {
   type Env,
   type Io,
   Scope,
+  DiffView,
   loadDiff,
   type ConfigPayload,
+  type DiffViewValue,
   type FileDiff,
   type FlowRecord,
   type Messages,
@@ -99,7 +101,7 @@ type Mod = {
   frames?: { cancel: () => void }
   heroCols?: number
   working?: boolean
-  diff?: { path: string; loading: boolean; data?: FileDiff }
+  diff?: { path: string; loading: boolean; data?: FileDiff; view: DiffViewValue }
   config?: ConfigPayload
 }
 
@@ -404,25 +406,24 @@ const refreshConfig = async () => {
   }
 }
 
-const showDiff = async (path: string) => {
+const showDiff = async (path: string, view: DiffViewValue = DiffView.AUTO) => {
   const io = mod.io
   if (!io) {
     return
   }
-  if (mod.diff?.path === path && mod.view.file === path) {
-    mod.diff = undefined
-    mod.view.file = undefined
+  if (view === DiffView.AUTO && mod.diff?.path === path && mod.view.file === path) {
+    dropDiff()
     redraw()
     return
   }
   const full = absolute(path)
   const dir = full.slice(0, full.lastIndexOf('/')) || '/'
   mod.view.file = path
-  mod.diff = { path, loading: true }
+  mod.diff = { path, loading: true, view }
   redraw()
-  const data = await loadDiff(io, dir, full)
-  if (mod.diff?.path === path) {
-    mod.diff = { path, loading: false, data }
+  const data = await loadDiff(io, dir, full, view)
+  if (mod.diff?.path === path && mod.diff.view === view) {
+    mod.diff = { path, loading: false, data, view }
     redraw()
   }
 }
@@ -487,6 +488,11 @@ const actions = (copyText: Copy): Actions => ({
   filterTools: state => {
     mod.view.toolFilter = mod.view.toolFilter === state ? undefined : state
     redraw()
+  },
+  diffView: view => {
+    if (mod.diff) {
+      void showDiff(mod.diff.path, view)
+    }
   },
   closeDiff: () => {
     dropDiff()

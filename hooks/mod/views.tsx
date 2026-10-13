@@ -3,6 +3,7 @@ import type { Elements, RenderChildren, RenderSurface, UiPressArgument } from 'c
 import {
   CheckStatus,
   DiffSource,
+  DiffView,
   Kind,
   RecordStatus,
   Scope,
@@ -17,6 +18,7 @@ import {
   highlight,
   turnRow,
   type ConfigPayload,
+  type DiffViewValue,
   type FileDiff,
   type ScopeValue,
   type SettingKey,
@@ -78,6 +80,7 @@ export type Actions = {
   openFile: (path: string) => void
   fileBy: (delta: number) => void
   closeDiff: () => void
+  diffView: (view: DiffViewValue) => void
   filterTools: (state: string) => void
   filterStatus: (status: string) => void
 }
@@ -99,7 +102,7 @@ export type Ctx = {
   act: Actions
   pageUrl: string
   problem?: string
-  diff?: { path: string; loading: boolean; data?: FileDiff }
+  diff?: { path: string; loading: boolean; data?: FileDiff; view: DiffViewValue }
   config?: ConfigPayload
 }
 
@@ -537,6 +540,8 @@ const diffSourceLabel = (c: Ctx, data: FileDiff) =>
     ? c.t('mod_diff_working')
     : data.source === DiffSource.NEW
       ? c.t('mod_diff_new')
+      : data.source === DiffSource.FILE
+        ? c.t('mod_diff_file')
       : data.source === DiffSource.COMMIT
         ? c.t('mod_diff_commit', data.commit ?? '')
         : c.t('mod_diff_none')
@@ -574,6 +579,13 @@ const diffCard = (c: Ctx) => {
         </Box>,
       )
     }
+    if (d.data.text !== undefined) {
+      body.push(
+        <Box key="diff-file" marginTop={1} backgroundColor={hex(c.p.code)} paddingX={1} paddingY={1}>
+          <Code source={d.data.text} startLine={1} path={d.path} />
+        </Box>,
+      )
+    }
     if (d.data.cut) {
       body.push(
         <Text key="diff-cut" color={hex(c.p.faint)}>
@@ -582,8 +594,12 @@ const diffCard = (c: Ctx) => {
       )
     }
   }
+  const shown = d.data?.source === DiffSource.FILE ? DiffView.FILE : d.data?.source === DiffSource.COMMIT ? DiffView.COMMIT : d.data?.source === DiffSource.NONE ? d.view : DiffView.WORKING
   body.push(
-    <Box key="diff-keys" marginTop={1}>
+    <Box key="diff-keys" marginTop={1} flexDirection="row" flexWrap="wrap" columnGap={2}>
+      <Button key="diff-view-working" plain hotkey="d" label={c.t('mod_view_working')} dimColor={shown !== DiffView.WORKING} onPress={() => c.act.diffView(DiffView.WORKING)} />
+      <Button key="diff-view-commit" plain hotkey="s" label={c.t('mod_view_commit')} dimColor={shown !== DiffView.COMMIT} onPress={() => c.act.diffView(DiffView.COMMIT)} />
+      <Button key="diff-view-file" plain hotkey="f" label={c.t('mod_view_file')} dimColor={shown !== DiffView.FILE} onPress={() => c.act.diffView(DiffView.FILE)} />
       <Button key="diff-close" plain hotkey="x" label={c.t('mod_k_close_diff')} dimColor onPress={() => c.act.closeDiff()} />
     </Box>,
   )
@@ -750,6 +766,31 @@ const language = (location: string | undefined) => {
 
 type Change = NonNullable<NonNullable<FlowRecord['flow']>['changes']>[number]
 
+export const changeFiles = (file: string | undefined): string[] => {
+  const parts = (file ?? '').split(/\s*,\s+/).map(x => x.trim()).filter(Boolean)
+  const first = parts[0] ?? ''
+  const dir = first.includes('/') ? first.slice(0, first.lastIndexOf('/') + 1) : ''
+  return parts.map((x, i) => (i === 0 || x.includes('/') ? x : `${dir}${x}`))
+}
+
+const changeRow = (c: Ctx, ch: Change, key: string) => {
+  const { Box, Text, Button } = c.ui
+  const files = changeFiles(ch.file)
+  return [
+    ...files.map((f, k) => (
+      <Box key={`${key}-row-${k}`} flexDirection="row" backgroundColor={c.view.file === f ? hex(c.p.selected) : undefined}>
+        <Button key={k ? `${key}-${k}` : key} plain onPress={() => c.act.openFile(f)}>
+          {pill(c, `${key}-mark-${k}`, 'M', c.p.orange)}
+          <Text color={hex(c.p.text)}>{` ${f}`}</Text>
+        </Button>
+      </Box>
+    )),
+    <Box key={`${key}-what`} paddingLeft={4}>
+      <Text color={hex(c.p.muted)}>{ch.what ?? ''}</Text>
+    </Box>,
+  ]
+}
+
 const sameFile = (a: string, b: string) => {
   const x = a.replace(/^~\//, '')
   const y = b.replace(/^~\//, '')
@@ -758,25 +799,19 @@ const sameFile = (a: string, b: string) => {
 
 export const stepChanges = (s: FlowStep, changes: Change[]) => {
   const file = (s.location ?? '').split(' ')[0] ?? ''
-  return file ? changes.filter(ch => ch.file && sameFile(ch.file, file)) : []
+  return file ? changes.filter(ch => changeFiles(ch.file).some(f => sameFile(f, file))) : []
 }
 
 const stepChangeList = (c: Ctx, own: Change[]) => {
-  const { Box, Text, Button } = c.ui
+  const { Box, Text } = c.ui
   return (
     <Box key="step-changes" flexDirection="column" marginTop={1}>
       <Text color={hex(c.p.orange)} bold>
         {c.t('mod_step_changes')}
       </Text>
       {own.map((ch, i) => (
-        <Box key={`step-chg-${i}`} flexDirection="column" backgroundColor={ch.file && c.view.file === ch.file ? hex(c.p.selected) : undefined}>
-          <Button key={`step-change-${i}`} plain onPress={() => ch.file && c.act.openFile(ch.file)}>
-            {pill(c, `step-chg-mark-${i}`, 'M', c.p.orange)}
-            <Text color={hex(c.p.text)}>{` ${ch.file ?? ''}`}</Text>
-          </Button>
-          <Box paddingLeft={4}>
-            <Text color={hex(c.p.muted)}>{ch.what ?? ''}</Text>
-          </Box>
+        <Box key={`step-chg-${i}`} flexDirection="column">
+          {changeRow(c, ch, `step-change-${i}`)}
         </Box>
       ))}
     </Box>
@@ -848,14 +883,8 @@ const flowCards = (c: Ctx, rec: FlowRecord) => {
         'changes',
         c.t('changes', changes.length),
         changes.map((ch, i) => (
-          <Box key={`chg-${i}`} flexDirection="column" marginTop={i ? 1 : 0} backgroundColor={ch.file && c.view.file === ch.file ? hex(c.p.selected) : undefined}>
-            <Button key={`change-${i}`} plain onPress={() => ch.file && c.act.openFile(ch.file)}>
-              {pill(c, `chg-mark-${i}`, 'M', c.p.orange)}
-              <Text color={hex(c.p.text)}>{` ${ch.file ?? ''}`}</Text>
-            </Button>
-            <Box paddingLeft={4}>
-              <Text color={hex(c.p.muted)}>{ch.what ?? ''}</Text>
-            </Box>
+          <Box key={`chg-${i}`} flexDirection="column" marginTop={i ? 1 : 0}>
+            {changeRow(c, ch, `change-${i}`)}
           </Box>
         )),
         c.p.orange,
