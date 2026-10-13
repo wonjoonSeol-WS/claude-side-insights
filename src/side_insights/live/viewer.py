@@ -22,6 +22,7 @@ POLL_SECONDS = 0.1
 ANIMATE_SECONDS = 0.15
 IDLE_REDRAW_SECONDS = 1
 VIEW_TITLE = "claude-panel:"
+MARGIN = 2
 RIGHT_MARGIN = 1
 SCROLL_STEP = 3
 ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left"}
@@ -56,14 +57,14 @@ class Screen:
 
     def draw(self):
         cols, rows = os.get_terminal_size()
-        cols -= RIGHT_MARGIN
+        cols -= RIGHT_MARGIN + 2 * MARGIN
         head = views.header(TAB_KEYS, self.tab, self.tail.state, self.tick, cols)
         foot = views.footer(self.pane, cols)
         space = max(1, rows - len(head) - 1)
         body = self.body(cols, space)
         top = max(0, min(self.scroll[self.tab], len(body) - space))
         self.scroll[self.tab] = top
-        visible = (head + body[top:top + space] + [""] * space)[:rows - 1] + [foot]
+        visible = [" " * MARGIN + line for line in (head + body[top:top + space] + [""] * space)[:rows - 1] + [foot]]
         sys.stdout.write("\033[H" + "\r\n".join(line + "\033[0m\033[K" for line in visible) + "\033[J")
         sys.stdout.flush()
 

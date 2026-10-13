@@ -5,6 +5,7 @@ import unicodedata
 RESET, BOLD = "\033[0m", "\033[1m"
 ANSI = re.compile(r"\033\[[0-9;]*m")
 BULLET = re.compile(r"^(?:[-•]\s+|\*\s+)")
+NO_LINE_START = set("。、，．）」』】！？ー.,)!?:;")
 MARKUP = re.compile(r"==(.+?)==|\*\*(.+?)\*\*|`([^`]+)`")
 
 TEXT = (225, 228, 234)
@@ -112,6 +113,9 @@ def _break(chars, cols):
             if cut > 0 and width(word) == len(word) and len(word) < cols // 2:
                 lines.append(line[:cut])
                 line = line[cut + 1:]
+            elif item[0] in NO_LINE_START and len(line) > 1:
+                lines.append(line[:-1])
+                line = line[-1:]
             else:
                 lines.append(line)
                 line = []
@@ -155,10 +159,20 @@ def rule(cols, label="", color=LINE):
     return paint("── ", color) + label + " " + paint("─" * max(0, cols - visible_width(label) - 4), color)
 
 
+PAD_X = 2
+
+
+def inner_width(cols):
+    """Room for content inside a box of width cols."""
+    return cols - 2 - 2 * PAD_X
+
+
 def box(lines, cols, color=LINE, title=""):
-    """Rounded box around lines that already fit in cols - 4."""
-    inner = cols - 4
+    """Rounded box with one empty line above and below the content and PAD_X spaces on each side."""
+    inner = inner_width(cols)
     head = paint("╭─ ", color) + title + " " + paint("─" * max(0, cols - visible_width(title) - 5) + "╮", color) if title \
         else paint("╭" + "─" * (cols - 2) + "╮", color)
     side = paint("│", color)
-    return [head, *(f"{side} {pad(line, inner)} {side}" for line in lines), paint("╰" + "─" * (cols - 2) + "╯", color)]
+    gap = " " * PAD_X
+    body = [f"{side}{gap}{pad(line, inner)}{gap}{side}" for line in ["", *lines, ""]]
+    return [head, *body, paint("╰" + "─" * (cols - 2) + "╯", color)]

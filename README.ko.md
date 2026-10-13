@@ -39,6 +39,8 @@ English, 한국어, 日本語를 지원합니다.
 
 *가상의 프로젝트로 만든 예시입니다.*
 
+**브라우저 패널**: cmux처럼 브라우저를 지원하는 터미널, 또는 `claude-flow`로 연 브라우저에서 이렇게 보입니다.
+
 | Q&A | Flow |
 |---|---|
 | ![Q&A 탭](docs/ko/qa.png) | ![Flow 탭](docs/ko/flow.png) |
@@ -163,7 +165,7 @@ flowchart LR
 
 - 모든 데이터는 `~/.claude/side-insights/`에 있고 내 계정만 읽을 수 있습니다.
 - 서버는 127.0.0.1에서만 열리고, 호스트가 `127.0.0.1`이나 `localhost`인 요청만 받습니다 (DNS rebinding 차단).
-- 페이지는 `?t=<토큰>`, API는 `X-Claude-Panel` 헤더가 필요합니다. 토큰은 `~/.claude/side-insights/token`에 있습니다.
+- 모든 페이지와 API는 비밀 토큰으로 보호됩니다. 토큰은 자동으로 만들어지고 `claude-panel`, `claude-flow`가 여는 링크에 자동으로 붙으므로 직접 입력할 일은 없습니다. 다른 웹 페이지나 같은 컴퓨터의 다른 사용자는 토큰이 없어서 기록을 읽거나 유료 분석을 실행할 수 없습니다.
 
 ## 제거
 

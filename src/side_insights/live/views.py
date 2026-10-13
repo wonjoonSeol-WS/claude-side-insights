@@ -7,13 +7,14 @@ from side_insights.analysis.runner import Pending
 from side_insights.analysis.waiting import Waiting, eta_seconds
 from side_insights.i18n import t
 from side_insights.live.activity import ERR, OK, RUN, tool_label
-from side_insights.live.term import (BLUE, CODE_BG, FAINT, GREEN, HIGHLIGHT_BG, LINE, MUTED, ORANGE, PURPLE, RED,
+from side_insights.live.term import (BOLD, inner_width, BLUE, CODE_BG, FAINT, GREEN, HIGHLIGHT_BG, LINE, MUTED, ORANGE, PURPLE, RED,
                                      SELECTED_BG, TEAL, TEXT, YELLOW, badge, bg, box, bullets, fit, fit_left, key_cap,
                                      paint, pad, rule, styled, tint, visible_width, width)
 from side_insights.paths import EDIT_TOOLS
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 CAT = "ᓚᘏᗢ"
+GROUND = "⠂"
 TRACK = 14
 BAR = 16
 CODE_LINES = 12
@@ -49,7 +50,7 @@ def cat(busy, tick):
     if not busy:
         return paint(CAT, MUTED) + paint(" zZ", FAINT)
     spot = tick % TRACK
-    return paint("·" * spot, FAINT) + paint(CAT, ORANGE, bold=True) + paint("·" * (TRACK - spot), FAINT)
+    return paint(GROUND * spot, FAINT) + paint(CAT, ORANGE, bold=True) + paint(GROUND * (TRACK - spot), FAINT)
 
 
 def header(tab_keys, current, st, tick, cols):
@@ -114,7 +115,7 @@ def live_lines(st, tick, cols, rows):
     if len(files) > MAX_FILES:
         file_lines.append(paint(t("term_more", len(files) - MAX_FILES, pane=pane), FAINT))
     now = time.time()
-    tool_lines = [_tool_line(tool, st, tick, now, tools_w - 4) for tool in reversed(tools)] or [paint(t("term_not_yet", pane=pane), FAINT)]
+    tool_lines = [_tool_line(tool, st, tick, now, inner_width(tools_w)) for tool in reversed(tools)] or [paint(t("term_not_yet", pane=pane), FAINT)]
     files_box = box(file_lines, files_w, LINE, paint(t("term_files", len(files), pane=pane), TEXT, bold=True))
     tools_box = box(tool_lines, tools_w, LINE, paint(t("term_tools", len(tools), pane=pane), TEXT, bold=True))
     return lines + (_side_by_side(files_box, tools_box, cols) if wide else files_box + [""] + tools_box)
@@ -122,9 +123,9 @@ def live_lines(st, tick, cols, rows):
 
 def _waiting_lines(pane, waiting, eta, checking, cols):
     note = t("qa_wait_checking", pane=pane) if checking else t("qa_wait_d", eta, pane=pane)
-    inner = [*styled(note, cols - 4, MUTED)]
+    inner = [*styled(note, inner_width(cols), MUTED), ""]
     for item in waiting:
-        inner += [paint("• ", ORANGE) + line[2:] for line in styled(item["text"], cols - 4, TEXT, indent=2)[:1]]
+        inner += [paint("• ", ORANGE) + line[2:] for line in styled(item["text"], inner_width(cols), TEXT, indent=2)[:1]]
     return box(inner, cols, ORANGE, paint(f"⏳ {t('qa_wait_t', len(waiting), pane=pane)}", ORANGE, bold=True))
 
 
@@ -149,7 +150,7 @@ def qa_lines(st, tick, cols):
         lines += styled(t("qa_eta", eta, pane=pane), cols, FAINT) + [""]
     if not turns:
         return lines + [paint(t("qa_empty_t", pane=pane), TEXT, bold=True), *styled(t("qa_empty_d", pane=pane), cols, MUTED)]
-    inner = cols - 4
+    inner = inner_width(cols)
     for turn in turns:
         body = []
         if turn.get("status") != "ok":
@@ -161,9 +162,10 @@ def qa_lines(st, tick, cols):
             status = item.get("status")
             label = t("st_" + status, pane=pane) if status in STATUS_COLOR else status or "-"
             mid = paint(" " + t("midturn", pane=pane), FAINT) if item.get("from") == "mid-turn" else ""
-            body += ([""] if n else []) + [f"{badge(label, STATUS_COLOR.get(status, FAINT))}{mid}", *styled(item.get("question"), inner, TEXT)]
+            body += ([""] if n else []) + [f"{badge(label, STATUS_COLOR.get(status, FAINT))}{mid}",
+                                            *(BOLD + q for q in styled(item.get("question"), inner, TEXT, indent=2))]
             if item.get("answer"):
-                body += styled(item["answer"], inner, MUTED, indent=2)
+                body += styled(item["answer"], inner, MUTED, indent=4)
         prompt = fit((turn.get("prompt") or "").replace("\n", " "), cols - 13).rstrip()
         lines += box(body, cols, LINE, f"{paint(clock(turn.get('ts')), FAINT)} {paint(prompt, MUTED)}") + [""]
     return lines
@@ -235,12 +237,12 @@ def flow_lines(st, step, tick, cols):
     wide = cols >= WIDE_COLS
     pipe_w = (cols - GAP) * 2 // 5 if wide else cols
     detail_w = cols - pipe_w - GAP if wide else cols
-    pipeline = box(_pipeline(steps, step, pipe_w - 4, pane), pipe_w, LINE, paint(t("pipeline", pane=pane), TEXT, bold=True))
+    pipeline = box(_pipeline(steps, step, inner_width(pipe_w), pane), pipe_w, LINE, paint(t("pipeline", pane=pane), TEXT, bold=True))
     detail = []
     if steps:
         s = steps[step]
         color = KIND_COLOR.get(s.get("kind"), MUTED)
-        inner = detail_w - 4
+        inner = inner_width(detail_w)
         body = [paint(fit(s.get("location") or "", inner).rstrip(), FAINT), *bullets(s.get("explanation"), inner)]
         code = _code(s, inner)
         state = _state(s, inner, pane)

@@ -39,6 +39,8 @@ Available in English, 한국어 and 日本語.
 
 *Sample data from a made-up project.*
 
+**Browser panel**, in terminals with a built-in browser such as cmux, or in your own browser with `claude-flow`:
+
 | Q&A | Flow |
 |---|---|
 | ![Q&A tab](docs/qa.png) | ![Flow tab](docs/flow.png) |
@@ -163,7 +165,7 @@ flowchart LR
 
 - Everything stays in `~/.claude/side-insights/`, readable only by you.
 - The server listens on 127.0.0.1 and only accepts `127.0.0.1` or `localhost` as host (no DNS rebinding).
-- Pages need `?t=<token>` and API calls need the `X-Claude-Panel` header. The token is in `~/.claude/side-insights/token`.
+- A secret token guards every page and API call. It is created and added to every link for you (`claude-panel`, `claude-flow`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs.
 
 ## Uninstall
 
