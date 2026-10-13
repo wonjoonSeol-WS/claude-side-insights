@@ -138,10 +138,20 @@
   "turns_n": "{0}턴",
   "unknown_err": "알 수 없는 오류",
   "panel_link": "전체 패널 (Flow, 실시간, Q&A):",
-  "term_keys": "이 창을 클릭한 뒤: 1 2 3 탭  ←→ 단계  ↑↓ 스크롤  o 브라우저  q 종료",
   "qa_wait_t": "턴이 끝나길 기다리는 질문 ({0})",
   "qa_wait_d": "Claude가 이 턴을 마치면 점검합니다. 보통 턴이 끝나고 {0}초쯤 걸립니다.",
   "qa_wait_checking": "지금 점검 중입니다. 몇 초 뒤에 결과가 나옵니다.",
   "qa_wait_off": "자동 점검이 꺼져 있습니다. ↻ 버튼으로 점검하세요.",
-  "qa_eta": "질문은 턴이 끝나고 약 {0}초 뒤에 판정됩니다."
+  "qa_eta": "질문은 턴이 끝나고 약 {0}초 뒤에 판정됩니다.",
+  "term_click": "클릭 후",
+  "term_k_tabs": "탭",
+  "term_k_steps": "단계",
+  "term_k_scroll": "스크롤",
+  "term_k_open": "브라우저",
+  "term_k_quit": "종료",
+  "term_ok": "성공",
+  "term_err": "실패 (명령이 오류로 끝남)",
+  "term_lost": "결과 없음 (중단됨)",
+  "term_run": "실행 중",
+  "term_legend": "✓ 성공  ✗ 실패  · 끝나지 않음  ⠋ 실행 중"
 }

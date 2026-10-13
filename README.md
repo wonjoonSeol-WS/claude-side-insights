@@ -47,6 +47,12 @@ Available in English, 한국어 and 日本語.
 
 The Flow tab follows one example through every step. Its values are inferred from the code, not captured at runtime.
 
+**Terminal panel** in iTerm2, Ghostty and Orca: the same three tabs, drawn in the terminal.
+
+| Flow | Live | Q&A |
+|---|---|---|
+| ![Flow](docs/terminal/en-flow.png) | ![Live](docs/terminal/en-live.png) | ![Q&A](docs/terminal/en-qa.png) |
+
 ## Supported terminals
 
 | Terminal | What opens next to Claude | Tested |

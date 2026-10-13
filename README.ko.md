@@ -47,6 +47,12 @@ English, 한국어, 日本語를 지원합니다.
 
 Flow 탭은 예시 하나를 모든 단계에 따라가며 보여 줍니다. 값은 코드에서 추론한 것이고 실행 중에 잡은 값이 아닙니다.
 
+**터미널 패널** (iTerm2, Ghostty, Orca): 같은 세 탭을 터미널에 그립니다.
+
+| Flow | 실시간 | Q&A |
+|---|---|---|
+| ![Flow](docs/terminal/ko-flow.png) | ![실시간](docs/terminal/ko-live.png) | ![Q&A](docs/terminal/ko-qa.png) |
+
 ## 지원하는 터미널
 
 | 터미널 | Claude 옆에 열리는 것 | 테스트 |
