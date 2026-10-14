@@ -90,6 +90,7 @@ export type Actions = {
   pickQuestion: (id: string, press: UiPressArgument) => void
   archive: () => void
   copy: (press: UiPressArgument) => void
+  jump: (id?: string) => void
   recheck: () => void
   rebuild: () => void
   toggleOpenOnly: () => void
@@ -227,6 +228,7 @@ const HINTS: Record<TabValue, [string, string][]> = {
     ['a', 'term_k_archive'],
     ['c', 'term_k_copy'],
     ['r', 'term_k_recheck'],
+    ['m', 'mod_k_jump'],
     ['f', 'term_k_open_only'],
     ['v', 'qa_archived'],
     ['o', 'term_k_open'],
@@ -316,14 +318,14 @@ const faintText = (c: Ctx, key: string, text: string) => {
 
 const RICH = /(`[^`\n]+`|\*\*[^*\n]+\*\*|==[^=\n]+==)/
 
-const rich = (c: Ctx, key: string, text: string, color: Rgb = c.p.text) => {
-  const { Box, Text } = c.ui
+const rich = (c: Ctx, key: string, text: string, color: Rgb = c.p.text, onPress?: () => void) => {
+  const { Box, Text, Button } = c.ui
   const lines = text.replace(/\r/g, '').split('\n')
   return (
     <Box key={key} flexDirection="column">
       {lines.map((raw, i) => {
         const line = raw.replace(/^\s*[-*] /, '• ').replace(/^#+\s*/, '')
-        return (
+        const drawn = (
           <Text key={`${key}-${i}`} color={hex(color)}>
             {line.split(RICH).map((part, k) =>
               part.startsWith('`') && part.endsWith('`') && part.length > 1 ? (
@@ -343,6 +345,13 @@ const rich = (c: Ctx, key: string, text: string, color: Rgb = c.p.text) => {
               ),
             )}
           </Text>
+        )
+        return onPress ? (
+          <Button key={`${key}-press-${i}`} plain onPress={onPress}>
+            {drawn}
+          </Button>
+        ) : (
+          drawn
         )
       })}
     </Box>
@@ -973,15 +982,19 @@ const knownFiles = (c: Ctx) => [...(c.flow?.edited ?? []), ...(c.s?.activity.fil
 
 const changeRow = (c: Ctx, ch: Change, key: string) => {
   const { Box, Text, Button } = c.ui
+  const known = knownFiles(c)
   return [
-    ...changeFiles(ch.file).map((f, k) => (
-      <Box key={`${key}-row-${k}`} flexDirection="row" backgroundColor={selectedBg(c, c.view.file === resolveChange(f, knownFiles(c)))}>
-        <Button key={k ? `${key}-${k}` : key} plain onPress={() => c.act.openFile(resolveChange(f, knownFiles(c)))}>
-          {pill(c, `${key}-mark-${k}`, 'M', c.p.orange)}
-          <Text color={hex(c.p.text)}>{` ${f}`}</Text>
-        </Button>
-      </Box>
-    )),
+    ...changeFiles(ch.file).map((f, k) => {
+      const path = resolveChange(f, known, c.flow?.cwd)
+      return (
+        <Box key={`${key}-row-${k}`} flexDirection="row" backgroundColor={selectedBg(c, c.view.file === path)}>
+          <Button key={k ? `${key}-${k}` : key} plain onPress={() => c.act.openFile(path)}>
+            {pill(c, `${key}-mark-${k}`, 'M', c.p.orange)}
+            <Text color={hex(c.p.text)}>{` ${f}`}</Text>
+          </Button>
+        </Box>
+      )
+    }),
     <Box key={`${key}-what`} paddingLeft={4}>
       <Text color={hex(c.p.muted)}>{ch.what ?? ''}</Text>
     </Box>,
@@ -1333,7 +1346,7 @@ const itemView = (c: Ctx, item: QaItem, n: number) => {
   const tags = [
     ...(item.from === Source.MID_TURN ? [c.t('midturn')] : []),
     ...(item.archived ? [c.t('qa_archived_tag')] : []),
-    ...(item.manual ? [c.t('manual').trim()] : []),
+    ...(item.manual ? [c.t('manual_tag')] : []),
   ]
   const note = itemNote(c, item)
   return (
@@ -1351,7 +1364,7 @@ const itemView = (c: Ctx, item: QaItem, n: number) => {
       {item.answer ? (
         <Box flexDirection="row" paddingLeft={2} columnGap={1} marginTop={1}>
           <Text color={hex(mix(c.p.base, color, 0.6))}>│</Text>
-          {rich(c, `answer-${n}`, item.answer, c.p.muted)}
+          {rich(c, `answer-${n}`, item.answer, c.p.muted, () => c.act.jump(item.id))}
         </Box>
       ) : null}
       {note ? <Text color={hex(c.p.green)}>{`    ↺ ${note}`}</Text> : null}
@@ -1385,6 +1398,7 @@ const qaSummary = (c: Ctx, q: PanelState['qa'] | undefined): RenderChildren[] =>
       keyButton(c, 'archive', 'a', c.t('term_k_archive'), () => c.act.archive()),
       canCopy(findItem(q?.turns ?? [], c.selected)) ? keyButton(c, 'copy', 'c', c.t('term_k_copy'), press => c.act.copy(press)) : null,
       keyButton(c, 'recheck', 'r', c.t('term_k_recheck'), () => c.act.recheck()),
+      keyButton(c, 'jump', 'm', c.t('mod_k_jump'), () => c.act.jump(), !c.selected),
       toggle(c.view.openOnly, 'open-only', 'f', c.t('qa_open_only'), () => c.act.toggleOpenOnly()),
       toggle(c.view.showArchived, 'archived', 'v', c.t('qa_archived'), () => c.act.toggleArchived()),
     ]),

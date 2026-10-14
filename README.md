@@ -102,10 +102,12 @@ Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, 
 | `1` `2` `3` | Flow, Live, Q&A |
 | `p` `n` | Flow: newer / older flow (or click a flow title) |
 | `k` `j` | Flow: previous / next step. Live: previous / next changed file, with its diff |
+| `d` `s` `f` | With a diff open: uncommitted changes, the last commit that touched the file, the whole file |
 | `x` | Close the diff (`git diff`, the new file, or the last commit that touched it) |
 | `r` | Flow: rebuild the flow. Q&A: re-check the selected question (or a failed turn). Press it twice. It uses one Claude call |
 | `a` `c` | Q&A: archive or restore the selected question. Copy it while it is still open |
 | `f` `v` | Q&A: show open questions only, show archived ones |
+| `m` | Q&A: scroll the chat to where you asked the selected question. Clicking a line of an answer does the same. Only the /si pane can do this; a question cleared or compacted out of the chat cannot be reached |
 | `o` | The full page in your browser |
 | `g` | Settings: apply to all panels or this one, language, model, automatic runs, open on session start, theme. `k` `j` pick a setting, `p` `n` change it, `g` closes |
 | `h` | Every key, including Claude Code's own pane keys |
@@ -144,8 +146,8 @@ Run inside Claude Code with a leading `!` (except `si-activity`), for example `!
 Keys in the browser panel:
 
 - `1` `2` `3`: Flow, Live, Q&A
-- `←` `→`: flow steps, `p` `n`: previous / next flow
-- `k` `j`: Live, previous / next edited file with its diff. `x` closes the diff
+- `←` `→`, or `k` `j` on Flow: flow steps. `p` `n`: newer / older flow
+- `k` `j` on Live: previous / next edited file with its diff. `d` `s` `f` switch the diff view, `x` closes it
 - `?`: help, `Esc`: close the dialog
 
 Click a changed file on Live or Flow to see its diff, the same views as /si (uncommitted, last commit, whole file). The count tiles on Live and Q&A filter the list, and clicking a question copies it.
@@ -241,6 +243,7 @@ flowchart LR
 - Everything stays in `~/.claude/side-insights/`, readable only by you.
 - The server listens on 127.0.0.1 and only accepts `127.0.0.1` or `localhost` as host (no DNS rebinding).
 - A secret token guards every page and API call except `/health`. It is created and added to every link for you (`si-panel`, `si-open`), so you never type it. Other web pages and other users on the machine don't have it, so they can't read your activity or start paid runs. The link `si-panel` prints contains the token and ends up in your session transcript. Treat it like a password. `/si-browser` leaves the link out.
+- With the token, the diff view can show any file under the session's working folder, plus files the session edited.
 
 ## Uninstall
 

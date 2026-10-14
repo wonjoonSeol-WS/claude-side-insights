@@ -1,4 +1,4 @@
-import { Kind, RecordStatus, Status, turnRow, type FileChange, type FlowRecord, type FlowRef, type FlowStep, type QaItem, type QaTurn } from './data'
+import { Kind, RecordStatus, Source, Status, turnRow, type FileChange, type FlowRecord, type FlowRef, type FlowStep, type QaItem, type QaTurn } from './data'
 import type { View } from './views'
 
 export const MAX_FILES = 30
@@ -69,7 +69,61 @@ const sameFile = (a: string, b: string) => {
   return !!x && !!y && (x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`))
 }
 
-export const resolveChange = (file: string, known: readonly string[]) => known.find(k => sameFile(k, file)) ?? file
+const MATCH_MIN = 8
+const MESSAGE_PREFIX = 300
+const MAX_MESSAGES = 300
+
+const squashSpaces = (text: string) => text.slice(0, MESSAGE_PREFIX * 2).replace(/\s+/g, ' ').trim().slice(0, MESSAGE_PREFIX)
+
+export const rememberMessage = (shown: Map<string, string>, requestId: string, text: string) => {
+  if (shown.has(requestId)) {
+    return
+  }
+  shown.set(requestId, squashSpaces(text))
+  if (shown.size > MAX_MESSAGES) {
+    shown.delete(shown.keys().next().value as string)
+  }
+}
+
+const newest = (shown: Map<string, string>, test: (message: string) => boolean) => {
+  let found: string | undefined
+  for (const [id, message] of shown) {
+    if (test(message)) {
+      found = id
+    }
+  }
+  return found
+}
+
+const promptMessage = (shown: Map<string, string>, prompt: string | undefined) => {
+  const want = squashSpaces(prompt ?? '')
+  if (!want) {
+    return undefined
+  }
+  const long = (message: string) => Math.min(message.length, want.length) >= MATCH_MIN
+  return newest(shown, m => m === want) ?? newest(shown, m => long(m) && (m.startsWith(want) || want.startsWith(m)))
+}
+
+const messageContaining = (shown: Map<string, string>, question: string | undefined) => {
+  const want = squashSpaces(question ?? '')
+  return want.length >= MATCH_MIN ? newest(shown, m => m.includes(want)) : undefined
+}
+
+export const jumpTargets = (turn: QaTurn, item: QaItem, shown: Map<string, string>) => {
+  const own = item.from === Source.MID_TURN ? [messageContaining(shown, item.question)] : []
+  return [...new Set([...own, turn.turn_id, promptMessage(shown, turn.prompt)].filter((x): x is string => !!x))]
+}
+
+const underDir = (path: string, dir: string | undefined) => !!dir && path.startsWith(`${dir.replace(/\/$/, '')}/`)
+
+export const resolveChange = (file: string, known: readonly string[], cwd?: string) => {
+  const matches = known.filter(k => sameFile(k, file))
+  const found = matches.find(k => underDir(k, cwd)) ?? matches[0]
+  if (found) {
+    return found
+  }
+  return file.startsWith('/') || file.startsWith('~/') || !cwd ? file : `${cwd.replace(/\/$/, '')}/${file}`
+}
 
 export const stepChanges = (s: FlowStep, changes: Change[]) => {
   const file = (s.location ?? '').split(' ')[0] ?? ''

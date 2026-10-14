@@ -2,7 +2,7 @@ import { expect, mock, test, type Engine } from 'claude-code/testing'
 import type { HttpResponse, On } from 'claude-code'
 
 import { Kind, Setting, Status, cells, connect, trimHunks } from '../hooks/mod/data'
-import { changeFiles, resolveChange } from '../hooks/mod/select'
+import { changeFiles, jumpTargets, rememberMessage, resolveChange } from '../hooks/mod/select'
 import { PILL_STRONG_TINT, PILL_TINT, TAB_TINT, TOGGLES, Tab } from '../hooks/mod/views'
 import { AUTO_THEME, DARK, LIGHT, THEMES, hex, mix, resolvePalette, type Palette, type Rgb } from '../hooks/mod/theme'
 import { LOCALES } from './locales'
@@ -113,6 +113,7 @@ type World = {
   up: boolean
   stateStatus?: number
   flowStatus?: number
+  flow?: unknown
   lang?: string
   sid?: string
   env?: Record<string, string>
@@ -208,7 +209,7 @@ const setup = (on: On, world: World) => {
     } else if (path.endsWith('/state')) {
       answer = world.stateStatus ? reply(world.stateStatus, { error: 'Request refused. Reopen the panel and try again.' }) : reply(200, world.current)
     } else if (path === `/api/${KEY}/flow/f2`) {
-      answer = world.flowStatus ? reply(world.flowStatus, { error: 'Flow file is unreadable' }) : reply(200, FLOW)
+      answer = world.flowStatus ? reply(world.flowStatus, { error: 'Flow file is unreadable' }) : reply(200, world.flow ?? FLOW)
     } else if (path === `/api/${KEY}/flow/f1`) {
       answer = reply(200, FLOW_F1)
     } else if (method === 'POST') {
@@ -1225,9 +1226,66 @@ test('a change named relative to another repo opens the edited file there, not t
   await ui.unmount()
 })
 
-test('resolveChange prefers a known path ending in the change file, else keeps the name', () => {
-  expect(resolveChange('README.md', ['~/a/docs/README.md', '/r/x.ts'])).toBe('~/a/docs/README.md')
-  expect(resolveChange('lib/x.ts', ['/r/src/x.ts'])).toBe('lib/x.ts')
+test('a change opens the edited file under the flow folder when several edited files share its name', async ($, on) => {
+  const flow = { ...FLOW, cwd: '/repo', edited: ['/elsewhere/src/checkout/idempotency.ts', '/repo/src/checkout/idempotency.ts'] }
+  const current = { ...STATE, activity: { ...STATE.activity, files: [{ path: '~/other/src/checkout/idempotency.ts', count: 1, created: false, last: 1 }] } }
+  const { clock, runs } = setup(on, { current, up: true, flow, git: DIFF_CASES[0]!.git })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'tab-flow' })
+  await ui.press({ key: 'step-next' })
+  runs.length = 0
+  await ui.press({ key: 'step-change-0' })
+  expect(runs.find(r => r[0] === 'git')?.slice(1, 3)).toEqual(['-C', '/repo/src/checkout'])
+  await ui.unmount()
+})
+
+test('resolveChange prefers a known file under the flow folder, then any known file, then the flow folder', () => {
+  const known = ['/elsewhere/README.md', '/repo/README.md', '/r/x.ts']
+  expect(resolveChange('README.md', known, '/repo'), 'two edited READMEs: the one in the flow folder').toBe('/repo/README.md')
+  expect(resolveChange('README.md', known, '/other'), 'no match under the folder: the first known one').toBe('/elsewhere/README.md')
+  expect(resolveChange('lib/x.ts', known, '/repo'), 'unknown: joined to the flow folder').toBe('/repo/lib/x.ts')
+  expect(resolveChange('~/n/a.md', [], '/repo'), 'home paths stay as they are').toBe('~/n/a.md')
+  expect(resolveChange('lib/x.ts', [])).toBe('lib/x.ts')
+})
+
+test('m, or clicking an answer, says so in the pane when the chat cannot scroll to the question', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'tab-qa' })
+  await ui.press({ key: 'jump' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(EN.mod_jump_failed!.slice(0, 20)) })).toBeDefined()
+  await clock.advance(6000)
+  await ui.press({ key: 'answer-0-press-0' })
+  expect(await ui.find({ type: 'Text', text: new RegExp(EN.mod_jump_failed!.slice(0, 20)) }), 'clicking an answer line jumps too').toBeDefined()
+  await ui.unmount()
+})
+
+test('jumpTargets tries the turn id, then the newest drawn prompt, and a mid-turn question first by the message that contains it', () => {
+  const shown = new Map<string, string>()
+  rememberMessage(shown, 'msg-ok', 'ok')
+  rememberMessage(shown, 'msg-old', 'Fix the retry bug and add a test')
+  rememberMessage(shown, 'msg-prompt', 'Fix the   retry bug and add a test')
+  rememberMessage(shown, 'msg-mid', 'Thanks. Also check the timeout please, and the logs')
+  const turn = { turn_id: 't9', prompt: 'Fix the retry bug' }
+  expect(jumpTargets(turn, { id: 'a', question: 'Fix the retry bug?' }, shown), 'the newest of two equal prompts').toEqual(['t9', 'msg-prompt'])
+  expect(jumpTargets({ turn_id: 't7', prompt: 'ok then refactor the cache layer' }, { id: 'b' }, shown), 'a short message never captures a longer prompt').toEqual(['t7'])
+  expect(jumpTargets(turn, { id: 'c', question: 'check the timeout please', from: 'mid-turn' }, shown), 'a mid-turn question is a fragment of its message').toEqual(['msg-mid', 't9', 'msg-prompt'])
+})
+
+test('rememberMessage keeps the first drawing of a message and forgets the oldest past its cap', () => {
+  const shown = new Map<string, string>()
+  rememberMessage(shown, 'm0', 'first text here')
+  rememberMessage(shown, 'm0', 'redrawn text')
+  expect(shown.get('m0')).toBe('first text here')
+  for (let i = 1; i <= 300; i++) {
+    rememberMessage(shown, `m${i}`, `message number ${i}`)
+  }
+  expect(shown.has('m0')).toBe(false)
+  expect(shown.size).toBe(300)
 })
 
 test('pressing a Live tile filters the tool list to that state, and pressing it again clears it', async ($, on) => {

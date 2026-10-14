@@ -1,4 +1,4 @@
-import type { Register, RenderSurface, UiCopyResult, UiPressArgument } from 'claude-code'
+import type { Register, RenderSurface, UiCopyResult, UiPressArgument, UiScrollResult } from 'claude-code'
 
 import {
   Api,
@@ -26,11 +26,12 @@ import {
   type Messages,
   type PanelState,
   type QaItem,
+  type QaTurn,
   type Reply,
   type ScopeValue,
   type SettingKey,
 } from './data'
-import { MAX_FILES, clampIndex, currentFlow, findItem, isOpen, isShown, selection, sortedFiles } from './select'
+import { MAX_FILES, clampIndex, currentFlow, findItem, isOpen, isShown, jumpTargets, rememberMessage, selection, sortedFiles } from './select'
 import { DARK, hex, resolvePalette, type Palette } from './theme'
 import {
   HERO_KEY,
@@ -392,6 +393,7 @@ const reset = () => {
   mod.seenFlows = undefined
   mod.seenTurns = undefined
   mod.flows = new Map()
+  shownMessages.clear()
   mod.flowLoading = undefined
   mod.confirm = undefined
   mod.diff = undefined
@@ -559,6 +561,10 @@ const goFlow = (id: string | undefined) => {
 }
 
 type Copy = (text: string, surface: RenderSurface) => Promise<UiCopyResult>
+type Scroll = (requestId: string) => Promise<UiScrollResult>
+
+const shownMessages = new Map<string, string>()
+const OWN_PROMPTS = new Set<string>(['composer', 'bridge', 'sdk', 'unclassified'])
 
 const withItem = (act: (item: QaItem, api: Api) => void) => () => {
   const item = selectedItem()
@@ -569,7 +575,7 @@ const withItem = (act: (item: QaItem, api: Api) => void) => () => {
   act(item, mod.api)
 }
 
-const actions = (copyText: Copy): Actions => ({
+const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
   openFile: path => {
     if (mod.diff?.path === path && mod.view.file === path) {
       dropDiff()
@@ -681,6 +687,31 @@ const actions = (copyText: Copy): Actions => ({
   select: id => {
     mod.view.selected = id
     redraw()
+  },
+  jump: async id => {
+    const target = id ?? selectedId()
+    let turn: QaTurn | undefined
+    let item: QaItem | undefined
+    for (const x of qaTurns()) {
+      item = x.items?.find(i => i.id === target)
+      if (item) {
+        turn = x
+        break
+      }
+    }
+    if (!turn || !item) {
+      await say(t(id ? 'mod_jump_failed' : 'mod_no_item'), Tone.WARN)
+      return
+    }
+    mod.view.selected = item.id
+    redraw()
+    for (const requestId of jumpTargets(turn, item, shownMessages)) {
+      const moved: UiScrollResult = await scrollTo(requestId).catch((err: unknown) => ({ deny: String(err) }))
+      if (!moved.deny) {
+        return
+      }
+    }
+    await say(t('mod_jump_failed'), Tone.WARN)
   },
   pickQuestion: (id, press) => {
     mod.view.selected = id
@@ -898,6 +929,13 @@ export const register: Register = on => {
     )
   })
 
+  on('ui.render', { component: 'UserMessage' }, async ($, e, next) => {
+    if (OWN_PROMPTS.has(e.props.origin.kind)) {
+      rememberMessage(shownMessages, e.requestId, e.props.text)
+    }
+    return next(e)
+  }).catch(($, e, next) => next(e))
+
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
     const waiting = mod.state?.qa.waiting.length ?? 0
     if (!waiting) {
@@ -928,7 +966,10 @@ export const register: Register = on => {
       selected: selectedId(),
       flow: id ? mod.flows.get(id) : undefined,
       flowLoading: !!id && mod.flowLoading === id,
-      act: actions((text, surface) => $.ui.copy({ text, surface })),
+      act: actions(
+        (text, surface) => $.ui.copy({ text, surface }),
+        requestId => $.ui.scroll({ to: { requestId }, block: 'start' }),
+      ),
       pageUrl: mod.api?.pageUrl() ?? '',
       problem: problem(),
       diff: mod.diff,

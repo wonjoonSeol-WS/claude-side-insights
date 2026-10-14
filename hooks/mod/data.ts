@@ -101,6 +101,7 @@ export type FlowStep = {
 }
 export type FlowRecord = {
   ts?: number
+  cwd?: string
   edited?: string[]
   status?: string
   error?: string
@@ -352,7 +353,10 @@ export const trimHunks = (text: string, max = MAX_DIFF_LINES): { hunks: string; 
 const NOT_A_REPO = /not a git repository/i
 
 const git = async (io: Io, cwd: string, args: string[]) =>
-  io.run(['git', '-C', cwd, '-c', 'color.ui=never', '-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', ...args], { timeoutMs: GIT_TIMEOUT_MS })
+  io.run(['git', '-C', cwd, '--literal-pathspecs', '-c', 'color.ui=never', '-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', ...args], {
+    timeoutMs: GIT_TIMEOUT_MS,
+    env: { LC_ALL: 'C' },
+  })
 
 const firstLine = (text: string) => text.trim().split('\n')[0]?.trim() || undefined
 
@@ -363,6 +367,9 @@ const none = (error?: string): FileDiff => ({ source: DiffSource.NONE, hunks: ''
 const loadFile = async (io: Io, path: string): Promise<FileDiff> => {
   try {
     const lines = (await io.read(path)).split('\n')
+    if (lines.length > 1 && lines[lines.length - 1] === '') {
+      lines.pop()
+    }
     const shown = lines.slice(0, MAX_DIFF_LINES)
     return { source: DiffSource.FILE, hunks: '', text: shown.join('\n'), cut: lines.length - shown.length }
   } catch (err) {

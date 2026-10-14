@@ -1,11 +1,15 @@
 """File diffs for the browser panel, the same views the /si pane shows: working tree, last commit, whole file."""
+import itertools
 import os
 import re
 import subprocess
 
 MAX_DIFF_LINES = 400
 GIT_TIMEOUT = 5
-VIEWS = ("auto", "working", "commit", "file")
+AUTO, WORKING, COMMIT, FILE = "auto", "working", "commit", "file"
+VIEWS = (AUTO, WORKING, COMMIT, FILE)
+NEW, NONE = "new", "none"
+GIT_ENV = {**os.environ, "LC_ALL": "C"}
 HUNK = re.compile(r"^@@ ")
 HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$")
 NOT_A_REPO = re.compile(r"not a git repository", re.I)
@@ -39,8 +43,8 @@ def trim_hunks(text, limit=MAX_DIFF_LINES):
 
 def _git(cwd, *args):
     try:
-        done = subprocess.run(["git", "-C", cwd, "-c", "color.ui=never", "-c", "core.quotepath=off", "-c", "core.fsmonitor=false", *args],
-                              capture_output=True, text=True, errors="replace", timeout=GIT_TIMEOUT)
+        done = subprocess.run(["git", "-C", cwd, "--literal-pathspecs", "-c", "color.ui=never", "-c", "core.quotepath=off", "-c", "core.fsmonitor=false",
+                               *args], capture_output=True, text=True, errors="replace", timeout=GIT_TIMEOUT, env=GIT_ENV)
         return done.returncode, done.stdout, done.stderr
     except (OSError, subprocess.TimeoutExpired) as exc:
         return 1, "", str(exc)
@@ -51,23 +55,26 @@ def _first_line(text):
 
 
 def _none(error=None):
-    return {"source": "none", "hunks": "", "cut": 0, **({"error": error} if error else {})}
+    return {"source": NONE, "hunks": "", "cut": 0, **({"error": error} if error else {})}
 
 
 def _file(path):
+    if not os.path.isfile(path):
+        return _none("not a regular file")
     try:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            lines = fh.read().split("\n")
+            shown = [line.rstrip("\n") for line in itertools.islice(fh, MAX_DIFF_LINES)]
+            rest = sum(1 for _ in fh)
     except OSError as exc:
         return _none(exc.strerror or str(exc))
-    return {"source": "file", "hunks": "", "text": "\n".join(lines[:MAX_DIFF_LINES]), "cut": max(0, len(lines) - MAX_DIFF_LINES)}
+    return {"source": FILE, "hunks": "", "text": "\n".join(shown), "cut": rest}
 
 
 def _commit(cwd, path):
     code, out, err = _git(cwd, "log", "-1", "--no-ext-diff", "--no-textconv", "-p", "--format=%h %s", "--", path)
     hunks, cut = trim_hunks(out)
     if code == 0 and hunks:
-        return {"source": "commit", "commit": _first_line(out), "hunks": hunks, "cut": cut}
+        return {"source": COMMIT, "commit": _first_line(out), "hunks": hunks, "cut": cut}
     return _none(_first_line(err))
 
 
@@ -75,7 +82,7 @@ def _changes(cwd, path):
     code, out, err = _git(cwd, "diff", "--no-ext-diff", "--no-textconv", "HEAD", "--", path)
     hunks, cut = trim_hunks(out)
     if code == 0 and hunks:
-        return {"source": "working", "hunks": hunks, "cut": cut}, False
+        return {"source": WORKING, "hunks": hunks, "cut": cut}, False
     tracked_code, _, tracked_err = _git(cwd, "ls-files", "--error-unmatch", "--", path)
     if NOT_A_REPO.search(tracked_err) or NOT_A_REPO.search(err):
         return _none(_first_line(tracked_err or err)), True
@@ -83,21 +90,21 @@ def _changes(cwd, path):
         _, added, _ = _git(cwd, "diff", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", path)
         hunks, cut = trim_hunks(added)
         if hunks:
-            return {"source": "new", "hunks": hunks, "cut": cut}, False
+            return {"source": NEW, "hunks": hunks, "cut": cut}, False
     return _none(_first_line(err)), False
 
 
-def load(path, view="auto"):
+def load(path, view=AUTO):
     """The diff of an absolute path, picked like the /si pane: working changes, else the last commit, else the file."""
     cwd = os.path.dirname(path) or "/"
-    if view == "file":
+    if view == FILE:
         return _file(path)
-    if view == "commit":
+    if view == COMMIT:
         return _commit(cwd, path)
     diff, outside = _changes(cwd, path)
-    if view == "working" or diff["source"] != "none":
+    if view == WORKING or diff["source"] != NONE:
         return diff
     if outside:
         return _file(path)
     commit = _commit(cwd, path)
-    return _none(diff.get("error") or commit.get("error")) if commit["source"] == "none" else commit
+    return _none(diff.get("error") or commit.get("error")) if commit["source"] == NONE else commit

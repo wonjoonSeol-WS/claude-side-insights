@@ -18,9 +18,9 @@ from side_insights.i18n import current, messages, t
 from side_insights.language import DEFAULT, Language
 from side_insights.launch import child_env, command_line
 from side_insights.live.activity import ActivityTail, log_path
-from side_insights.web import diff
 from side_insights.paths import (ANALYSIS_LOG, APP_NAME, DATA, ITEM_ID_RE, KEY_RE, PORT, ROOT, TOKEN_HEADER, TURN_ID_RE, api_token,
                                  last_turn_path, read_json)
+from side_insights.web import diff
 
 MAX_BODY = 64 * 1024
 MAX_INDEX_PANES = 40
@@ -241,11 +241,14 @@ class Handler(BaseHTTPRequestHandler):
         return found
 
     def get_diff(self, pane):
-        snap = snapshot(pane)
-        path = _allowed_path(self.param("path"), snap)
-        view = self.param("view") or "auto"
-        if not path or view not in diff.VIEWS:
+        view = self.param("view") or diff.AUTO
+        flow_id = self.param("flow")
+        if view not in diff.VIEWS or (flow_id is not None and not FLOW_ID_RE.match(flow_id)):
             return self.error(400, "err_bad_request", pane=pane)
+        flow = read_json(flow_store.record_path(pane, flow_id)) if flow_id else None
+        path = _allowed_path(self.param("path"), snapshot(pane), flow if isinstance(flow, dict) else None)
+        if not path:
+            return self.error(404, "err_not_found", pane=pane)
         self.json(diff.load(path, view))
 
     def post_override(self, pane):
@@ -330,15 +333,22 @@ def _absolute(path, cwd):
     return os.path.realpath(path if os.path.isabs(path) or not cwd else os.path.join(cwd, path))
 
 
-def _allowed_path(path, snap):
-    """Only files this pane edited, or files under its working directory."""
+def _inside(path, root):
+    return bool(root) and os.path.commonpath([path, os.path.realpath(root)]) == os.path.realpath(root)
+
+
+def _allowed_path(path, snap, flow=None):
+    """Files this pane or the flow edited, or files under their working directories. Never a directory."""
     if not isinstance(path, str) or not path or "\0" in path:
         return None
-    cwd = snap.get("cwd")
+    cwd = (flow or {}).get("cwd") or snap.get("cwd")
     full = _absolute(path, cwd)
-    edited = {_absolute(f["path"], cwd) for f in snap.get("files") or []}
-    root = os.path.realpath(cwd) if cwd else None
-    return full if full in edited or (root and full.startswith(root + os.sep)) else None
+    if os.path.isdir(full):
+        return None
+    edited = {_absolute(f["path"], snap.get("cwd")) for f in snap.get("files") or []}
+    edited |= {_absolute(p, cwd) for p in (flow or {}).get("edited") or [] if isinstance(p, str)}
+    roots = {snap.get("cwd"), (flow or {}).get("cwd")}
+    return full if full in edited or any(_inside(full, root) for root in roots) else None
 
 
 def _valid_regen(target, turn_id, item, scope):

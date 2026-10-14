@@ -8,6 +8,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import locale_fixture  # noqa: E402
 
 MOD = os.path.join(locale_fixture.ROOT, "hooks", "mod")
+PAGE = os.path.join(locale_fixture.ROOT, "src", "side_insights", "web", "app.html")
+DOUBLE_QUOTED = re.compile(r'"([^"\n]*)"')
+PAGE_LABEL_TABLE = re.compile(r"const [A-Z_]+_LABEL = \{([^}]*)\}")
+PAGE_CALL = re.compile(r'(?<![A-Za-z0-9_.])(?:t|text)\("([a-z][a-z0-9_]*)"')
 KEY = re.compile(r"^[a-z][a-z0-9_]*$")
 QUOTED = re.compile(r"'([^'\n]*)'")
 TABLE_ROW = re.compile(r"\[\s*'[^'\n]*',\s*'([^'\n]*)'\s*\]")
@@ -50,6 +54,15 @@ def static_keys():
     return keys
 
 
+def page_keys():
+    with open(PAGE, encoding="utf-8") as fh:
+        source = fh.read()
+    keys = set(PAGE_CALL.findall(source))
+    for table in PAGE_LABEL_TABLE.findall(source):
+        keys.update(k for k in DOUBLE_QUOTED.findall(table) if KEY.match(k))
+    return keys
+
+
 class LocaleTest(unittest.TestCase):
     def test_the_mod_test_fixture_matches_the_locale_files(self):
         with open(locale_fixture.TARGET, encoding="utf-8") as fh:
@@ -60,6 +73,14 @@ class LocaleTest(unittest.TestCase):
         self.assertIn("mod_band_hint", keys)
         self.assertIn("mod_k_close_diff", keys)
         self.assertIn("mod_help_close", keys)
+        for lang in locale_fixture.LANGS:
+            missing = sorted(keys - set(locale_fixture.load(lang)))
+            self.assertEqual(missing, [], lang)
+
+    def test_every_key_the_browser_page_names_is_in_every_language(self):
+        keys = page_keys()
+        self.assertIn("mod_diff_title", keys)
+        self.assertIn("term_ok", keys)
         for lang in locale_fixture.LANGS:
             missing = sorted(keys - set(locale_fixture.load(lang)))
             self.assertEqual(missing, [], lang)
