@@ -744,6 +744,12 @@ test('a server that is down shows the hint and is started at most once a minute,
   expect(startRuns()).toHaveLength(2)
 })
 
+test('a session start runs the server check even when a server answers, so one from an older plugin version is replaced', async ($, on) => {
+  const { clock, runs } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  expect(runs.filter(r => r.join(' ').includes('ensure_panel_server'))).toHaveLength(1)
+})
+
 test('a server that comes back clears the hint and reloads the settings', async ($, on) => {
   const world: World = { current: STATE, up: false }
   const { clock, calls } = setup(on, world)
@@ -759,10 +765,11 @@ test('a server that comes back clears the hint and reloads the settings', async 
 })
 
 for (const status of [403, 500]) {
-  test(`HTTP ${status} shows the server message and never starts the server`, async ($, on) => {
+  test(`HTTP ${status} shows the server message and does not start the server again`, async ($, on) => {
     const { clock, runs } = setup(on, { current: STATE, up: true, stateStatus: status })
     await start($, clock)
-    await clock.advance(10_000)
+    runs.length = 0
+    await clock.advance(120_000)
     const line = (await bandText($, 200)).text ?? ''
     expect(line).toContain('Could not do that: Request refused. Reopen the panel and try again.')
     expect(line).not.toContain('si-panel')

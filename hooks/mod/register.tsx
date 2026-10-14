@@ -944,6 +944,9 @@ export const register: Register = on => {
     )
     mod.timer?.cancel()
     mod.timer = mod.quiet ? undefined : $.clock.every(POLL_MS, () => void poll())
+    if (!mod.quiet && mod.io) {
+      void startServer(mod.io).then(() => poll())
+    }
     for (const { name, description } of COMMANDS) {
       try {
         await $.command.register({ name, description, immediate: true })
