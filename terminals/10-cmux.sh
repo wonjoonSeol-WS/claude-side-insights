@@ -2,7 +2,7 @@
 PANE_ENV=CMUX_PANEL_ID
 CHILD_ENV_PREFIX=CMUX_
 
-term_detect() { [ -n "${CMUX_SURFACE_ID:-}" ] && command -v cmux >/dev/null 2>&1; }
+term_detect() { [ -n "${CMUX_SURFACE_ID:-}" ] && command -v cmux >/dev/null 2>&1 && cmux ping >/dev/null 2>&1; }
 
 term_open() { cmux browser open-split "$2" >/dev/null 2>&1; }
 

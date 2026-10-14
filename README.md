@@ -181,6 +181,8 @@ No. At most two extra Claude calls run after each turn, as a separate `claude -p
 
 A working turn usually makes dozens of model requests on its own, so one or two analysis runs after it are a small share. Many short chat-only turns raise the share, since each still gets a Q&A check.
 
+So turning everything on does not triple your usage. One measurement, with everything on and the default Opus: 288 analysis runs cost about $24 in total (Q&A about $0.06 each, Flow about $0.17 each). A single long working session on the same machine made about 1,850 model requests, roughly $500 at Opus list price going by its token counts, so all 288 runs together came to about 5% of that one session.
+
 **Cost** (Claude Code list-price estimates)
 
 | What | Claude calls | Cost |
@@ -201,6 +203,7 @@ On a subscription this probably counts toward your usage limit (not confirmed). 
 | Why no flow for this turn? | Flows run only after turns that changed files: edits, or shell commands that write files. Press **↻ Rebuild flow**. |
 | Answered later, but still open? | The next check usually fixes it. Otherwise press **↻ Re-check open** or **↻ Re-check this question** (`r` in /si), or click the status in the browser panel. A failed check shows **↻ Re-check this turn**. |
 | How do I hide the panel? | `! si-panel` hides and shows it. It opens by itself only if "Open the panel when a session starts" is on. |
+| `/si-browser` opens my browser instead of a cmux split | The session is running outside cmux, for example as a background job. cmux only accepts commands from processes started inside it, so the panel falls back to your default browser. Start Claude Code in a cmux terminal to get the split. |
 
 **Where data lives**: `~/.claude/side-insights/`
 
