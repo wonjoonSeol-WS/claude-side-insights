@@ -15,6 +15,8 @@ import {
   loadMessages,
   rowTurn,
   Scope,
+  Setting,
+  Analyze,
   DiffView,
   noDiff,
   probeSystemDark,
@@ -40,7 +42,6 @@ import {
   HERO_KEY,
   ON,
   PAD,
-  SCOPE_ROW,
   TOGGLES,
   Tab,
   Tone,
@@ -121,7 +122,7 @@ type Mod = {
   config?: ConfigPayload
 }
 
-const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false, settings: false, scope: Scope.GLOBAL, settingRow: 0 })
+const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArchived: false, help: false, settings: false, settingRow: 0 })
 
 const mod: Mod = {
   quiet: false,
@@ -480,13 +481,12 @@ const assume = (key: SettingKey, value: string | boolean, scope: ScopeValue) => 
   }
 }
 
-const saveSetting = (key: SettingKey, value: string | boolean) => {
+const saveSetting = (key: SettingKey, value: string | boolean, scope: ScopeValue) => {
   const api = mod.api
   const io = mod.io
   if (!api || !io) {
     return
   }
-  const scope = mod.view.scope
   const seq = ++mod.configSeq
   assume(key, value, scope)
   repaint()
@@ -529,12 +529,56 @@ const showDiff = async (path: string, view: DiffViewValue = DiffView.AUTO) => {
   }
 }
 
+const enableHere = async () => {
+  const api = mod.api
+  if (!api || mod.quiet) {
+    return
+  }
+  const reply = await api.config()
+  const cfg = reply.data
+  if (!isOk(reply) || !cfg?.effective || cfg.pane?.enabled) {
+    return
+  }
+  const saved = await api.saveConfig({ [Setting.ENABLED]: true }, Scope.PANE)
+  if (isOk(saved) && saved.data && api === mod.api) {
+    mod.config = saved.data
+    repaint()
+    redraw()
+  }
+  const shared = cfg.global ?? cfg.effective
+  if (shared.analyze === Analyze.ALL) {
+    return
+  }
+  if (shared.qa_auto) {
+    void api.regen({ target: Regen.QA })
+  }
+  if (shared.flow_auto) {
+    void api.regen({ target: Regen.FLOW })
+  }
+}
+
+const reopenIfOn = async (open: (pane: { id: string; title: string }) => Promise<unknown>) => {
+  const api = mod.api
+  if (!api || mod.quiet) {
+    return
+  }
+  const reply = await api.config()
+  if (api !== mod.api || mod.paneOpen || !reply.data?.pane?.enabled) {
+    return
+  }
+  mod.paneOpen = true
+  await open({ id: PANE, title: paneTitle() }).catch(() => {
+    mod.paneOpen = false
+  })
+}
+
 const openBrowserPanel = async (): Promise<string> => {
   const io = mod.io
   const api = mod.api
   if (!io || !api) {
     return t('panel_failed')
   }
+  void enableHere()
   if (mod.env?.cmux) {
     const out = await io.run([`${io.root}/bin/si-panel`], { timeoutMs: BROWSER_TIMEOUT_MS, env: { SIDE_INSIGHTS_NO_LINK: '1' } }).catch(() => undefined)
     return out ? [out.stdout, out.stderr].map(x => x.trim()).filter(Boolean).join('\n') || t('panel_shown') : t('panel_failed')
@@ -643,12 +687,12 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
     }
   },
   settingBy: delta => {
-    const rows = settingRows(mod.config, mod.view.scope, t)
+    const rows = settingRows(mod.config, t)
     mod.view.settingRow = clampIndex(mod.view.settingRow + delta, rows.length)
     redraw()
   },
   settingValue: (delta, row) => {
-    const rows = settingRows(mod.config, mod.view.scope, t)
+    const rows = settingRows(mod.config, t)
     const at = clampIndex(row ?? mod.view.settingRow, rows.length)
     const r = rows[at]
     if (!r) {
@@ -662,12 +706,7 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
       redraw()
       return
     }
-    if (r.key === SCOPE_ROW) {
-      mod.view.scope = next.value === Scope.PANE ? Scope.PANE : Scope.GLOBAL
-      redraw()
-      return
-    }
-    saveSetting(r.key, TOGGLES.includes(r.key) ? next.value === ON : next.value)
+    saveSetting(r.key, TOGGLES.includes(r.key) ? next.value === ON : next.value, r.scope)
   },
   setTab: (tab: TabValue) => {
     dropDiff()
@@ -775,6 +814,27 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
       }, t('qa_checking'))
     })
   },
+  checkNow: () => {
+    const api = mod.api
+    if (!api) {
+      return
+    }
+    if (mod.view.tab === Tab.LIVE) {
+      void poll().then(() => say(t('check_now_refreshed')))
+      return
+    }
+    const target = mod.view.tab === Tab.FLOW ? Regen.FLOW : Regen.QA
+    void confirmed(`check:${target}`).then(ok =>
+      ok ? run(() => api.regen({ target }), t(target === Regen.FLOW ? 'flow_started' : 'qa_checking')) : undefined,
+    )
+  },
+  checkOlder: turnId => {
+    const api = mod.api
+    if (!api) {
+      return
+    }
+    void confirmed(`qa:older:${turnId}`).then(ok => (ok ? run(() => api.regen({ target: Regen.QA, older: turnId }), t('qa_checking')) : undefined))
+  },
   rebuild: () => {
     const api = mod.api
     if (!api) {
@@ -843,6 +903,7 @@ export const register: Register = on => {
       $.session.id(),
     ])
     mod.quiet = !e.isInteractive || !!child
+    mod.paneOpen = false
     bind(
       {
         fetch: (url, init) => $.http.fetch(url, init),
@@ -871,12 +932,14 @@ export const register: Register = on => {
         continue
       }
     }
+    await reopenIfOn(pane => $.ui.open(pane))
     return next(e)
   })
 
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     if (mod.io && mod.env) {
       bind(mod.io, { ...mod.env, session: await $.session.id() })
+      await reopenIfOn(pane => $.ui.open(pane))
     }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -886,6 +949,7 @@ export const register: Register = on => {
   on('command.run', { command: PANE_COMMANDS }, async $ => {
     mod.paneOpen = true
     await $.ui.open({ id: PANE, title: paneTitle(), focus: true })
+    void enableHere()
     const io = mod.io
     if (io && (await loadTheme(io))) {
       redraw()
@@ -897,6 +961,13 @@ export const register: Register = on => {
   on('ui.close', { id: PANE }, async ($, e, next) => {
     mod.paneOpen = false
     animate(false)
+    if (e.origin.kind === 'person' && mod.api && !mod.quiet) {
+      void mod.api.saveConfig({ [Setting.ENABLED]: false }, Scope.PANE).then(saved => {
+        if (isOk(saved) && saved.data) {
+          mod.config = saved.data
+        }
+      })
+    }
     return next(e)
   }).catch(($, e, next) => next(e))
 

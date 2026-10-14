@@ -81,18 +81,19 @@ const element = () => ({
   focus() {},
 })
 
-async function openPage({ state = STATE, mode = 'live', diff } = {}) {
+async function openPage({ state = STATE, mode = 'live', diff, pane = {} } = {}) {
   const requests = []
   const handlers = {}
   const copied = []
   const els = { app: element(), toast: element(), tip: element() }
   const fetch = async (url, init = {}) => {
     const u = new URL(url, 'http://127.0.0.1:47821')
-    requests.push({ method: init.method || 'GET', path: u.pathname, params: u.searchParams })
+    requests.push({ method: init.method || 'GET', path: u.pathname, params: u.searchParams, body: init.body })
     const body = u.pathname.endsWith('/state') ? state
       : u.pathname.endsWith('/flow/f1') ? FLOW
       : u.pathname.endsWith('/diff') ? (diff ? diff(u.searchParams) : { source: 'working', hunks: HUNK, cut: 0 })
-      : u.pathname === '/api/config' ? { global: {}, pane: {}, effective: { theme: 'auto' }, models: ['opus'], langs: [], themes: ['auto', 'dark', 'light'] }
+      : u.pathname === '/api/config' ? { global: { analyze: 'opened', flow_auto: true, qa_auto: true, model: 'opus', lang: 'en', theme: 'auto' }, pane,
+        effective: { ...pane, theme: 'auto' }, models: ['opus'], langs: [], themes: ['auto', 'dark', 'light'], analyze: ['opened', 'all'] }
       : { ok: true }
     return { ok: true, status: 200, statusText: 'OK', json: async () => body }
   }
@@ -234,4 +235,45 @@ test('a new finished flow is announced, a pending one only once it finishes', as
   const done = { ...pending, flows: [{ ...pending.flows[0], status: 'ok' }, ...STATE.flows] }
   await page.run(`absorbState(${JSON.stringify(done)})`)
   assert.equal(page.toast(), EN.mod_toast_flow.replace('{0}', 'Later'))
+})
+
+const posted = page => page.requests.filter(r => r.method === 'POST').map(r => `${r.path}?${r.params}${r.body ? ` ${r.body}` : ''}`)
+
+test('opening a panel page switches the panel on and checks what is already there, unless it already has a value', async () => {
+  const page = await openPage()
+  assert.deepEqual(posted(page).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow', '/api/pane1/regen?target=qa'])
+  const off = await openPage({ pane: { enabled: false } })
+  assert.deepEqual(posted(off), [])
+})
+
+test('settings show this panel, which sessions, and the shared switches, each saved to its own scope', async () => {
+  const page = await openPage({ pane: { enabled: true } })
+  await page.run('openDialog("settings")')
+  const html = page.html()
+  for (const key of ['s_enabled', 's_analyze', 's_flow_auto', 's_qa_auto']) assert.ok(html.includes(EN[key].replace(/&/g, '&amp;')), key)
+  assert.match(html, /data-setting="enabled" data-setting-scope="pane"/)
+  assert.match(html, /data-setting="analyze" data-setting-scope="global"/)
+  assert.match(html, new RegExp(EN.analyze_all))
+  await page.run('saveSetting({ analyze: "all" }, "global")')
+  assert.ok(posted(page).includes('/api/config? {"analyze":"all"}'))
+  await page.run('saveSetting({ enabled: false }, "pane")')
+  assert.ok(posted(page).includes('/api/config?pane=pane1 {"enabled":false}'))
+})
+
+test('check now builds the flow on Flow, checks pending turns on Q&A, and only refreshes Live', async () => {
+  for (const [mode, target] of [['flow', 'flow'], ['qa', 'qa'], ['live', null]]) {
+    const page = await openPage({ mode, pane: { enabled: true } })
+    await page.key('u')
+    const regens = posted(page).filter(p => p.includes('/regen'))
+    assert.deepEqual(regens, target ? [`/api/pane1/regen?target=${target}`] : [], mode)
+  }
+})
+
+test('a check that skipped older turns offers to check the next ten of them', async () => {
+  const turn = { ...STATE.qa.turns[0], skipped_turns: 15 }
+  const page = await openPage({ mode: 'qa', pane: { enabled: true }, state: { ...STATE, qa: { ...STATE.qa, turns: [turn] } } })
+  assert.match(page.html(), new RegExp(EN.qa_skipped.replace('{0}', '15')))
+  assert.match(page.html(), new RegExp(EN.check_older.replace('{0}', '10').replace('↻', '.')))
+  await page.click({ qaOlder: 't1' })
+  assert.ok(posted(page).includes('/api/pane1/regen?target=qa&older=t1'))
 })

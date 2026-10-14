@@ -264,6 +264,7 @@ const MIN_HIGHLIGHT = 3;
 const TOOLS_IN_FLOW = 12;
 const TOOLS_IN_LIVE = 200;
 const MAX_FILES = 30;
+const PENDING_BATCH = 10;
 const TOOL_STATES = [TOOL.OK, TOOL.ERR, TOOL.RUN];
 const TOOL_COLOR = { [TOOL.OK]: "var(--green)", [TOOL.ERR]: "var(--red)", [TOOL.RUN]: "var(--orange)" };
 const TOOL_LABEL = { [TOOL.OK]: "term_ok", [TOOL.ERR]: "term_err", [TOOL.RUN]: "term_run" };
@@ -304,7 +305,7 @@ const S = {
   state: null, flows: [], pending: null, qa: { turns: [], pending: false }, flowCache: {}, flowId: null,
   seenFlows: null, seenTurns: null, playing: null, error: null, sig: null, panes: null,
   qaPage: 1, qaOnlyOpen: false, qaArchived: false, qaPageTurns: [], busyIds: new Set(), scrolledFlowId: null,
-  config: null, scope: PARAMS.get("scope") === SCOPE.PANE ? SCOPE.PANE : SCOPE.GLOBAL, settingsMsg: null, returnFocus: null,
+  config: null, settingsMsg: null, returnFocus: null,
   polling: null, toolFilter: null, toolOpen: null, qaStatus: null, diff: null,
 };
 const touch = () => { S.lastTouch = Date.now(); };
@@ -492,7 +493,7 @@ function renderPanel() {
       : S.state.busy ? `<span class="pill busy"><i class="dot"></i>${t("busy")}</span>` : `<span class="pill"><i class="dot"></i>${t("idle")}</span>`}
     ${mode === "flow" && S.pending ? `<span class="pill gen"><i class="dot"></i>${t("flow_gen")} <span data-since="${Number(S.pending.since) || 0}"></span></span>` : ""}
     <span class="where" title="${esc(S.state.cwd || "")}">${esc((S.state.cwd || "").split("/").pop())}</span>
-    ${mode === "flow" ? `<button class="btn" data-act="regen" title="${t("regen_title")}">${t("regen")}</button>` : ""}
+    <button class="btn" data-act="check-now" title="${t(`check_now_${mode}`)}">${t("check_now")}</button>
     ${FULL ? "" : `<button class="btn" data-act="full" title="${t("full_title")}">${t("full")}</button>`}
     <button class="btn" data-act="help" title="${t("k_help")}">${t("help")}</button>
     <button class="btn" data-act="settings">${t("settings")}</button>
@@ -748,6 +749,8 @@ function renderTurn(turn, items) {
     <span>${esc(turn.model || "")}${turn.scope === SCOPE_THROUGH_END ? t("through_end") : ""}</span>
     ${turn.status !== REC.OK ? `<button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button>` : ""}</div>
     ${turn.status !== REC.OK ? `<div class="err-box">${esc(turn.error || text("qa_fail"))}</div>` : ""}
+    ${turn.skipped_turns ? `<div class="meta">${t("qa_skipped", Number(turn.skipped_turns))} <button class="mini" data-qa-older="${esc(turn.turn_id)}"
+      title="${t("check_older_title")}">${t("check_older", Math.min(Number(turn.skipped_turns), PENDING_BATCH))}</button></div>` : ""}
     <div class="qa">${rows || (turn.status === REC.OK ? `<div class="empty">${t("qa_noq")}</div>` : "")}</div></div>`;
 }
 
@@ -873,31 +876,27 @@ function renderHelpBody() {
       ${row("<kbd>d</kbd> <kbd>s</kbd> <kbd>f</kbd>", `${t("mod_view_working")} / ${t("mod_view_commit")} / ${t("mod_view_file")}`)}${row("<kbd>x</kbd>", t("mod_k_close_diff"))}${row("<kbd>?</kbd>", t("k_help"))}${row("<kbd>Esc</kbd>", t("k_escape"))}</table>
     <h4>${t("help_settings")}</h4><table>
       ${row(`model = ${esc(c.model)}`, t("s_model"))}${row(`lang = ${esc(c.lang)}`, t("s_lang"))}
-      ${row(`flow_auto = ${c.flow_auto ? 1 : 0}`, t("s_flow_auto"))}${row(`qa_auto = ${c.qa_auto ? 1 : 0}`, t("s_qa_auto"))}${row(`panel_auto = ${c.panel_auto ? 1 : 0}`, t("s_panel_auto"))}${row(`theme = ${esc(c.theme)}`, t("s_theme"))}</table>`;
+      ${row(`analyze = ${esc(c.analyze)}`, t("s_analyze"))}${row(`enabled = ${c.enabled ? 1 : 0}`, t("s_enabled"))}${row(`flow_auto = ${c.flow_auto ? 1 : 0}`, t("s_flow_auto"))}${row(`qa_auto = ${c.qa_auto ? 1 : 0}`, t("s_qa_auto"))}${row(`panel_auto = ${c.panel_auto ? 1 : 0}`, t("s_panel_auto"))}${row(`theme = ${esc(c.theme)}`, t("s_theme"))}</table>`;
 }
 
 function renderSettingsBody() {
   const c = S.config;
-  const paneScope = S.scope === SCOPE.PANE && KEY;
-  const values = paneScope ? c.effective : c.global;
-  const scoped = name => KEY && name in (c.pane || {})
-    ? `<span class="scoped">${t("pane_override")}</span>${paneScope ? ` <button class="mini" data-reset-setting="${name}">${t("follow_global")}</button>` : ""}` : "";
-  const toggle = (name, label) => `<label><input type="checkbox" data-setting="${name}" aria-label="${label}" ${values[name] ? "checked" : ""}> ${values[name] ? t("on") : t("off")}</label>`;
-  const select = (name, label, options) => `<select class="btn" data-setting="${name}" aria-label="${label}">${options.map(o =>
-    `<option value="${esc(o.value)}" ${o.value === values[name] ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select>`;
-  const models = [...new Set([...c.models, values.model])].map(m => ({ value: m, label: m }));
+  const valueOf = (name, scope) => (scope === SCOPE.PANE ? c.effective : c.global)[name];
+  const attrs = (name, scope, label) => `data-setting="${name}" data-setting-scope="${scope}" aria-label="${label}"`;
+  const toggle = (name, scope = SCOPE.GLOBAL) => `<label><input type="checkbox" ${attrs(name, scope, t(`s_${name}`))} ${valueOf(name, scope) ? "checked" : ""}> ${valueOf(name, scope) ? t("on") : t("off")}</label>`;
+  const select = (name, options) => `<select class="btn" ${attrs(name, SCOPE.GLOBAL, t(`s_${name}`))}>${options.map(o =>
+    `<option value="${esc(o.value)}" ${o.value === c.global[name] ? "selected" : ""}>${esc(o.label)}</option>`).join("")}</select>`;
+  const row = (name, control) => `<tr><td>${t(`s_${name}`)}</td><td>${control}</td></tr>`;
+  const models = [...new Set([...c.models, c.global.model])].map(m => ({ value: m, label: m }));
   const langs = c.langs.map(l => ({ value: l.code, label: l.label }));
-  const row = (name, label, control) => `<tr><td>${label}${scoped(name)}</td><td>${control}</td></tr>`;
-  const scopeSwitch = KEY ? `<p>${t("scope_label")}: <select class="btn" data-scope aria-label="${t("scope_label")}">
-    <option value="${SCOPE.GLOBAL}" ${!paneScope ? "selected" : ""}>${t("scope_global")}</option>
-    <option value="${SCOPE.PANE}" ${paneScope ? "selected" : ""}>${t("scope_pane")}</option></select></p>` : "";
-  return `<p>${t("settings_note")}</p>${scopeSwitch}<table>
-    ${row("model", t("s_model"), select("model", t("s_model"), models))}
-    ${row("lang", t("s_lang"), select("lang", t("s_lang"), langs))}
-    ${row("flow_auto", t("s_flow_auto"), toggle("flow_auto", t("s_flow_auto")))}
-    ${row("qa_auto", t("s_qa_auto"), toggle("qa_auto", t("s_qa_auto")))}
-    ${row("panel_auto", t("s_panel_auto"), toggle("panel_auto", t("s_panel_auto")))}
-    ${row("theme", t("s_theme"), select("theme", t("s_theme"), list(c.themes).map(th => ({ value: th, label: text(`theme_${th}`) }))))}</table>
+  const analyze = list(c.analyze).map(a => ({ value: a, label: text(`analyze_${a}`) }));
+  return `<p>${t("settings_note")}</p><table>
+    ${KEY ? row("enabled", toggle("enabled", SCOPE.PANE)) : ""}
+    ${row("analyze", select("analyze", analyze))}
+    ${row("flow_auto", toggle("flow_auto"))}${row("qa_auto", toggle("qa_auto"))}
+    ${row("lang", select("lang", langs))}${row("model", select("model", models))}
+    ${row("panel_auto", toggle("panel_auto"))}
+    ${row("theme", select("theme", list(c.themes).map(th => ({ value: th, label: text(`theme_${th}`) }))))}</table>
     ${S.settingsMsg ? `<p class="${S.settingsMsg.ok ? "msg-ok" : "msg-err"}">${esc(S.settingsMsg.text)}</p>` : ""}`;
 }
 
@@ -920,8 +919,8 @@ function closeDialog() {
   S.returnFocus = null;
 }
 
-async function saveSetting(update) {
-  const pane = S.scope === SCOPE.PANE && KEY ? `?pane=${KEY}` : "";
+async function saveSetting(update, scope = SCOPE.GLOBAL) {
+  const pane = scope === SCOPE.PANE && KEY ? `?pane=${KEY}` : "";
   const before = S.config?.effective?.lang;
   const r = await api("POST", `/api/config${pane}`, update);
   if (!r.ok) {
@@ -934,7 +933,6 @@ async function saveSetting(update) {
     const url = new URL(location.href);
     url.searchParams.delete("lang");
     url.searchParams.set("dialog", DIALOG.SETTINGS);
-    url.searchParams.set("scope", S.scope);
     return location.replace(url);
   }
   S.settingsMsg = { ok: true, text: text("saved") };
@@ -1037,21 +1035,17 @@ async function openFull() {
   if (!r.ok) notify(r.error, true);
 }
 
-async function resetSetting(name) {
-  await saveSetting({ [name]: null });
-  document.querySelector(`[data-setting="${CSS.escape(name)}"]`)?.focus();
-}
-
 function setQaFilter(key, checked) {
   S[key] = checked;
   S.qaPage = 1;
   render();
 }
 
-async function regen(target, turn, item, scope, turns) {
+async function regen(target, turn, item, scope, turns, older) {
   touch();
   const query = `target=${target}${turn ? `&turn=${encodeURIComponent(turn)}` : ""}${item ? `&item=${encodeURIComponent(item)}` : ""}`
-    + `${scope ? `&scope=${scope}` : ""}${turns && turns.length ? `&turns=${turns.map(encodeURIComponent).join(",")}` : ""}`;
+    + `${scope ? `&scope=${scope}` : ""}${turns && turns.length ? `&turns=${turns.map(encodeURIComponent).join(",")}` : ""}`
+    + `${older ? `&older=${encodeURIComponent(older)}` : ""}`;
   const r = await api("POST", `/api/${KEY}/regen?${query}`);
   if (!r.ok) return notify(r.error, true);
   notify(text(target === "qa" ? "qa_checking" : "flow_started"));
@@ -1068,7 +1062,7 @@ const ACTIONS = {
   next: () => go(S.step + 1),
   play: togglePlay,
   full: openFull,
-  regen: () => regen("flow", null),
+  "check-now": () => checkNow(),
   "qa-regen": () => regen("qa", null, null, "open", S.qaPageTurns),
   "diff-close": () => { S.diff = null; render(); },
 };
@@ -1083,9 +1077,9 @@ const ITEM_ACTIONS = {
 };
 
 const DATA_ACTIONS = {
-  resetSetting: resetSetting,
   qaPage: page => { S.qaPage = Number(page); render(); window.scrollTo(0, 0); },
   qaTurn: turn => regen("qa", turn),
+  qaOlder: turn => regen("qa", null, null, null, null, turn),
   mode: mode => setMode(mode),
   flow: async id => { selectFlow(id); S.mode = "flow"; await loadFlow(); render(); },
   step: n => go(Number(n)),
@@ -1116,9 +1110,8 @@ document.addEventListener("click", e => {
 
 document.addEventListener("change", e => {
   const target = e.target;
-  if (target.dataset.scope !== undefined) { S.scope = target.value; S.settingsMsg = null; return render(); }
   const name = target.dataset.setting;
-  if (name) saveSetting({ [name]: target.type === "checkbox" ? target.checked : target.value });
+  if (name) saveSetting({ [name]: target.type === "checkbox" ? target.checked : target.value }, target.dataset.settingScope);
 });
 
 document.addEventListener("keydown", e => {
@@ -1130,6 +1123,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") { touch(); go(S.step + (e.key === "ArrowRight" ? 1 : -1)); }
   if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[role=button]")) { e.preventDefault(); return e.target.click(); }
   if (e.key === "x" && S.diff) { S.diff = null; return render(); }
+  if (e.key === "u") { touch(); return checkNow(); }
   if (DIFF_KEY_VIEW[e.key] && S.diff) return showDiff(S.diff.path, DIFF_KEY_VIEW[e.key]);
   if ((e.key === "j" || e.key === "k") && !e.repeat) {
     touch();
@@ -1139,6 +1133,11 @@ document.addEventListener("keydown", e => {
   }
   if ((e.key === "n" || e.key === "p") && S.mode === "flow") { touch(); flowBy(e.key === "n" ? 1 : -1); }
 });
+
+function checkNow() {
+  if (S.mode === "live") return poll(true).then(() => notify(text("check_now_refreshed")));
+  return regen(S.mode === "flow" ? "flow" : "qa", null);
+}
 
 function fileBy(delta) {
   const files = sortedFiles().slice(0, MAX_FILES);
@@ -1188,7 +1187,17 @@ document.addEventListener("pointerover", e => {
 document.addEventListener("pointerleave", hideTip);
 addEventListener("scroll", hideTip, true);
 
+async function enableHere() {
+  const r = await api("GET", `/api/config?pane=${KEY}`);
+  if (!r.ok || "enabled" in (r.data.pane || {})) return;
+  await api("POST", `/api/config?pane=${KEY}`, { enabled: true });
+  if (r.data.global.analyze === "all") return;
+  if (r.data.global.qa_auto) api("POST", `/api/${KEY}/regen?target=qa`);
+  if (r.data.global.flow_auto) api("POST", `/api/${KEY}/regen?target=flow`);
+}
+
 (async () => {
+  if (KEY) enableHere();
   if (S.dialog) await openDialog(S.dialog);
   await poll(true);
   setInterval(() => {

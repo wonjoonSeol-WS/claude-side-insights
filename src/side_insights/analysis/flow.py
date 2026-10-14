@@ -190,7 +190,7 @@ def main():
     pane, transcript, cwd = args
     force = "--force" in sys.argv
     settings = config.load(pane)
-    if not settings["flow_auto"] and not force:
+    if not config.runs("flow", pane) and not force:
         return
     if not force:
         wait_until_written(transcript)

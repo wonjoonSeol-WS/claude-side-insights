@@ -15,6 +15,9 @@ PATH = os.path.join(DATA, "config.json")
 MODELS = ("opus", "sonnet", "haiku")
 AUTO_THEME = "auto"
 THEMES = (AUTO_THEME, "dark", "light")
+OPENED = "opened"
+ALL_SESSIONS = "all"
+ANALYZE = (OPENED, ALL_SESSIONS)
 _MODEL_RE = re.compile(r"^(%s|claude-[a-z0-9.-]+)$" % "|".join(MODELS))
 _SAVE_LOCK = threading.Lock()
 
@@ -24,6 +27,8 @@ class Setting(Enum):
     LANG = ("lang", DEFAULT_LANGUAGE.code)
     FLOW_AUTO = ("flow_auto", True)
     QA_AUTO = ("qa_auto", True)
+    ANALYZE = ("analyze", OPENED)
+    ENABLED = ("enabled", False)
     PANEL_AUTO = ("panel_auto", False)
     THEME = ("theme", AUTO_THEME)
 
@@ -38,6 +43,8 @@ class Setting(Enum):
             return Language.from_code(value) is not None
         if self is Setting.THEME:
             return value in THEMES
+        if self is Setting.ANALYZE:
+            return value in ANALYZE
         return isinstance(value, bool)
 
 
@@ -92,8 +99,15 @@ def save(update, pane=None):
     return load(pane)
 
 
+def runs(kind, pane=None):
+    """Whether the end of a turn starts this analysis ("flow" or "qa") for the pane: switched on, and the pane opened or all sessions."""
+    shared, settings = load(), load(pane)
+    return bool(shared[f"{kind}_auto"]) and (shared["analyze"] == ALL_SESSIONS or bool(settings["enabled"]))
+
+
 def payload(pane=None):
     return {"global": load(), "pane": overrides(pane), "effective": load(pane), "models": list(MODELS), "themes": list(THEMES),
+            "analyze": list(ANALYZE),
             "langs": [{"code": lang.code, "label": lang.label} for lang in Language]}
 
 

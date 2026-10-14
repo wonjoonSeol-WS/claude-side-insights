@@ -199,7 +199,8 @@ const setup = (on: On, world: World) => {
       if (method === 'POST') {
         const update = JSON.parse(e.init?.body ?? '{}') as Partial<Settings>
         if (pane) {
-          world.panes = { ...world.panes, [pane]: { ...world.panes?.[pane], ...update } }
+          const merged = { ...world.panes?.[pane], ...update } as Record<string, unknown>
+          world.panes = { ...world.panes, [pane]: Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== null)) as Partial<Settings> }
         } else {
           configPayload(world, null)
           world.global = { ...world.global!, ...update }
@@ -1372,7 +1373,7 @@ const settingText = async (ui: { find: (q: object) => Promise<{ text?: string } 
 
 const posts = (calls: Call[]) => calls.filter(c => c.method === 'POST' && c.url.includes('/api/config')).map(c => ({ url: c.url, body: JSON.parse(c.body ?? '{}') }))
 
-test('settings rows move with j and k, change with n and p or a press, and save for all panels or this one', async ($, on) => {
+test('settings rows move with j and k, change with n and p or a press, and only this panel\'s row saves for the panel', async ($, on) => {
   const world: World = { current: STATE, up: true }
   const { clock, calls } = setup(on, world)
   await start($, clock)
@@ -1382,41 +1383,83 @@ test('settings rows move with j and k, change with n and p or a press, and save 
     expect(await ui.find({ key: 'setting-next' }), 'the row keys are drawn only in settings').toBeUndefined()
     await ui.press({ key: 'settings' })
     expect(await ui.find({ type: 'Select' }), 'no engine-coloured Select').toBeUndefined()
-    expect(await settingText(ui, 'scope')).toContain('▶')
+    expect(await settingText(ui, Setting.ENABLED), 'whether this panel is analyzed comes first').toContain('▶')
     expect((await ui.find({ key: 'footer' }))?.text).toContain(EN.mod_k_setting_rows)
     await ui.press({ key: 'setting-prev' })
-    expect(await settingText(ui, 'scope'), 'k at the top stays').toContain('▶')
-    await ui.press({ key: 'setting-next' })
-    await ui.press({ key: 'setting-next' })
+    expect(await settingText(ui, Setting.ENABLED), 'k at the top stays').toContain('▶')
+    for (let i = 0; i < 5; i++) {
+      await ui.press({ key: 'setting-next' })
+    }
     expect(await settingText(ui, 'model')).toContain('▶')
     const models = ['opus', 'sonnet', 'haiku']
     const before = models.indexOf(world.global!.model)
     const wanted = models[(before + models.length - 1) % models.length]!
     calls.length = 0
     await ui.press({ key: 'setting-value-prev' })
-    expect(posts(calls), 'p goes to the previous option, wrapping').toEqual([{ url: 'http://127.0.0.1:47821/api/config', body: { model: wanted } }])
+    expect(posts(calls), 'p goes to the previous option, wrapping, for all panels').toEqual([{ url: 'http://127.0.0.1:47821/api/config', body: { model: wanted } }])
     expect(await settingText(ui, 'model')).toContain(wanted)
     calls.length = 0
-    await ui.press({ key: 'set-scope' })
-    expect(await settingText(ui, 'scope')).toContain(EN.scope_pane)
-    expect(await settingText(ui, 'scope'), 'pressing a value also moves the highlight').toContain('▶')
-    expect(posts(calls), 'the scope is not a saved setting').toEqual([])
-    for (let i = 0; i < 4; i++) {
-      await ui.press({ key: 'setting-next' })
-    }
-    expect(await settingText(ui, Setting.QA_AUTO)).toContain('▶')
-    const qaAuto = world.panes?.[KEY]?.qa_auto ?? world.global!.qa_auto
-    await ui.press({ key: 'setting-value-next' })
-    expect(posts(calls)).toEqual([{ url: `http://127.0.0.1:47821/api/config?pane=${KEY}`, body: { qa_auto: !qaAuto } }])
+    const enabled = !!(world.panes?.[KEY] as { enabled?: boolean } | undefined)?.enabled
+    await ui.press({ key: `set-${Setting.ENABLED}` })
+    expect(await settingText(ui, Setting.ENABLED), 'pressing a value also moves the highlight').toContain('▶')
+    expect(posts(calls), 'the panel row saves for this panel only').toEqual([{ url: `http://127.0.0.1:47821/api/config?pane=${KEY}`, body: { enabled: !enabled } }])
+    calls.length = 0
+    const analyze = (world.global as { analyze?: string } | undefined)?.analyze ?? 'opened'
+    await ui.press({ key: `set-${Setting.ANALYZE}` })
+    const flipped = analyze === 'all' ? 'opened' : 'all'
+    expect(posts(calls), 'which sessions is one switch shared by every panel').toEqual([{ url: 'http://127.0.0.1:47821/api/config', body: { analyze: flipped } }])
+    expect(await settingText(ui, Setting.ANALYZE)).toContain(EN[`analyze_${flipped}`]!)
+    calls.length = 0
+    const qaAuto = world.global!.qa_auto
+    await ui.press({ key: `set-${Setting.QA_AUTO}` })
+    expect(posts(calls), 'so are the analyses themselves').toEqual([{ url: 'http://127.0.0.1:47821/api/config', body: { qa_auto: !qaAuto } }])
     for (let i = 0; i < 9; i++) {
       await ui.press({ key: 'setting-next' })
     }
     expect(await settingText(ui, Setting.THEME), 'j at the bottom stays on the last row').toContain('▶')
-    await ui.press({ key: 'set-scope' })
+    for (let i = 0; i < 9; i++) {
+      await ui.press({ key: 'setting-prev' })
+    }
     await ui.press({ key: 'tab-qa' })
-    expect(await ui.find({ key: 'setting-scope' }), 'a tab press leaves settings').toBeUndefined()
+    expect(await ui.find({ key: `setting-${Setting.ENABLED}` }), 'a tab press leaves settings').toBeUndefined()
     await ui.unmount()
   }
+})
+
+test('opening /si switches this panel on and checks what is already there, once', async ($, on) => {
+  const world: World = { current: STATE, up: true }
+  const { clock, calls } = setup(on, world)
+  await start($, clock)
+  calls.length = 0
+  await $.command.run(RUN_SI)
+  await clock.advance(10)
+  expect(posts(calls)).toEqual([{ url: `http://127.0.0.1:47821/api/config?pane=${KEY}`, body: { enabled: true } }])
+  expect(calls.filter(c => c.url.includes('/regen')).map(c => new URL(c.url).searchParams.get('target')).sort(), 'the turns so far are checked in the background').toEqual(['flow', 'qa'])
+  calls.length = 0
+  await $.command.run(RUN_SI)
+  await clock.advance(10)
+  expect(calls.filter(c => c.method === 'POST'), 'a second open while on changes nothing').toEqual([])
+  world.panes = { [KEY]: { enabled: false } as Partial<Settings> }
+  calls.length = 0
+  await $.command.run(RUN_SI)
+  await clock.advance(10)
+  expect(posts(calls), 'a panel switched off is switched back on by opening it').toEqual([{ url: `http://127.0.0.1:47821/api/config?pane=${KEY}`, body: { enabled: true } }])
+})
+
+test('a panel that is on reopens /si by itself when a session starts there', async ($, on) => {
+  const world: World = { current: STATE, up: true, panes: { [KEY]: { enabled: true } as Partial<Settings> } }
+  const { clock, opened } = setup(on, world)
+  await start($, clock)
+  await clock.advance(10)
+  expect(opened.length, 'on: the pane opens without being asked').toBe(1)
+})
+
+test('a panel that is off, or was never opened, does not open /si by itself', async ($, on) => {
+  const world: World = { current: STATE, up: true, panes: { [KEY]: { enabled: false } as Partial<Settings> } }
+  const { clock, opened } = setup(on, world)
+  await start($, clock)
+  await clock.advance(10)
+  expect(opened.length).toBe(0)
 })
 
 test('saving a setting uses the reply instead of fetching the settings again, and keeps this panel\'s own values', async ($, on) => {
@@ -1427,8 +1470,9 @@ test('saving a setting uses the reply instead of fetching the settings again, an
   const ui = await mountPane($)
   await ui.press({ key: 'settings' })
   expect(await settingText(ui, 'lang'), 'this panel is in Korean').toContain(KO.s_lang!)
-  await ui.press({ key: 'setting-next' })
-  await ui.press({ key: 'setting-next' })
+  for (let i = 0; i < 5; i++) {
+    await ui.press({ key: 'setting-next' })
+  }
   calls.length = 0
   await ui.press({ key: 'setting-value-next' })
   expect(posts(calls)[0]?.url, 'saved for all panels').toBe('http://127.0.0.1:47821/api/config')
@@ -1445,8 +1489,9 @@ test('two quick changes end on the last one even when the first reply comes back
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'settings' })
-  await ui.press({ key: 'setting-next' })
-  await ui.press({ key: 'setting-next' })
+  for (let i = 0; i < 5; i++) {
+    await ui.press({ key: 'setting-next' })
+  }
   await ui.press({ key: 'setting-value-next' })
   await ui.press({ key: 'setting-value-next' })
   expect(await settingText(ui, 'model')).toContain('haiku')
@@ -1461,8 +1506,9 @@ test('a setting with no options from the server shows its current value and n ch
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'settings' })
-  await ui.press({ key: 'setting-next' })
-  await ui.press({ key: 'setting-next' })
+  for (let i = 0; i < 5; i++) {
+    await ui.press({ key: 'setting-next' })
+  }
   expect(await settingText(ui, 'model')).toContain('opus')
   calls.length = 0
   await ui.press({ key: 'setting-value-next' })
@@ -1477,7 +1523,7 @@ test('the theme setting offers auto, dark and light even when the server lists n
   const ui = await mountPane($)
   expect(await background(ui)).toBe(hex(DARK.base))
   await ui.press({ key: 'settings' })
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 7; i++) {
     await ui.press({ key: 'setting-next' })
   }
   expect(await settingText(ui, Setting.THEME)).toContain(EN.theme_auto)

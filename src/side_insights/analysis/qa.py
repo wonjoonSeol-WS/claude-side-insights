@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """List every question and request the user sent in a turn and whether Claude answered it.
 
-usage: python3 -m side_insights qa <pane> <transcript_path> [turn_id] [--item=<id> | --open-items[=turn,turn...]] [--force]
+usage: python3 -m side_insights qa <pane> <transcript_path> [turn_id] [--item=<id> | --open-items[=turn,turn...] | --older=<turn_id>] [--force]
 Without turn_id: everything since the previous check (prompts, messages sent mid-turn and replies), plus a re-check of
 earlier open items against the new replies.
 With turn_id: that turn, judged against every reply up to the end of the transcript.
 With --item: only that item of the turn, judged against every reply up to the end of the transcript.
 With --open-items[=turn,turn...]: every open item of the session (or of those turns), each judged against every reply after it.
+With --older=<turn_id>: the next turns that the check recorded under turn_id skipped, at most 10 per run.
+Without turn_id, a check covers at most the 10 latest unchecked turns; older ones are noted on that record for --older.
 """
 import sys
 import time
@@ -16,7 +18,7 @@ from side_insights.analysis import qa_store
 from side_insights.analysis.runner import Pending, run_claude
 from side_insights.i18n import language_instruction
 from side_insights.records import RecordStatus, Source
-from side_insights.paths import EDIT_TOOLS, atomic_write_json
+from side_insights.paths import EDIT_TOOLS, atomic_write_json, read_json
 from side_insights.transcript import (assistant_blocks, clip, is_prompt, load_entries, prompt_text, queued_prompt, turn_start,
                         wait_until_written)
 
@@ -28,6 +30,7 @@ PROMPT_PREVIEW = 2000
 ERROR_LIMIT = 1000
 FOLLOWUP_LIMIT = 160
 MAX_OPEN_RECHECK = 40
+MAX_PENDING_TURNS = 10
 TIMEOUT = 600
 MAX_TURNS = 3
 USER_LIMIT = 3000
@@ -159,12 +162,15 @@ def _fit_replies(replies):
 
 
 def extract_since(path, cursor):
-    """Everything after the entry `cursor`; without a cursor, everything from the last prompt."""
+    """Everything after the entry `cursor` (the whole session without one), at most its last MAX_PENDING_TURNS prompts."""
     entries = load_entries(path)
-    after = next((i + 1 for i, e in enumerate(entries) if cursor and e.get("uuid") == cursor), None)
-    if after is None:
-        after = turn_start(entries)
-    return _segment(entries, after or 0, len(entries), marker_for_later_prompts=False) if entries else None
+    if not entries:
+        return None
+    after = next((i + 1 for i, e in enumerate(entries) if cursor and e.get("uuid") == cursor), 0)
+    prompts = [i for i in range(after, len(entries)) if is_prompt(entries[i]) and prompt_text(entries[i])]
+    skipped = max(0, len(prompts) - MAX_PENDING_TURNS)
+    seg = _segment(entries, prompts[skipped] if skipped else after, len(entries), marker_for_later_prompts=False)
+    return {**seg, "skipped": skipped, "skipped_after": cursor}
 
 
 def build_message(turn, candidates):
@@ -269,6 +275,8 @@ def judge_since_cursor(pane, transcript, model, started=None):
                 qa_store.write_cursor(pane, sid, seg["last_uuid"])
             return
         record = _record(seg["turn_id"], sid, model, transcript, SCOPE_TURN, seg["users"])
+        if seg.get("skipped"):
+            record.update(skipped_turns=seg["skipped"], skipped_after=seg.get("skipped_after"))
         data = _judge_into(record, pane, build_message(seg, candidates), model)
         with qa_store.session_lock(pane, sid):
             if seg["users"]:
@@ -280,11 +288,31 @@ def judge_since_cursor(pane, transcript, model, started=None):
                 qa_store.write_cursor(pane, sid, seg["last_uuid"])
 
 
-def skip_since_cursor(pane, transcript):
-    seg = extract_since(transcript, None)
-    if seg and seg["sid"] and seg["last_uuid"]:
-        with qa_store.session_lock(pane, seg["sid"]):
-            qa_store.write_cursor(pane, seg["sid"], seg["last_uuid"])
+def judge_older(pane, transcript, turn_id, model):
+    """Checks the next MAX_PENDING_TURNS turns that an earlier check of turn_id skipped, nearest first."""
+    entries = load_entries(transcript)
+    end = turn_start(entries, turn_id)
+    sid = next((e.get("sessionId") for e in reversed(entries) if e.get("sessionId")), None)
+    newer = read_json(qa_store.record_path(pane, sid, turn_id)) if sid and end is not None else None
+    if not isinstance(newer, dict) or not newer.get("skipped_turns"):
+        return
+    cursor = newer.get("skipped_after")
+    start = next((i + 1 for i, e in enumerate(entries[:end]) if cursor and e.get("uuid") == cursor), 0)
+    prompts = [i for i in range(start, end) if is_prompt(entries[i]) and prompt_text(entries[i])]
+    chunk = prompts[-MAX_PENDING_TURNS:]
+    if chunk:
+        seg = _segment(entries, chunk[0], end, marker_for_later_prompts=False)
+        record = _record(seg["turn_id"], sid, model, transcript, SCOPE_TURN, seg["users"])
+        if len(prompts) > len(chunk):
+            record.update(skipped_turns=len(prompts) - len(chunk), skipped_after=cursor)
+        with Pending(qa_store.pending_path(pane), older=turn_id):
+            _judge_into(record, pane, build_message(seg, []), model)
+    with qa_store.session_lock(pane, sid):
+        if chunk:
+            atomic_write_json(qa_store.record_path(pane, sid, record["turn_id"]), record)
+        newer.pop("skipped_turns", None)
+        newer.pop("skipped_after", None)
+        atomic_write_json(qa_store.record_path(pane, sid, turn_id), newer)
 
 
 def judge_turn(pane, transcript, turn_id, model):
@@ -303,16 +331,17 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     open_flag = next((a for a in sys.argv[1:] if a == "--open-items" or a.startswith("--open-items=")), None)
     item = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--item=")), None)
-    if len(args) not in (2, 3) or (item and len(args) != 3) or (open_flag and (item or len(args) != 2)):
+    older = next((a.split("=", 1)[1] for a in sys.argv[1:] if a.startswith("--older=")), None)
+    if len(args) not in (2, 3) or (item and len(args) != 3) or (open_flag and (item or len(args) != 2)) or (older and len(args) != 2):
         sys.exit(__doc__)
     pane, transcript = args[0], args[1]
     turn_id = args[2] if len(args) == 3 else None
     settings = config.load(pane)
-    if not settings["qa_auto"] and "--force" not in sys.argv:
-        if not (open_flag or item or turn_id):
-            skip_since_cursor(pane, transcript)
+    if not config.runs("qa", pane) and "--force" not in sys.argv:
         return
-    if open_flag:
+    if older:
+        judge_older(pane, transcript, older, settings["model"])
+    elif open_flag:
         turns = {tid for tid in open_flag.partition("=")[2].split(",") if tid}
         recheck_open(pane, transcript, settings["model"], turns or None)
     elif item:

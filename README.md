@@ -106,12 +106,13 @@ Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, 
 | `k` `j` | Flow: previous / next step. Live: previous / next changed file, with its diff |
 | `d` `s` `f` | With a diff open: uncommitted changes, the last commit that touched the file, the whole file |
 | `x` | Close the diff (`git diff`, the new file, or the last commit that touched it) |
+| `u` | Check now. Flow: build the flow for the latest turn. Q&A: check every turn not checked yet and re-check open questions. Live: refresh. Press it twice on Flow and Q&A; each is one Claude call |
 | `r` | Flow: rebuild the flow. Q&A: re-check the selected question (or a failed turn). Press it twice. It uses one Claude call |
 | `a` `c` | Q&A: archive or restore the selected question. Copy it while it is still open |
 | `f` `v` | Q&A: show open questions only, show archived ones |
 | `m` | Q&A: scroll the chat to where you asked the selected question. Clicking a line of an answer does the same. Only the /si pane can do this; a question cleared or compacted out of the chat cannot be reached |
 | `o` | The full page in your browser |
-| `g` | Settings: apply to all panels or this one, language, model, automatic runs, open on session start, theme. `k` `j` pick a setting, `p` `n` change it, `g` closes |
+| `g` | Settings: this panel on or off, which sessions, automatic runs, language, model, open on session start, theme. `k` `j` pick a setting, `p` `n` change it, `g` closes |
 | `h` | Every key, including Claude Code's own pane keys |
 | `ctrl+x ←` `ctrl+x →` | Wider / narrower (`↑` `↓` above the prompt). Dragging the divider works too |
 
@@ -188,16 +189,21 @@ In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a que
 ## Settings
 
 - Open with **⚙ Settings** in the browser panel or `g` in /si. Changes apply from the next analysis, no restart. Changing the language reloads the page.
-- **Apply to**: **All panels**, or **This panel only** (for example Japanese in one pane, Korean in another).
+- **Analyze this panel** belongs to the panel you are in. Every other setting is shared by all panels, so each panel shows the same values.
 - Saved to `~/.claude/side-insights/config.json`.
 
 | Setting | Default | Meaning |
 |---|---|---|
+| Analyze this panel | off until you open `/si` here | Opening `/si` or `/si-browser` turns it on; closing the `/si` pane yourself turns it off. While it is on, `/si` opens by itself when a session starts in this panel |
+| Analyze which sessions | only panels opened with /si | **All sessions** analyzes every session, open or not, whichever panel you set it from |
+| Build a flow when a turn ends | on | When off, flows are built only with Check now (`u`) or ↻ |
+| Check Q&A when a turn ends | on | When off, turns stay pending until Check now (`u`) or ↻ |
 | Analysis model | `opus` | `opus`, `sonnet` or `haiku` (set a full model id in config.json) |
 | Language (UI and analysis) | your system language if it is Korean or Japanese, else `en` | English, 한국어, 日本語 |
-| Build a flow when a turn ends | on | When off, flows are built only with the ↻ button |
-| Check Q&A when a turn ends | on | When off, Q&A is checked only with the ↻ buttons |
 | Open the panel when a session starts | off | When on, the panel opens by itself in cmux, Orca, Ghostty or iTerm2 when a session starts |
+| Theme of the /si pane | follow Claude Code | Follow Claude Code, dark or light |
+
+A "panel" is the terminal pane in cmux, Orca and iTerm2, so it stays on across sessions there. Elsewhere it is one Claude Code session, and resuming it reopens `/si`.
 
 Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`) and `SIDE_INSIGHTS_DATA` (default `~/.claude/side-insights`).
 
@@ -205,14 +211,17 @@ Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`) and `SIDE_INSIGHTS
 
 **When does it call Claude, and does it double my usage?**
 
-No. At most two extra Claude calls run after each turn, as a separate `claude -p`, outside your session:
+No. By default it only analyzes sessions where you opened `/si`, and closing the pane stops it. At most two extra Claude calls run after each turn, as a separate `claude -p`, outside your session:
 
 | When | What | Extra calls | Only if |
 |---|---|---|---|
-| A turn ends | Q&A check | 1 (no tools, one request) | "Check Q&A when a turn ends" is on |
-| A turn ends | Flow | 1 (read-only tools, so several requests inside) | the turn changed files (edits, or shell commands that write files) and "Build a flow when a turn ends" is on |
-| You press `r` | Re-check / rebuild | 1 per press | you press it twice to confirm |
+| A turn ends | Q&A check | 1 (no tools, one request) | this panel is analyzed (or all sessions are) and "Check Q&A when a turn ends" is on |
+| A turn ends | Flow | 1 (read-only tools, so several requests inside) | the same, the turn changed files (edits, or shell commands that write files), and "Build a flow when a turn ends" is on |
+| You open `/si` in a session for the first time | Q&A for the latest 10 turns, Flow for the latest turn | up to 2 | the session already has turns |
+| You press `u`, `r` or ↻, or **Check older** | Check now / re-check / rebuild / the next 10 older turns | 1 per press | you press `u` and `r` twice to confirm |
 | The `/si` pane itself | drawing, keys, diffs, theme | 0 | it only talks to the local server and git |
+
+A single Q&A check covers at most the 10 latest turns not checked yet. Older ones are listed as skipped on that turn's card, and **Check older** checks the next 10 each time.
 
 A working turn usually makes dozens of model requests on its own, so one or two analysis runs after it are a small share. Many short chat-only turns raise the share, since each still gets a Q&A check.
 
@@ -235,9 +244,10 @@ On a subscription this probably counts toward your usage limit (not confirmed). 
 |---|---|
 | Does it slow my session or use its context? | No. It runs in a separate process after the turn. |
 | Can the ↻ runs change my files? | No. They use read-only tools. |
-| Why no flow for this turn? | Flows run only after turns that changed files: edits, or shell commands that write files. Press **↻ Rebuild flow**. |
+| Why no flow for this turn? | Flows run only after turns that changed files: edits, or shell commands that write files, and only in analyzed panels. Press **↻ Check now** (`u`) on Flow. |
 | Answered later, but still open? | The next check usually fixes it. Otherwise press **↻ Re-check open** or **↻ Re-check this question** (`r` in /si), or click the status in the browser panel. A failed check shows **↻ Re-check this turn**. |
-| How do I hide the panel? | `! si-panel` hides and shows it. It opens by itself only if "Open the panel when a session starts" is on. |
+| How do I hide the panel? | Close the `/si` pane with `ctrl+x x`; that also stops analyzing this panel. `! si-panel` hides and shows the side panel. |
+| How do I stop the extra calls? | Close the `/si` pane, or set **Analyze which sessions** back to **Only panels opened with /si**. To pause everywhere, turn off the two automatic runs. |
 | `/si-browser` opens my browser instead of a cmux split | The session is running outside cmux, for example as a background job. cmux only accepts commands from processes started inside it, so the panel falls back to your default browser. Start Claude Code in a cmux terminal to get the split. |
 
 **Where data lives**: `~/.claude/side-insights/`

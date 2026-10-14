@@ -220,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
         waiting = waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"])) if snap["sid"] else []
         self.json({"activity": snap, "flows": pane_flows, "pending": pending,
                    "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending), "waiting": waiting,
-                          "eta": eta_seconds(records), "auto": config.load(pane)["qa_auto"],
+                          "eta": eta_seconds(records), "auto": config.runs("qa", pane),
                           "counts": qa_store.counts(records)}})
 
     def get_flow(self, pane, flow_id):
@@ -295,7 +295,8 @@ class Handler(BaseHTTPRequestHandler):
         turn_id = self.param("turn")
         item = self.param("item")
         scope = self.param("scope")
-        if not _valid_regen(target, turn_id, item, scope):
+        older = self.param("older")
+        if not _valid_regen(target, turn_id, item, scope, older):
             return self.error(400, "err_bad_request", pane=pane)
         if item:
             found = self._item_or_error(pane, item)
@@ -309,7 +310,8 @@ class Handler(BaseHTTPRequestHandler):
         if target == "flow":
             command, args = "flow", [pane, last["transcript"], last.get("cwd") or ""]
         else:
-            command, args = "qa", [pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else [])
+            command, args = "qa", [pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else []) + (
+                [f"--older={older}"] if older else [])
             if scope == SCOPE_OPEN:
                 only = [tid for tid in (self.param("turns") or "").split(",") if tid]
                 if not all(TURN_ID_RE.match(tid) for tid in only):
@@ -350,9 +352,11 @@ def _allowed_path(path, snap, flow=None):
     return full if full in edited or any(_inside(full, root) for root in roots) else None
 
 
-def _valid_regen(target, turn_id, item, scope):
+def _valid_regen(target, turn_id, item, scope, older=None):
     if target not in REGEN_TARGETS:
         return False
+    if older is not None:
+        return target == "qa" and bool(TURN_ID_RE.match(older)) and not (turn_id or item or scope)
     if (turn_id is not None and not TURN_ID_RE.match(turn_id)) or (item is not None and not ITEM_ID_RE.match(item)):
         return False
     if target == "flow":

@@ -167,7 +167,7 @@ def live_lines(st, tick, cols, rows):
 
 
 def _waiting_lines(pane, waiting, eta, checking, cols):
-    note = t("qa_wait_checking", pane=pane) if checking else t("qa_wait_d", eta, pane=pane) if config.load(pane)["qa_auto"] \
+    note = t("qa_wait_checking", pane=pane) if checking else t("qa_wait_d", eta, pane=pane) if config.runs("qa", pane) \
         else t("qa_wait_off", pane=pane)
     inner = [*styled(note, inner_width(cols), MUTED), ""]
     for item in waiting:

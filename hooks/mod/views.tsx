@@ -8,6 +8,7 @@ import {
   RecordStatus,
   Scope,
   Setting,
+  Analyze,
   Source,
   Status,
   ToolState,
@@ -72,7 +73,6 @@ export type View = {
   showArchived: boolean
   help: boolean
   settings: boolean
-  scope: ScopeValue
   settingRow: number
   file?: string
   toolFilter?: string
@@ -91,6 +91,8 @@ export type Actions = {
   archive: () => void
   copy: (press: UiPressArgument) => void
   jump: (id?: string) => void
+  checkNow: () => void
+  checkOlder: (turnId: string) => void
   recheck: () => void
   rebuild: () => void
   toggleOpenOnly: () => void
@@ -151,6 +153,7 @@ const LEFT_MAX = 48
 const LEFT_SHARE = 2 / 5
 const COLUMN_GAP = 2
 const MAX_TOOLS = 40
+const PENDING_BATCH = 10
 const TOOLS_IN_FLOW = 12
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const LINK_SURFACES = new Set<RenderSurface>(['desktop'])
@@ -213,6 +216,7 @@ const SOURCE_VIEW: Partial<Record<FileDiff['source'], DiffViewValue>> = { [DiffS
 const HINTS: Record<TabValue, [string, string][]> = {
   [Tab.FLOW]: [
     ['1-3', 'term_k_tabs'],
+    ['u', 'term_k_check_now'],
     ['p n', 'term_k_flows'],
     ['k j', 'term_k_steps'],
     ['r', 'term_k_rebuild'],
@@ -220,11 +224,13 @@ const HINTS: Record<TabValue, [string, string][]> = {
   ],
   [Tab.LIVE]: [
     ['1-3', 'term_k_tabs'],
+    ['u', 'term_k_check_now'],
     ['k j', 'mod_k_files'],
     ['o', 'term_k_open'],
   ],
   [Tab.QA]: [
     ['1-3', 'term_k_tabs'],
+    ['u', 'term_k_check_now'],
     ['a', 'term_k_archive'],
     ['c', 'term_k_copy'],
     ['r', 'term_k_recheck'],
@@ -488,6 +494,7 @@ export const header = (c: Ctx) => {
       {banner(c)}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         {TAB_KEYS.map(([key, tab]) => tabButton(c, key, tab))}
+        {keyButton(c, 'check-now', 'u', c.t('check_now'), () => c.act.checkNow())}
         {keyButton(c, 'open', 'o', c.t('full'), () => c.act.openBrowser(), true)}
         <Text color={hex(c.p.faint)}>
           {c.busy ? (
@@ -596,55 +603,49 @@ const keyRows = (c: Ctx, rows: [string, string][]) => {
 
 export const ON = '1'
 const OFF = '0'
-export const SCOPE_ROW = 'scope'
-export const TOGGLES: SettingKey[] = [Setting.FLOW_AUTO, Setting.QA_AUTO, Setting.PANEL_AUTO]
+export const TOGGLES: SettingKey[] = [Setting.ENABLED, Setting.FLOW_AUTO, Setting.QA_AUTO, Setting.PANEL_AUTO]
 
 type Option = { value: string; label: string }
-type SettingRow = { key: SettingKey | typeof SCOPE_ROW; label: string; options: Option[]; value: string }
+type SettingRow = { id: string; key: SettingKey; scope: ScopeValue; label: string; options: Option[]; value: string }
 
 const withCurrent = (options: Option[], value: string) => (options.length ? options : [{ value, label: value }])
 
-export const settingRows = (cfg: ConfigPayload | undefined, scope: ScopeValue, t: Ctx['t']): SettingRow[] => {
+export const settingRows = (cfg: ConfigPayload | undefined, t: Ctx['t']): SettingRow[] => {
   if (!cfg?.effective) {
     return []
   }
-  const values = scope === Scope.PANE ? cfg.effective : (cfg.global ?? cfg.effective)
+  const all = cfg.global ?? cfg.effective
   const onOff = [
     { value: ON, label: t('on') },
     { value: OFF, label: t('off') },
   ]
+  const toggle = (key: SettingKey, scope: ScopeValue = Scope.GLOBAL): SettingRow => {
+    const values = scope === Scope.PANE ? cfg.effective! : all
+    return { id: key, key, scope, label: t(`s_${key}`), options: onOff, value: values[key as keyof typeof values] ? ON : OFF }
+  }
+  const choice = (key: SettingKey, options: Option[], value: string): SettingRow => ({ id: key, key, scope: Scope.GLOBAL, label: t(`s_${key}`), options: withCurrent(options, value), value })
   return [
-    {
-      key: SCOPE_ROW,
-      label: t('scope_label'),
-      options: [
-        { value: Scope.GLOBAL, label: t('scope_global') },
-        { value: Scope.PANE, label: t('scope_pane') },
-      ],
-      value: scope,
-    },
-    { key: Setting.LANG, label: t('s_lang'), options: withCurrent((cfg.langs ?? []).map(l => ({ value: l.code, label: l.label })), values.lang), value: values.lang },
-    { key: Setting.MODEL, label: t('s_model'), options: withCurrent((cfg.models ?? []).map(m => ({ value: m, label: m })), values.model), value: values.model },
-    ...TOGGLES.map(key => ({ key, label: t(`s_${key}`), options: onOff, value: values[key as keyof typeof values] ? ON : OFF })),
-    {
-      key: Setting.THEME,
-      label: t('s_theme'),
-      options: (cfg.themes?.length ? cfg.themes : [AUTO_THEME, ...Object.keys(THEMES)]).map(th => ({ value: th, label: t(`theme_${th}`) })),
-      value: values.theme ?? AUTO_THEME,
-    },
+    toggle(Setting.ENABLED, Scope.PANE),
+    choice(Setting.ANALYZE, (cfg.analyze?.length ? cfg.analyze : Object.values(Analyze)).map(a => ({ value: a, label: t(`analyze_${a}`) })), all.analyze ?? Analyze.OPENED),
+    toggle(Setting.FLOW_AUTO),
+    toggle(Setting.QA_AUTO),
+    choice(Setting.LANG, (cfg.langs ?? []).map(l => ({ value: l.code, label: l.label })), all.lang),
+    choice(Setting.MODEL, (cfg.models ?? []).map(m => ({ value: m, label: m })), all.model),
+    toggle(Setting.PANEL_AUTO),
+    choice(Setting.THEME, (cfg.themes?.length ? cfg.themes : [AUTO_THEME, ...Object.keys(THEMES)]).map(th => ({ value: th, label: t(`theme_${th}`) })), all.theme ?? AUTO_THEME),
   ]
 }
 
 const settingLine = (c: Ctx, r: SettingRow, i: number, on: boolean) => {
   const { Box, Text, Button } = c.ui
   const shown = r.options.find(o => o.value === r.value)?.label ?? r.value
-  return selectableRow(c, `setting-${r.key}`, on, [
+  return selectableRow(c, `setting-${r.id}`, on, [
     <Box width={SETTING_LABEL} flexShrink={0}>
       <Text color={hex(on ? c.p.text : c.p.muted)} bold={on}>
         {r.label}
       </Text>
     </Box>,
-    <Button key={`set-${r.key}`} plain onPress={() => c.act.settingValue(1, i)}>
+    <Button key={`set-${r.id}`} plain onPress={() => c.act.settingValue(1, i)}>
       <Text color={hex(on ? c.p.blue : c.p.text)} bold>{`‹ ${shown} ›`}</Text>
     </Button>,
   ])
@@ -652,7 +653,7 @@ const settingLine = (c: Ctx, r: SettingRow, i: number, on: boolean) => {
 
 export const settings = (c: Ctx) => {
   const { Box, Text } = c.ui
-  const rows = settingRows(c.config, c.view.scope, c.t)
+  const rows = settingRows(c.config, c.t)
   if (!rows.length) {
     return card(c, 'settings-view', c.t('settings'), [faintText(c, 'settings-loading', c.t('loading'))], c.p.blue)
   }
@@ -1457,6 +1458,16 @@ const turnCard = (c: Ctx, { turn, failed, shown: items }: TurnEntry, ti: number,
               {label(c, c.t('recheck_title'))}
             </Button>,
           ]),
+        ]
+      : []),
+    ...(turn.skipped_turns
+      ? [
+          <Button key={`older-${ti}-${turn.turn_id}`} plain onPress={() => c.act.checkOlder(turn.turn_id)}>
+            <Text color={hex(c.p.muted)}>
+              {`${c.t('qa_skipped', turn.skipped_turns)}  `}
+              <Text color={hex(c.p.blue)}>{c.t('check_older', Math.min(turn.skipped_turns, PENDING_BATCH))}</Text>
+            </Text>
+          </Button>,
         ]
       : []),
     ...(!failed && !items.length ? [faintText(c, 'noq', c.t('qa_noq'))] : []),

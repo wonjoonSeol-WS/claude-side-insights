@@ -100,17 +100,19 @@ export type QaItem = {
   resolved_in?: string
   rechecked_at?: number
 }
-export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[] }
+export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[]; skipped_turns?: number }
 type Waiting = { ts?: number; text: string; mid_turn?: boolean }
-export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', PANEL_AUTO: 'panel_auto', THEME: 'theme' } as const
+export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', ANALYZE: 'analyze', ENABLED: 'enabled', PANEL_AUTO: 'panel_auto', THEME: 'theme' } as const
+export const Analyze = { OPENED: 'opened', ALL: 'all' } as const
 export type SettingKey = (typeof Setting)[keyof typeof Setting]
-type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean; theme?: string }
+type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; analyze?: string; enabled?: boolean; panel_auto: boolean; theme?: string }
 export type ConfigPayload = {
   global?: Settings
   pane?: Partial<Settings>
   effective?: Settings
   models?: string[]
   themes?: string[]
+  analyze?: string[]
   langs?: { code: string; label: string }[]
 }
 export const Scope = { GLOBAL: 'global', PANE: 'pane' } as const
