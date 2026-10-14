@@ -68,7 +68,7 @@ def flows(pane):
     found = []
     for rec in flow_store.records(pane):
         title = (rec.get("flow") or {}).get("title") or (rec.get("prompt") or "")[:TITLE_FALLBACK]
-        found.append({"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"), "title": title})
+        found.append({"id": rec["id"], "ts": rec.get("ts"), "status": rec.get("status"), "title": title, "turns": len(rec.get("turn_ids") or [None])})
     return found, Pending.active(flow_store.pending_path(pane))
 
 
@@ -296,7 +296,8 @@ class Handler(BaseHTTPRequestHandler):
         item = self.param("item")
         scope = self.param("scope")
         older = self.param("older")
-        if not _valid_regen(target, turn_id, item, scope, older):
+        only_new = self.param("new") == "1"
+        if not _valid_regen(target, turn_id, item, scope, older) or (only_new and target != "flow"):
             return self.error(400, "err_bad_request", pane=pane)
         if item:
             found = self._item_or_error(pane, item)
@@ -308,7 +309,7 @@ class Handler(BaseHTTPRequestHandler):
         if Pending.active(marker):
             return self.error(409, "err_running", pane=pane)
         if target == "flow":
-            command, args = "flow", [pane, last["transcript"], last.get("cwd") or ""]
+            command, args = "flow", [pane, last["transcript"], last.get("cwd") or ""] + (["--if-new"] if only_new else [])
         else:
             command, args = "qa", [pane, last["transcript"]] + ([turn_id] if turn_id else []) + ([f"--item={item}"] if item else []) + (
                 [f"--older={older}"] if older else [])

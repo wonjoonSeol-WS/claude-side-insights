@@ -629,6 +629,7 @@ export const settingRows = (cfg: ConfigPayload | undefined, t: Ctx['t']): Settin
     choice(Setting.ANALYZE, (cfg.analyze?.length ? cfg.analyze : Object.values(Analyze)).map(a => ({ value: a, label: t(`analyze_${a}`) })), all.analyze ?? Analyze.OPENED),
     toggle(Setting.FLOW_AUTO),
     toggle(Setting.QA_AUTO),
+    choice(Setting.QA_BATCH, (cfg.qa_batches ?? []).map(n => ({ value: String(n), label: String(n) })), String(all.qa_batch ?? 30)),
     choice(Setting.LANG, (cfg.langs ?? []).map(l => ({ value: l.code, label: l.label })), all.lang),
     choice(Setting.MODEL, (cfg.models ?? []).map(m => ({ value: m, label: m })), all.model),
     toggle(Setting.PANEL_AUTO),
@@ -1196,6 +1197,7 @@ const flowHeading = (c: Ctx, rec: FlowRecord) => {
           {f.title ?? ''}
         </Text>
         <Text color={hex(c.p.faint)}>{`  ${clock(rec.ts)}`}</Text>
+        {(rec.turn_ids?.length ?? 0) > 1 ? <Text color={hex(c.p.faint)}>{`  ${c.t('flow_turns', rec.turn_ids!.length)}`}</Text> : null}
       </Text>
       {f.example ? (
         <Text key="example-line" color={hex(c.p.muted)}>

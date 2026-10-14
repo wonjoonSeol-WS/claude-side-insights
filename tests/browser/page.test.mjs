@@ -241,7 +241,7 @@ const posted = page => page.requests.filter(r => r.method === 'POST').map(r => `
 
 test('opening a panel page switches the panel on and checks what is already there, unless it already has a value', async () => {
   const page = await openPage()
-  assert.deepEqual(posted(page).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow', '/api/pane1/regen?target=qa'])
+  assert.deepEqual(posted(page).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow&new=1', '/api/pane1/regen?target=qa'])
   const off = await openPage({ pane: { enabled: false } })
   assert.deepEqual(posted(off), [])
 })

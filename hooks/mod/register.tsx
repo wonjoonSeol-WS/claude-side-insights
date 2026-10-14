@@ -468,7 +468,7 @@ const refreshConfig = async () => {
 
 const failure = (reply: Reply<unknown>) => t('term_failed', reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err')))
 
-const assume = (key: SettingKey, value: string | boolean, scope: ScopeValue) => {
+const assume = (key: SettingKey, value: string | boolean | number, scope: ScopeValue) => {
   const c = mod.config
   if (!c?.effective) {
     return
@@ -481,7 +481,7 @@ const assume = (key: SettingKey, value: string | boolean, scope: ScopeValue) => 
   }
 }
 
-const saveSetting = (key: SettingKey, value: string | boolean, scope: ScopeValue) => {
+const saveSetting = (key: SettingKey, value: string | boolean | number, scope: ScopeValue) => {
   const api = mod.api
   const io = mod.io
   if (!api || !io) {
@@ -553,7 +553,7 @@ const enableHere = async () => {
     void api.regen({ target: Regen.QA })
   }
   if (shared.flow_auto) {
-    void api.regen({ target: Regen.FLOW })
+    void api.regen({ target: Regen.FLOW, new: '1' })
   }
 }
 
@@ -706,7 +706,7 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
       redraw()
       return
     }
-    saveSetting(r.key, TOGGLES.includes(r.key) ? next.value === ON : next.value, r.scope)
+    saveSetting(r.key, TOGGLES.includes(r.key) ? next.value === ON : r.key === Setting.QA_BATCH ? Number(next.value) : next.value, r.scope)
   },
   setTab: (tab: TabValue) => {
     dropDiff()

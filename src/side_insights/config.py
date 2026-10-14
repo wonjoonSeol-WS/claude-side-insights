@@ -18,6 +18,7 @@ THEMES = (AUTO_THEME, "dark", "light")
 OPENED = "opened"
 ALL_SESSIONS = "all"
 ANALYZE = (OPENED, ALL_SESSIONS)
+QA_BATCHES = (5, 10, 20, 30)
 _MODEL_RE = re.compile(r"^(%s|claude-[a-z0-9.-]+)$" % "|".join(MODELS))
 _SAVE_LOCK = threading.Lock()
 
@@ -28,6 +29,7 @@ class Setting(Enum):
     FLOW_AUTO = ("flow_auto", True)
     QA_AUTO = ("qa_auto", True)
     ANALYZE = ("analyze", OPENED)
+    QA_BATCH = ("qa_batch", 30)
     ENABLED = ("enabled", False)
     PANEL_AUTO = ("panel_auto", False)
     THEME = ("theme", AUTO_THEME)
@@ -45,6 +47,8 @@ class Setting(Enum):
             return value in THEMES
         if self is Setting.ANALYZE:
             return value in ANALYZE
+        if self is Setting.QA_BATCH:
+            return not isinstance(value, bool) and value in QA_BATCHES
         return isinstance(value, bool)
 
 
@@ -107,7 +111,7 @@ def runs(kind, pane=None):
 
 def payload(pane=None):
     return {"global": load(), "pane": overrides(pane), "effective": load(pane), "models": list(MODELS), "themes": list(THEMES),
-            "analyze": list(ANALYZE),
+            "analyze": list(ANALYZE), "qa_batches": list(QA_BATCHES),
             "langs": [{"code": lang.code, "label": lang.label} for lang in Language]}
 
 

@@ -23,6 +23,7 @@ from side_insights.transcript import (assistant_blocks, clip, is_prompt, load_en
                         wait_until_written)
 
 MAX_REPLY = 60000
+REPLY_PER_TURN = 4000
 MIN_WINDOW = 2000
 MAX_WINDOW = 8000
 MAX_FOLLOWUPS = 60
@@ -30,7 +31,7 @@ PROMPT_PREVIEW = 2000
 ERROR_LIMIT = 1000
 FOLLOWUP_LIMIT = 160
 MAX_OPEN_RECHECK = 40
-MAX_PENDING_TURNS = 10
+MAX_PENDING_TURNS = 30
 TIMEOUT = 600
 MAX_TURNS = 3
 USER_LIMIT = 3000
@@ -121,20 +122,20 @@ def _segment(entries, start, end, marker_for_later_prompts):
                 actions.append(f"{b['name']} {inp.get('file_path') or inp.get('notebook_path')}")
             elif b.get("name") == "Bash":
                 actions.append(f"Bash: {inp.get('description') or clip(inp.get('command', ''), ACTION_LIMIT)}")
-    reply_text = _fit_replies(replies)
+    reply_text = _fit_replies(replies, max(MAX_REPLY, len(users) * REPLY_PER_TURN))
     sid = next((e.get("sessionId") for e in reversed(entries) if e.get("sessionId")), None)
     last_uuid = next((e.get("uuid") for e in reversed(entries[:end]) if e.get("uuid")), None)
     return {"turn_id": first_uuid, "sid": sid, "users": users, "replies": reply_text,
             "actions": actions[-MAX_ACTIONS:], "last_uuid": last_uuid}
 
 
-def _fit_replies(replies):
+def _fit_replies(replies, budget=MAX_REPLY):
     """Keeps every user marker, the replies right after each one, and the latest replies; drops the rest."""
     full = "\n\n".join(text for _, text in replies)
-    if len(full) <= MAX_REPLY:
+    if len(full) <= budget:
         return full
     markers = [i for i, (is_marker, _) in enumerate(replies) if is_marker]
-    window = max(MIN_WINDOW, min(MAX_WINDOW, MAX_REPLY // (len(markers) + 2)))
+    window = max(MIN_WINDOW, min(MAX_WINDOW, budget // (len(markers) + 2)))
     keep = set(markers)
     for start in markers:
         used = 0
@@ -145,7 +146,7 @@ def _fit_replies(replies):
             used += len(replies[i][1])
     used = sum(len(replies[i][1]) for i in keep)
     for i in range(len(replies) - 1, -1, -1):
-        if used >= MAX_REPLY:
+        if used >= budget:
             break
         if i not in keep:
             keep.add(i)
@@ -161,14 +162,14 @@ def _fit_replies(replies):
     return "\n\n".join(out)
 
 
-def extract_since(path, cursor):
-    """Everything after the entry `cursor` (the whole session without one), at most its last MAX_PENDING_TURNS prompts."""
+def extract_since(path, cursor, limit=MAX_PENDING_TURNS):
+    """Everything after the entry `cursor` (the whole session without one), at most its last `limit` prompts."""
     entries = load_entries(path)
     if not entries:
         return None
     after = next((i + 1 for i, e in enumerate(entries) if cursor and e.get("uuid") == cursor), 0)
     prompts = [i for i in range(after, len(entries)) if is_prompt(entries[i]) and prompt_text(entries[i])]
-    skipped = max(0, len(prompts) - MAX_PENDING_TURNS)
+    skipped = max(0, len(prompts) - limit)
     seg = _segment(entries, prompts[skipped] if skipped else after, len(entries), marker_for_later_prompts=False)
     return {**seg, "skipped": skipped, "skipped_after": cursor}
 
@@ -266,7 +267,7 @@ def judge_since_cursor(pane, transcript, model, started=None):
         return
     with Pending(qa_store.pending_path(pane)):
         with qa_store.session_lock(pane, sid):
-            seg = extract_since(transcript, qa_store.read_cursor(pane, sid))
+            seg = extract_since(transcript, qa_store.read_cursor(pane, sid), config.load(pane)["qa_batch"])
             candidates = qa_store.open_items(pane, sid, seg and seg["turn_id"], MAX_FOLLOWUPS)
         if not seg or not seg["last_uuid"]:
             return
@@ -288,8 +289,8 @@ def judge_since_cursor(pane, transcript, model, started=None):
                 qa_store.write_cursor(pane, sid, seg["last_uuid"])
 
 
-def judge_older(pane, transcript, turn_id, model):
-    """Checks the next MAX_PENDING_TURNS turns that an earlier check of turn_id skipped, nearest first."""
+def judge_older(pane, transcript, turn_id, model, limit=MAX_PENDING_TURNS):
+    """Checks the next `limit` turns that an earlier check of turn_id skipped, nearest first."""
     entries = load_entries(transcript)
     end = turn_start(entries, turn_id)
     sid = next((e.get("sessionId") for e in reversed(entries) if e.get("sessionId")), None)
@@ -299,7 +300,7 @@ def judge_older(pane, transcript, turn_id, model):
     cursor = newer.get("skipped_after")
     start = next((i + 1 for i, e in enumerate(entries[:end]) if cursor and e.get("uuid") == cursor), 0)
     prompts = [i for i in range(start, end) if is_prompt(entries[i]) and prompt_text(entries[i])]
-    chunk = prompts[-MAX_PENDING_TURNS:]
+    chunk = prompts[-limit:]
     if chunk:
         seg = _segment(entries, chunk[0], end, marker_for_later_prompts=False)
         record = _record(seg["turn_id"], sid, model, transcript, SCOPE_TURN, seg["users"])
@@ -340,7 +341,7 @@ def main():
     if not config.runs("qa", pane) and "--force" not in sys.argv:
         return
     if older:
-        judge_older(pane, transcript, older, settings["model"])
+        judge_older(pane, transcript, older, settings["model"], settings["qa_batch"])
     elif open_flag:
         turns = {tid for tid in open_flag.partition("=")[2].split(",") if tid}
         recheck_open(pane, transcript, settings["model"], turns or None)

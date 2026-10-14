@@ -1387,7 +1387,7 @@ test('settings rows move with j and k, change with n and p or a press, and only 
     expect((await ui.find({ key: 'footer' }))?.text).toContain(EN.mod_k_setting_rows)
     await ui.press({ key: 'setting-prev' })
     expect(await settingText(ui, Setting.ENABLED), 'k at the top stays').toContain('▶')
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 6; i++) {
       await ui.press({ key: 'setting-next' })
     }
     expect(await settingText(ui, 'model')).toContain('▶')
@@ -1434,7 +1434,7 @@ test('opening /si switches this panel on and checks what is already there, once'
   await $.command.run(RUN_SI)
   await clock.advance(10)
   expect(posts(calls)).toEqual([{ url: `http://127.0.0.1:47821/api/config?pane=${KEY}`, body: { enabled: true } }])
-  expect(calls.filter(c => c.url.includes('/regen')).map(c => new URL(c.url).searchParams.get('target')).sort(), 'the turns so far are checked in the background').toEqual(['flow', 'qa'])
+  expect(calls.filter(c => c.url.includes('/regen')).map(c => new URL(c.url).search).sort(), 'the turns so far are checked in the background, the flow only if it is new').toEqual(['?target=flow&new=1', '?target=qa'])
   calls.length = 0
   await $.command.run(RUN_SI)
   await clock.advance(10)
@@ -1470,7 +1470,7 @@ test('saving a setting uses the reply instead of fetching the settings again, an
   const ui = await mountPane($)
   await ui.press({ key: 'settings' })
   expect(await settingText(ui, 'lang'), 'this panel is in Korean').toContain(KO.s_lang!)
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     await ui.press({ key: 'setting-next' })
   }
   calls.length = 0
@@ -1489,7 +1489,7 @@ test('two quick changes end on the last one even when the first reply comes back
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'settings' })
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     await ui.press({ key: 'setting-next' })
   }
   await ui.press({ key: 'setting-value-next' })
@@ -1506,7 +1506,7 @@ test('a setting with no options from the server shows its current value and n ch
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'settings' })
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 6; i++) {
     await ui.press({ key: 'setting-next' })
   }
   expect(await settingText(ui, 'model')).toContain('opus')
@@ -1523,7 +1523,7 @@ test('the theme setting offers auto, dark and light even when the server lists n
   const ui = await mountPane($)
   expect(await background(ui)).toBe(hex(DARK.base))
   await ui.press({ key: 'settings' })
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 8; i++) {
     await ui.press({ key: 'setting-next' })
   }
   expect(await settingText(ui, Setting.THEME)).toContain(EN.theme_auto)

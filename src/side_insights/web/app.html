@@ -552,7 +552,7 @@ function codeBlock(step) {
 
 function stepDetail(rec, flow, step, i) {
   return `<div class="card detail">
-    <div class="ctx">${esc(flow.title)}  ${clock(rec.ts)}</div>
+    <div class="ctx">${esc(flow.title)}  ${clock(rec.ts)}${list(rec.turn_ids).length > 1 ? `  ${t("flow_turns", list(rec.turn_ids).length)}` : ""}</div>
     <div class="h"><h2>${circled(i + 1)} ${esc(step.title)}</h2><span class="badge" style="--c:${kindColor(step.kind)}">${kindLabel(step.kind)}</span>
     ${step.changed ? `<span class="badge" style="--c:var(--hl-line)">${t("changed_this")}</span>` : ""}</div>
     <code class="loc">${esc(step.location)}</code>${prose(step.explanation)}${codeBlock(step)}${keyLines(step)}${stepExtras(flow, step, i)}</div>`;
@@ -894,6 +894,7 @@ function renderSettingsBody() {
     ${KEY ? row("enabled", toggle("enabled", SCOPE.PANE)) : ""}
     ${row("analyze", select("analyze", analyze))}
     ${row("flow_auto", toggle("flow_auto"))}${row("qa_auto", toggle("qa_auto"))}
+    ${row("qa_batch", select("qa_batch", list(c.qa_batches).map(n => ({ value: n, label: String(n) }))))}
     ${row("lang", select("lang", langs))}${row("model", select("model", models))}
     ${row("panel_auto", toggle("panel_auto"))}
     ${row("theme", select("theme", list(c.themes).map(th => ({ value: th, label: text(`theme_${th}`) }))))}</table>
@@ -1111,7 +1112,8 @@ document.addEventListener("click", e => {
 document.addEventListener("change", e => {
   const target = e.target;
   const name = target.dataset.setting;
-  if (name) saveSetting({ [name]: target.type === "checkbox" ? target.checked : target.value }, target.dataset.settingScope);
+  const value = target.type === "checkbox" ? target.checked : name === "qa_batch" ? Number(target.value) : target.value;
+  if (name) saveSetting({ [name]: value }, target.dataset.settingScope);
 });
 
 document.addEventListener("keydown", e => {
@@ -1193,7 +1195,7 @@ async function enableHere() {
   await api("POST", `/api/config?pane=${KEY}`, { enabled: true });
   if (r.data.global.analyze === "all") return;
   if (r.data.global.qa_auto) api("POST", `/api/${KEY}/regen?target=qa`);
-  if (r.data.global.flow_auto) api("POST", `/api/${KEY}/regen?target=flow`);
+  if (r.data.global.flow_auto) api("POST", `/api/${KEY}/regen?target=flow&new=1`);
 }
 
 (async () => {

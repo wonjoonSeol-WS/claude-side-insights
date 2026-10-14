@@ -34,12 +34,20 @@ class PendingTurnsTest(unittest.TestCase):
         self.path = transcript(self.folder)
 
     def test_a_session_never_checked_checks_its_latest_ten_turns_and_counts_every_older_one(self):
-        seg = qa.extract_since(self.path, None)
+        seg = qa.extract_since(self.path, None, 10)
         self.assertEqual(asked(seg), [f"question {n}" for n in range(16, 26)])
         self.assertEqual((seg["skipped"], seg["skipped_after"], seg["turn_id"]), (15, None, "u16"))
 
+    def test_the_default_batch_covers_a_whole_25_turn_session_in_one_check(self):
+        seg = qa.extract_since(self.path, None)
+        self.assertEqual((len(seg["users"]), seg["skipped"]), (25, 0))
+
+    def test_the_reply_budget_grows_with_the_number_of_turns(self):
+        replies = [(True, f"q{n}") if n % 2 == 0 else (False, "x" * 9000) for n in range(60)]
+        self.assertLess(len(qa._fit_replies(replies)), len(qa._fit_replies(replies, 30 * qa.REPLY_PER_TURN)))
+
     def test_a_session_checked_before_starts_after_that_check(self):
-        seg = qa.extract_since(self.path, "a20")
+        seg = qa.extract_since(self.path, "a20", 10)
         self.assertEqual(asked(seg), [f"question {n}" for n in range(21, 26)])
         self.assertEqual(seg["skipped"], 0)
 
@@ -55,13 +63,13 @@ class PendingTurnsTest(unittest.TestCase):
             os.makedirs(qa_store.session_dir("p1", "s1"))
             qa_store.atomic_write_json(qa_store.record_path("p1", "s1", "u16"), {"turn_id": "u16", "sid": "s1", "status": "ok", "items": [],
                                                                                 "skipped_turns": 15, "skipped_after": None})
-            qa.judge_older("p1", self.path, "u16", "haiku")
+            qa.judge_older("p1", self.path, "u16", "haiku", 10)
             first = qa_store.read_json(qa_store.record_path("p1", "s1", "u6"))
             self.assertEqual((first["skipped_turns"], first["prompt"]), (5, "question 6"))
             self.assertIn("question 15", judged[0])
             self.assertNotIn("question 16", judged[0])
             self.assertNotIn("skipped_turns", qa_store.read_json(qa_store.record_path("p1", "s1", "u16")))
-            qa.judge_older("p1", self.path, "u6", "haiku")
+            qa.judge_older("p1", self.path, "u6", "haiku", 10)
             last = qa_store.read_json(qa_store.record_path("p1", "s1", "u1"))
             self.assertNotIn("skipped_turns", last)
             self.assertIn("[request]\nquestion 1\n", judged[1])

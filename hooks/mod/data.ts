@@ -102,10 +102,10 @@ export type QaItem = {
 }
 export type QaTurn = { turn_id: string; ts?: number; prompt?: string; status?: string; model?: string; items?: QaItem[]; skipped_turns?: number }
 type Waiting = { ts?: number; text: string; mid_turn?: boolean }
-export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', ANALYZE: 'analyze', ENABLED: 'enabled', PANEL_AUTO: 'panel_auto', THEME: 'theme' } as const
+export const Setting = { MODEL: 'model', LANG: 'lang', FLOW_AUTO: 'flow_auto', QA_AUTO: 'qa_auto', QA_BATCH: 'qa_batch', ANALYZE: 'analyze', ENABLED: 'enabled', PANEL_AUTO: 'panel_auto', THEME: 'theme' } as const
 export const Analyze = { OPENED: 'opened', ALL: 'all' } as const
 export type SettingKey = (typeof Setting)[keyof typeof Setting]
-type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; analyze?: string; enabled?: boolean; panel_auto: boolean; theme?: string }
+type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; qa_batch?: number; analyze?: string; enabled?: boolean; panel_auto: boolean; theme?: string }
 export type ConfigPayload = {
   global?: Settings
   pane?: Partial<Settings>
@@ -113,6 +113,7 @@ export type ConfigPayload = {
   models?: string[]
   themes?: string[]
   analyze?: string[]
+  qa_batches?: number[]
   langs?: { code: string; label: string }[]
 }
 export const Scope = { GLOBAL: 'global', PANE: 'pane' } as const
@@ -136,6 +137,7 @@ export type FlowStep = {
 }
 export type FlowRecord = {
   ts?: number
+  turn_ids?: string[]
   cwd?: string
   edited?: string[]
   status?: string
@@ -246,7 +248,7 @@ export class Api {
   state = () => this.call<PanelState>('GET', `/api/${this.conn.key}/state`)
   flow = (id: string) => this.call<FlowRecord>('GET', `/api/${this.conn.key}/flow/${encodeURIComponent(id)}`)
   config = () => this.call<ConfigPayload>('GET', `/api/config${query({ pane: this.conn.key })}`)
-  saveConfig = (update: Partial<Record<SettingKey, string | boolean | null>>, scope: ScopeValue) =>
+  saveConfig = (update: Partial<Record<SettingKey, string | boolean | number | null>>, scope: ScopeValue) =>
     this.call<ConfigPayload>('POST', `/api/config${query({ pane: scope === Scope.PANE ? this.conn.key : undefined })}`, update)
   override = (id: string, change: { status: string | null } | { archived: boolean }) => this.call('POST', `/api/${this.conn.key}/qa/override`, { id, ...change })
   open = (mode: string) => this.call('POST', `/api/${this.conn.key}/open?mode=${encodeURIComponent(mode)}`)

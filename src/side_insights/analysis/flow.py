@@ -11,6 +11,7 @@ import time
 import uuid
 
 from side_insights import config
+from side_insights.analysis import flow_store
 from side_insights.analysis.runner import Pending, run_claude
 from side_insights.i18n import language_instruction
 from side_insights.records import RecordStatus, StepKind
@@ -54,8 +55,10 @@ CHECK_STATUSES = ["pass", "fail", "unknown"]
 
 SCHEMA = {
     "type": "object",
-    "required": ["title", "summary", "example", "steps", "changes"],
+    "required": ["same_change", "title", "summary", "example", "steps", "changes"],
     "properties": {
+        "same_change": {"type": "boolean",
+                        "description": "True when this turn continues the previous flow's logical change (refines, fixes or extends the same feature)"},
         "title": {"type": "string", "description": "The work in 3 to 6 words"},
         "example": {"type": "string", "description": "One concrete input traced through every step, e.g. a request with its values"},
         "summary": {"type": "string", "description": "What changed and why, 2 sentences"},
@@ -100,6 +103,7 @@ List the steps in the order data moves through the changed feature when it runs 
 - Put one or two key words per line in **bold** and mark caveats or changed behaviour with ==highlight==. Do not overuse either.
 - Trace the one concrete example from "example" through every step. In each step's data list the state names (variables, fields, rows, response codes) this step reads or changes and their concrete values for that example; give "before" only when the step changes the value. Use the same name for the same state in every step so it can be followed across steps.
 - code must be a real excerpt you confirmed with Read. Never invent symbols. Use kind "test" for test files.
+- When a previous flow is given and this turn continues the same logical change (it refines, fixes or extends the same feature), set same_change to true and write one flow for the whole change as it stands now: the steps of both turns, changed set for steps either turn touched, and changes from both. Otherwise set same_change to false and describe only this turn.
 - checks: only tests, builds or checks that actually ran in the conversation. Empty if none. Set steps to the 1-based numbers of the steps a check exercises; leave it empty when it covers the whole change.
 Write for a person skimming the panel, not for a machine:
 - Lead with the point in one short sentence, then add detail only if it helps.
@@ -168,6 +172,26 @@ def new_flow_id():
     return f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
+def _turns_of(record):
+    return record.get("turn_ids") or ([record["turn_id"]] if record.get("turn_id") else [])
+
+
+def _previous_flow(pane, turn_id):
+    """The newest finished flow of another turn: the one this turn may continue."""
+    return next((r for r in flow_store.records(pane)
+                 if r.get("status") == RecordStatus.OK.value and isinstance(r.get("flow"), dict) and turn_id not in _turns_of(r)), None)
+
+
+def _previous_section(previous):
+    if not previous:
+        return ""
+    flow = previous["flow"]
+    steps = "\n".join(f"{n + 1}. {s.get('title', '')} ({s.get('location', '')})" for n, s in enumerate(flow.get("steps") or []))
+    changes = "\n".join(f"- {c.get('file', '')}: {c.get('what', '')}" for c in flow.get("changes") or [])
+    return (f"\n\n## Previous flow, from an earlier turn\nTitle: {flow.get('title', '')}\nSummary: {flow.get('summary', '')}\n"
+            f"Steps:\n{steps}\nChanges:\n{changes}")
+
+
 def _prune(out_dir, keep_id, turn_id):
     for path in json_files(out_dir):
         if os.path.basename(path) != f"{keep_id}.json" and turn_id and (read_json(path) or {}).get("turn_id") == turn_id:
@@ -189,6 +213,7 @@ def main():
         sys.exit(__doc__)
     pane, transcript, cwd = args
     force = "--force" in sys.argv
+    only_new = "--if-new" in sys.argv
     settings = config.load(pane)
     if not config.runs("flow", pane) and not force:
         return
@@ -202,8 +227,11 @@ def main():
             atomic_write_json(os.path.join(out_dir, f"{flow_id}.json"),
                               {"id": flow_id, "ts": time.time(), "status": RecordStatus.ERROR.value, "error": "no turn found in the transcript"})
         return
-    if not turn["edited"] and not turn["shell_writes"] and not force:
+    if not turn["edited"] and not turn["shell_writes"] and (not force or only_new):
         return
+    if only_new and any(turn["turn_id"] in _turns_of(rec) and rec.get("status") == RecordStatus.OK.value for rec in flow_store.records(pane)):
+        return
+    previous = _previous_flow(pane, turn["turn_id"])
     flow_id = new_flow_id()
     record = {"turn_id": turn["turn_id"], "model": settings["model"], "id": flow_id, "ts": time.time(), "cwd": cwd,
               "prompt": turn["prompt"][:RECORD_PROMPT_LIMIT], "edited": turn["edited"]}
@@ -211,16 +239,21 @@ def main():
              if turn["shell_writes"] else "")
     message = (f"Working directory: {cwd}\nFiles edited this turn:\n" + "\n".join(f"- {f}" for f in turn["edited"]) + shell +
                f"\n\n## User request\n{clip(turn['prompt'], PROMPT_LIMIT)}\n\n## What happened this turn\n{turn['body']}\n\n"
-               "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema.")
+               "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema." + _previous_section(previous))
     with Pending(os.path.join(out_dir, "pending"), id=flow_id):
         try:
             flow, cost = run_claude(SYSTEM + language_instruction(pane), SCHEMA, message, settings["model"],
                                     tools=("Read", "Grep", "Glob"), cwd=cwd, timeout=TIMEOUT, max_turns=MAX_TURNS)
             record.update(flow=flow, cost=cost, status=RecordStatus.OK.value)
+            if previous and flow.get("same_change"):
+                record.update(turn_ids=[*_turns_of(previous), turn["turn_id"]], merged_from=previous["id"],
+                              edited=list(dict.fromkeys([*(previous.get("edited") or []), *turn["edited"]])))
         except Exception as exc:  # noqa: BLE001
             record.update(status=RecordStatus.ERROR.value, error=str(exc)[:ERROR_LIMIT])
         atomic_write_json(os.path.join(out_dir, f"{flow_id}.json"), record)
     if record["status"] == RecordStatus.OK.value:
+        if record.get("merged_from"):
+            _remove(os.path.join(out_dir, f"{record['merged_from']}.json"))
         _prune(out_dir, flow_id, turn["turn_id"])
 
 

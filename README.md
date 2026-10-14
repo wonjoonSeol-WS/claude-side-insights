@@ -198,6 +198,7 @@ In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a que
 | Analyze which sessions | only panels opened with /si | **All sessions** analyzes every session, open or not, whichever panel you set it from |
 | Build a flow when a turn ends | on | When off, flows are built only with Check now (`u`) or ↻ |
 | Check Q&A when a turn ends | on | When off, turns stay pending until Check now (`u`) or ↻ |
+| Q&A turns per check | 30 | How many pending turns one check covers: 5, 10, 20 or 30. More means fewer calls, each a bit bigger |
 | Analysis model | `opus` | `opus`, `sonnet` or `haiku` (set a full model id in config.json) |
 | Language (UI and analysis) | your system language if it is Korean or Japanese, else `en` | English, 한국어, 日本語 |
 | Open the panel when a session starts | off | When on, the panel opens by itself in cmux, Orca, Ghostty or iTerm2 when a session starts |
@@ -217,11 +218,13 @@ No. By default it only analyzes sessions where you opened `/si`, and closing the
 |---|---|---|---|
 | A turn ends | Q&A check | 1 (no tools, one request) | this panel is analyzed (or all sessions are) and "Check Q&A when a turn ends" is on |
 | A turn ends | Flow | 1 (read-only tools, so several requests inside) | the same, the turn changed files (edits, or shell commands that write files), and "Build a flow when a turn ends" is on |
-| You open `/si` in a session for the first time | Q&A for the latest 10 turns, Flow for the latest turn | up to 2 | the session already has turns |
-| You press `u`, `r` or ↻, or **Check older** | Check now / re-check / rebuild / the next 10 older turns | 1 per press | you press `u` and `r` twice to confirm |
+| You open `/si` in a session for the first time | Q&A for the latest turns (30 by default), Flow for the latest turn | up to 2 | the session already has turns; the flow only if that turn changed files and has none yet |
+| You press `u`, `r` or ↻, or **Check older** | Check now / re-check / rebuild / the next batch of older turns | 1 per press | you press `u` and `r` twice to confirm |
 | The `/si` pane itself | drawing, keys, diffs, theme | 0 | it only talks to the local server and git |
 
-A single Q&A check covers at most the 10 latest turns not checked yet. Older ones are listed as skipped on that turn's card, and **Check older** checks the next 10 each time.
+A single Q&A check covers at most the latest turns not checked yet, 30 by default (**Q&A turns per check**: 5, 10, 20 or 30). Older ones are listed as skipped on that turn's card, and **Check older** checks the next batch each time. Each batch is its own card.
+
+When a turn continues the change of the previous flow (it refines, fixes or extends the same feature), the new flow replaces that one and covers both turns, so the list shows one up-to-date flow instead of near-duplicates.
 
 A working turn usually makes dozens of model requests on its own, so one or two analysis runs after it are a small share. Many short chat-only turns raise the share, since each still gets a Q&A check.
 
