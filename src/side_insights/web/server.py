@@ -18,6 +18,7 @@ from side_insights.i18n import current, messages, t
 from side_insights.language import DEFAULT, Language
 from side_insights.launch import child_env, command_line
 from side_insights.live.activity import ActivityTail, log_path
+from side_insights.web import diff
 from side_insights.paths import (ANALYSIS_LOG, APP_NAME, DATA, ITEM_ID_RE, KEY_RE, PORT, ROOT, TOKEN_HEADER, TURN_ID_RE, api_token,
                                  last_turn_path, read_json)
 
@@ -239,6 +240,14 @@ class Handler(BaseHTTPRequestHandler):
             self.error(404, "err_no_id", item_id, pane=pane)
         return found
 
+    def get_diff(self, pane):
+        snap = snapshot(pane)
+        path = _allowed_path(self.param("path"), snap)
+        view = self.param("view") or "auto"
+        if not path or view not in diff.VIEWS:
+            return self.error(400, "err_bad_request", pane=pane)
+        self.json(diff.load(path, view))
+
     def post_override(self, pane):
         body = self.body()
         if body is None:
@@ -316,6 +325,22 @@ class Handler(BaseHTTPRequestHandler):
         self.json({"ok": True})
 
 
+def _absolute(path, cwd):
+    path = os.path.expanduser(path)
+    return os.path.realpath(path if os.path.isabs(path) or not cwd else os.path.join(cwd, path))
+
+
+def _allowed_path(path, snap):
+    """Only files this pane edited, or files under its working directory."""
+    if not isinstance(path, str) or not path or "\0" in path:
+        return None
+    cwd = snap.get("cwd")
+    full = _absolute(path, cwd)
+    edited = {_absolute(f["path"], cwd) for f in snap.get("files") or []}
+    root = os.path.realpath(cwd) if cwd else None
+    return full if full in edited or (root and full.startswith(root + os.sep)) else None
+
+
 def _valid_regen(target, turn_id, item, scope):
     if target not in REGEN_TARGETS:
         return False
@@ -336,6 +361,7 @@ ROUTES = [
     ("GET", ["api", "panes"], Handler.get_panes),
     ("GET", ["api", KEY_RE, "state"], Handler.get_state),
     ("GET", ["api", KEY_RE, "flow", FLOW_ID_RE], Handler.get_flow),
+    ("GET", ["api", KEY_RE, "diff"], Handler.get_diff),
     ("POST", ["api", "config"], Handler.post_config),
     ("POST", ["api", KEY_RE, "qa", "override"], Handler.post_override),
     ("POST", ["api", KEY_RE, "open"], Handler.post_open),

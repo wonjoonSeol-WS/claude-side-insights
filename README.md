@@ -144,8 +144,11 @@ Run inside Claude Code with a leading `!` (except `si-activity`), for example `!
 Keys in the browser panel:
 
 - `1` `2` `3`: Flow, Live, Q&A
-- `←` `→`: flow steps
+- `←` `→`: flow steps, `p` `n`: previous / next flow
+- `k` `j`: Live, previous / next edited file with its diff. `x` closes the diff
 - `?`: help, `Esc`: close the dialog
+
+Click a changed file on Live or Flow to see its diff, the same views as /si (uncommitted, last commit, whole file). The count tiles on Live and Q&A filter the list, and clicking a question copies it.
 
 In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a question, then `s` changes its status, `a` archives it, `c` copies the selected question and `r` re-checks it (press twice). `R` re-checks every open question (also press twice). On Flow, `[` `]` switch flows and `p` plays the steps.
 

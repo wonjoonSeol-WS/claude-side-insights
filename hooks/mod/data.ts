@@ -101,6 +101,7 @@ export type FlowStep = {
 }
 export type FlowRecord = {
   ts?: number
+  edited?: string[]
   status?: string
   error?: string
   prompt?: string

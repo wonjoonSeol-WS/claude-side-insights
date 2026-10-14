@@ -40,6 +40,7 @@ import {
   isOpen,
   kindOf,
   qaPage,
+  resolveChange,
   sortedFiles,
   stepChanges,
   type Change,
@@ -968,12 +969,14 @@ const language = (location: string | undefined) => {
   return LANGUAGE[ext]
 }
 
+const knownFiles = (c: Ctx) => [...(c.flow?.edited ?? []), ...(c.s?.activity.files ?? []).map(f => f.path)]
+
 const changeRow = (c: Ctx, ch: Change, key: string) => {
   const { Box, Text, Button } = c.ui
   return [
     ...changeFiles(ch.file).map((f, k) => (
-      <Box key={`${key}-row-${k}`} flexDirection="row" backgroundColor={selectedBg(c, c.view.file === f)}>
-        <Button key={k ? `${key}-${k}` : key} plain onPress={() => c.act.openFile(f)}>
+      <Box key={`${key}-row-${k}`} flexDirection="row" backgroundColor={selectedBg(c, c.view.file === resolveChange(f, knownFiles(c)))}>
+        <Button key={k ? `${key}-${k}` : key} plain onPress={() => c.act.openFile(resolveChange(f, knownFiles(c)))}>
           {pill(c, `${key}-mark-${k}`, 'M', c.p.orange)}
           <Text color={hex(c.p.text)}>{` ${f}`}</Text>
         </Button>

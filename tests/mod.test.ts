@@ -2,7 +2,7 @@ import { expect, mock, test, type Engine } from 'claude-code/testing'
 import type { HttpResponse, On } from 'claude-code'
 
 import { Kind, Setting, Status, cells, connect, trimHunks } from '../hooks/mod/data'
-import { changeFiles } from '../hooks/mod/select'
+import { changeFiles, resolveChange } from '../hooks/mod/select'
 import { PILL_STRONG_TINT, PILL_TINT, TAB_TINT, TOGGLES, Tab } from '../hooks/mod/views'
 import { AUTO_THEME, DARK, LIGHT, THEMES, hex, mix, resolvePalette, type Palette, type Rgb } from '../hooks/mod/theme'
 import { LOCALES } from './locales'
@@ -1207,6 +1207,27 @@ test('each step lists only the changes to its own file, and a change opens its d
   await ui.press({ key: 'step-change-0' })
   expect(await ui.find({ key: 'diff' }), 'the diff of that file').toBeDefined()
   await ui.unmount()
+})
+
+test('a change named relative to another repo opens the edited file there, not the same name under the session folder', async ($, on) => {
+  const elsewhere = '~/other/src/checkout/idempotency.ts'
+  const current = { ...STATE, activity: { ...STATE.activity, files: [{ path: elsewhere, count: 1, created: false, last: 1 }] } }
+  const { clock, runs } = setup(on, { current, up: true, git: DIFF_CASES[0]!.git })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'tab-flow' })
+  await ui.press({ key: 'step-next' })
+  runs.length = 0
+  await ui.press({ key: 'step-change-0' })
+  const git = runs.find(r => r[0] === 'git')
+  expect(git?.slice(1, 3)).toEqual(['-C', '/home/u/other/src/checkout'])
+  await ui.unmount()
+})
+
+test('resolveChange prefers a known path ending in the change file, else keeps the name', () => {
+  expect(resolveChange('README.md', ['~/a/docs/README.md', '/r/x.ts'])).toBe('~/a/docs/README.md')
+  expect(resolveChange('lib/x.ts', ['/r/src/x.ts'])).toBe('lib/x.ts')
 })
 
 test('pressing a Live tile filters the tool list to that state, and pressing it again clears it', async ($, on) => {

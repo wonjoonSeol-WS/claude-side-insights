@@ -69,6 +69,8 @@ const sameFile = (a: string, b: string) => {
   return !!x && !!y && (x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`))
 }
 
+export const resolveChange = (file: string, known: readonly string[]) => known.find(k => sameFile(k, file)) ?? file
+
 export const stepChanges = (s: FlowStep, changes: Change[]) => {
   const file = (s.location ?? '').split(' ')[0] ?? ''
   return file ? changes.filter(ch => changeFiles(ch.file).some(f => sameFile(f, file))) : []

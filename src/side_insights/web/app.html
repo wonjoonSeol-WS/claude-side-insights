@@ -127,7 +127,7 @@ pre.code span.hl { background: var(--hl); box-shadow: inset 3px 0 var(--hl-line)
 .big-empty { padding: 60px 20px; text-align: center; color: var(--muted); }
 .big-empty b { display: block; color: var(--text); font-size: 18px; margin-bottom: 6px; }
 .err-box { border: 1px solid rgba(229,96,79,.5); background: rgba(229,96,79,.08); border-radius: 10px; padding: 12px; white-space: pre-wrap; font-family: var(--mono); font-size: 12px; }
-.live-grid { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; align-items: start; }
+.live-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, 1fr); gap: 14px; align-items: start; }
 @media (max-width: 1000px) { .live-grid { grid-template-columns: minmax(0, 1fr); } }
 
 .qa-bar { margin-bottom: 12px; }
@@ -187,6 +187,47 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .toast.err { border-color: rgba(229,96,79,.6); color: #f2b3aa; }
 .toast:empty { display: none; }
 .space-between { display: flex; justify-content: space-between; gap: 8px; }
+.tiles { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.tile { flex: 1 1 120px; text-align: left; border: 1px solid color-mix(in srgb, var(--c) 45%, var(--line)); background: var(--panel); border-radius: 12px; padding: 8px 14px; }
+.tile b { display: block; font-size: 20px; color: var(--c); font-variant-numeric: tabular-nums; }
+.tile span { color: var(--muted); font-size: 12.5px; }
+.tile.dim { border-color: var(--line); }
+.tile.dim b { color: var(--faint); }
+.tile.on { border-width: 2px; background: color-mix(in srgb, var(--c) 12%, var(--panel)); }
+.tile.on span { color: var(--text); font-weight: 600; }
+div.tile { cursor: default; }
+.meter { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.bar { flex: 1; display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--line); gap: 2px; }
+.bar i { display: block; height: 100%; background: var(--c); }
+.meter b { font-variant-numeric: tabular-nums; }
+.tool.click { cursor: pointer; }
+.tool.click:hover { background: var(--panel-2); }
+.tool-reason { grid-column: 2 / -1; color: var(--red); font-size: 12.5px; white-space: pre-wrap; overflow-wrap: anywhere; padding: 2px 0 6px; }
+.tool-reason.none { color: var(--faint); }
+.row.file { cursor: pointer; border-radius: 6px; padding-left: 8px; }
+.row.file:hover { background: var(--panel-2); }
+.row.file.on { background: var(--panel-2); box-shadow: inset 3px 0 var(--teal); }
+.file-link { border: 0; background: transparent; padding: 0; text-align: left; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; color: var(--text); }
+.file-link:hover { text-decoration: underline; }
+.file-link.on { color: var(--teal); }
+.diff-card { border-color: color-mix(in srgb, var(--teal) 55%, var(--line)); margin-top: 14px; }
+.diff-card pre.code { max-height: 70vh; overflow: auto; }
+.diff-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
+.diff-views .on { background: var(--panel-2); color: var(--text); border-color: var(--teal); }
+.diff-source { color: var(--muted); font-size: 12.5px; }
+.diff-source.none { color: var(--orange); }
+pre.diff span.add { background: rgba(79,191,127,.13); color: #b5e8c8; }
+pre.diff span.del { background: rgba(229,96,79,.13); color: #f2b3aa; }
+pre.diff span.hunk { color: var(--blue); }
+pre.code.numbered span { padding-left: 4.4em; text-indent: -3.4em; }
+pre.code.numbered span i { display: inline-block; width: 3em; text-indent: 0; color: var(--faint); font-style: normal; user-select: none; }
+.tag { font-size: 11.5px; color: var(--faint); margin-left: 6px; font-weight: 400; }
+.qa-item .q.copy { cursor: copy; }
+.qa-item .q.copy:hover { text-decoration: underline dotted var(--faint); }
+.qa-turn.failed { border-color: rgba(229,96,79,.6); }
+.qa-turn.open { border-color: rgba(231,163,62,.4); }
+.sub-h { color: var(--muted); font-size: 12.5px; font-weight: 600; margin: 14px 0 6px; }
+.card.fail { border-color: rgba(229,96,79,.6); }
 </style>
 </head>
 <body>
@@ -224,6 +265,16 @@ const RECENT_TOUCH_MS = 30000;
 const MIN_HIGHLIGHT = 3;
 const TOOLS_IN_FLOW = 12;
 const TOOLS_IN_LIVE = 200;
+const MAX_FILES = 30;
+const TOOL_STATES = [TOOL.OK, TOOL.ERR, TOOL.RUN];
+const TOOL_COLOR = { [TOOL.OK]: "var(--green)", [TOOL.ERR]: "var(--red)", [TOOL.RUN]: "var(--orange)" };
+const TOOL_FILTER_LABEL = { [TOOL.OK]: "term_ok", [TOOL.ERR]: "term_err", [TOOL.RUN]: "term_run" };
+const QA_STATUSES = [QA.ANSWERED, QA.PARTIAL, QA.UNANSWERED];
+const QA_COLOR = { [QA.ANSWERED]: "var(--green)", [QA.PARTIAL]: "var(--orange)", [QA.UNANSWERED]: "var(--red)" };
+const DIFF_VIEW = { AUTO: "auto", WORKING: "working", COMMIT: "commit", FILE: "file" };
+const DIFF_VIEWS = [[DIFF_VIEW.WORKING, "mod_view_working"], [DIFF_VIEW.COMMIT, "mod_view_commit"], [DIFF_VIEW.FILE, "mod_view_file"]];
+const DIFF_SOURCE_LABEL = { working: "mod_diff_working", new: "mod_diff_new", file: "mod_diff_file", commit: "mod_diff_commit", none: "mod_diff_none" };
+const SOURCE_VIEW = { file: DIFF_VIEW.FILE, commit: DIFF_VIEW.COMMIT };
 const KINDS = {
   input: "var(--gray)", logic: "var(--blue)", external: "var(--orange)", storage: "var(--green)",
   output: "var(--purple)", config: "var(--gray)", test: "var(--teal)",
@@ -248,10 +299,10 @@ const S = {
   dialog: Object.values(DIALOG).includes(PARAMS.get("dialog")) ? PARAMS.get("dialog") : null,
   lastTouch: PARAMS.get("mode") ? Date.now() : 0,
   state: null, flows: [], pending: null, qa: { turns: [], pending: false }, flowCache: {}, flowId: null,
-  seenFlows: null, playing: null, error: null, sig: null, panes: null,
+  seenFlows: null, seenTurns: null, playing: null, error: null, sig: null, panes: null,
   qaPage: 1, qaOnlyOpen: false, qaArchived: false, qaPageTurns: [], busyIds: new Set(), scrolledFlowId: null,
   config: null, scope: PARAMS.get("scope") === SCOPE.PANE ? SCOPE.PANE : SCOPE.GLOBAL, settingsMsg: null, returnFocus: null,
-  polling: null,
+  polling: null, toolFilter: null, toolOpen: null, qaStatus: null, diff: null,
 };
 const touch = () => { S.lastTouch = Date.now(); };
 const recentlyTouched = () => Date.now() - S.lastTouch < RECENT_TOUCH_MS;
@@ -344,11 +395,19 @@ function absorbState(data) {
   S.qa = data.qa || { turns: [], pending: false, waiting: [] };
   const ids = new Set(S.flows.map(f => f.id));
   const fresh = S.seenFlows && S.flows.find(f => !S.seenFlows.has(f.id));
+  announce(S.seenFlows && S.flows.filter(f => !S.seenFlows.has(f.id) && f.status === REC.OK), S.seenTurns && S.qa.turns.filter(turn => !S.seenTurns.has(turn.turn_id)));
   S.seenFlows = ids;
+  S.seenTurns = new Set(S.qa.turns.map(turn => turn.turn_id));
   if (fresh && S.mode === "flow" && !recentlyTouched()) selectFlow(fresh.id);
   if (!S.flowId || !ids.has(S.flowId)) selectFlow(S.flows[0]?.id || null);
   Object.keys(S.flowCache).forEach(id => { if (!ids.has(id)) delete S.flowCache[id]; });
   if (!S.mode) S.mode = S.flows.length ? "flow" : "live";
+}
+
+function announce(newFlows, newTurns) {
+  const open = list(newTurns).reduce((n, turn) => n + list(turn.items).filter(i => i.status !== QA.ANSWERED && !i.archived).length, 0);
+  const parts = [...list(newFlows).map(f => text("mod_toast_flow", f.title)), ...(open ? [text("mod_toast_open", open)] : [])];
+  if (parts.length) notify(parts.join("  |  "));
 }
 
 async function loadFlow() {
@@ -489,22 +548,67 @@ function stepDetail(rec, flow, step, i) {
     <div class="ctx">${esc(flow.title)}  ${clock(rec.ts)}</div>
     <div class="h"><h2>${circled(i + 1)} ${esc(step.title)}</h2><span class="badge" style="--c:${kindColor(step.kind)}">${kindLabel(step.kind)}</span>
     ${step.changed ? `<span class="badge" style="--c:var(--hl-line)">${t("changed_this")}</span>` : ""}</div>
-    <code class="loc">${esc(step.location)}</code>${prose(step.explanation)}${codeBlock(step)}</div>`;
+    <code class="loc">${esc(step.location)}</code>${prose(step.explanation)}${codeBlock(step)}${keyLines(step)}${stepExtras(flow, step, i)}</div>`;
+}
+
+function stepExtras(flow, step, i) {
+  const own = stepChanges(step, list(flow.changes));
+  const checks = list(flow.checks).filter(c => list(c.steps).includes(i + 1));
+  return (own.length ? `<div class="sub-h" style="color:var(--orange)">${t("mod_step_changes")}</div><div class="rows">${changeRows(own)}</div>` : "")
+    + (checks.length ? `<div class="sub-h" style="color:var(--green)">${t("mod_step_checks")}</div><div class="rows">${checkRows(checks)}</div>` : "");
 }
 
 function flowSide(rec, flow, steps, i) {
   const changes = list(flow.changes);
   const checks = list(flow.checks);
   const cost = Number(rec.cost);
-  const checkStatus = c => CHECK_ICON[c.status] ? c.status : CHECK.UNKNOWN;
   return `<div class="side">
     ${stateCard(steps, i)}
-    <div class="card"><h3>${t("changes", changes.length)}</h3><div class="rows">${changes.map(c => `<div class="row"><span class="k M">M</span>
-      <div class="v"><div class="path">${esc(c.file)}</div>${inline(c.what)}</div></div>`).join("") || `<div class="empty">${t("none")}</div>`}</div></div>
-    ${checks.length ? `<div class="card"><h3>${t("checks")}</h3><div class="rows">${checks.map(c => `<div class="row">
-      <span class="k st-${checkStatus(c)}">${CHECK_ICON[checkStatus(c)]}</span><span>${esc(c.label)}</span></div>`).join("")}</div></div>` : ""}
+    <div class="card"><h3>${t("changes", changes.length)}</h3><div class="rows">${changeRows(changes) || `<div class="empty">${t("none")}</div>`}</div></div>
+    ${changes.length ? diffCard() : ""}
+    ${checks.length ? `<div class="card ${checks.some(c => c.status === CHECK.FAIL) ? "fail" : ""}"><h3>${t("checks")}</h3><div class="rows">${checkRows(checks)}</div></div>` : ""}
     <div class="card"><h3>${t("request")}</h3><div class="request">${esc(rec.prompt)}</div><div class="meta">${esc(rec.model || "")}${cost ? ` / $${cost.toFixed(3)}` : ""}</div></div>
-    ${toolsCard(TOOLS_IN_FLOW)}</div>`;
+    ${toolsCard(list(S.state.tools).filter(x => !rec.ts || (x.start || 0) <= rec.ts), TOOLS_IN_FLOW)}</div>`;
+}
+
+const checkStatus = c => CHECK_ICON[c.status] ? c.status : CHECK.UNKNOWN;
+
+const checkRows = checks => checks.map(c => `<div class="row"><span class="k st-${checkStatus(c)}">${CHECK_ICON[checkStatus(c)]}</span><span>${esc(c.label)}</span></div>`).join("");
+
+function changeFiles(file) {
+  const parts = String(file ?? "").split(/\s*,\s*/).map(x => x.trim()).filter(Boolean);
+  const dir = parts[0]?.includes("/") ? parts[0].slice(0, parts[0].lastIndexOf("/") + 1) : "";
+  return parts.map((x, i) => (i === 0 || x.includes("/") ? x : `${dir}${x}`));
+}
+
+const knownFiles = () => [...list(S.flowCache[S.flowId]?.edited), ...list(S.state?.files).map(f => f.path)];
+
+const resolveChange = (file, known) => known.find(k => sameFile(k, file)) || file;
+
+function changeRows(changes) {
+  const known = knownFiles();
+  return changes.map(c => `<div class="row"><span class="k M">M</span>
+    <div class="v"><div class="path">${changeFiles(c.file).map(f => fileLink(resolveChange(f, known), f)).join(", ")}</div>${inline(c.what)}</div></div>`).join("");
+}
+
+function sameFile(a, b) {
+  const x = a.replace(/^~\//, ""), y = b.replace(/^~\//, "");
+  return Boolean(x && y && (x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`)));
+}
+
+function stepChanges(step, changes) {
+  const file = String(step.location || "").split(" ")[0];
+  return file ? changes.filter(c => changeFiles(c.file).some(f => sameFile(f, file))) : [];
+}
+
+function keyLines(step) {
+  const lines = String(step.code || "").split("\n");
+  const hits = list(step.highlight).filter(Boolean);
+  if (!hits.length) return "";
+  return `<div class="sub-h" style="color:var(--hl-line)">${t("mod_key_lines")}</div><div class="rows">${hits.map(hit => {
+    const at = lines.findIndex(l => l.includes(hit));
+    return `<div class="row"><span class="k" style="color:var(--faint)">${at < 0 ? "" : at + 1}</span><code>${esc(String(hit).trim())}</code></div>`;
+  }).join("")}</div>`;
 }
 
 function stateAt(steps, current) {
@@ -527,11 +631,25 @@ function stateCard(steps, current) {
 
 function isTurnShown(turn, items) {
   if (turn.status !== REC.OK) return true;
-  return items.length > 0 || !(S.qaOnlyOpen || list(turn.items).length);
+  return items.length > 0 || !(S.qaOnlyOpen || S.qaStatus || list(turn.items).length);
+}
+
+function qaSummary() {
+  const items = S.qa.turns.flatMap(turn => list(turn.items).filter(i => !i.archived));
+  const n = S.qa.counts || {};
+  const count = status => Number(n[status] ?? items.filter(i => i.status === status).length);
+  const total = Number(n.total ?? items.length);
+  const waiting = list(S.qa.waiting).length;
+  const percent = total ? Math.round((100 * count(QA.ANSWERED)) / total) : 0;
+  const tiles = QA_STATUSES.map(status => tile(count(status), esc(statusLabel(status)), QA_COLOR[status], `data-qa-status="${status}"`, S.qaStatus === status)).join("")
+    + (waiting ? tile(waiting, `⏳ ${t("qa_wait_tile")}`, "var(--blue)") : "");
+  const done = total && count(QA.ANSWERED) === total;
+  return `<div class="tiles">${tiles}</div>${meter(QA_STATUSES.map(status => ({ value: count(status), color: QA_COLOR[status] })), total,
+    `<b style="color:${done ? "var(--green)" : "var(--text)"}">${percent}%</b>`)}`;
 }
 
 function qaBar() {
-  return `<div class="top qa-bar">
+  return qaSummary() + `<div class="top qa-bar">
     <label class="btn"><input type="checkbox" data-act="qa-open" ${S.qaOnlyOpen ? "checked" : ""}>${t("qa_open_only")}</label>
     <label class="btn"><input type="checkbox" data-act="qa-archived" ${S.qaArchived ? "checked" : ""}>${t("qa_archived")}</label>
     ${S.qa.pending ? `<span class="pill gen"><i class="dot"></i>${t("qa_checking")}</span>` : ""}<span class="spacer"></span>
@@ -562,7 +680,8 @@ function renderQA() {
     return qaBar() + waitingCard() + (list(S.qa.waiting).length ? "" : `<div class="big-empty"><b>${t("qa_empty_t")}</b>${t("qa_empty_d")}</div>`);
   }
   const visible = S.qa.turns
-    .map(turn => ({ turn, items: list(turn.items).filter(i => (!S.qaOnlyOpen || i.status !== QA.ANSWERED) && (S.qaArchived || !i.archived)) }))
+    .map(turn => ({ turn, items: list(turn.items).filter(i => (!S.qaOnlyOpen || i.status !== QA.ANSWERED) && (S.qaArchived || !i.archived)
+      && (!S.qaStatus || i.status === S.qaStatus)) }))
     .filter(({ turn, items }) => isTurnShown(turn, items));
   const pages = Math.max(1, Math.ceil(visible.length / QA_PAGE));
   const page = Math.min(Math.max(1, S.qaPage), pages);
@@ -577,6 +696,11 @@ function renderQA() {
   return qaBar() + waitingCard() + pager + (body || `<div class="big-empty"><b>${allArchived ? t("qa_nothing_shown") : t("qa_all_done")}</b></div>`) + pager;
 }
 
+function tags(item) {
+  return [item.from === FROM_MID_TURN && text("midturn"), item.archived && text("qa_archived_tag"), item.manual && text("manual").trim()]
+    .filter(Boolean).map(tag => `<small class="tag">${esc(tag)}</small>`).join("");
+}
+
 function renderTurn(turn, items) {
   const rows = items.map(item => {
     const id = esc(item.id);
@@ -586,7 +710,7 @@ function renderTurn(turn, items) {
     return `<div class="qa-item ${item.archived ? "archived" : ""}">
       <button class="chip ${status}" data-qa-cycle="${id}" ${busy}
         title="${t("cycle_title")}${item.manual ? t("auto_verdict", statusLabel(item.auto_status)) : ""}">${esc(statusLabel(status))}</button>
-      <div><div class="q">${esc(item.question)}${item.from === FROM_MID_TURN ? `<small>${t("midturn")}</small>` : ""}<span class="qid" title="si-qa set ${id} answered">${id}</span></div>
+      <div><div class="q copy" data-qa-pick="${id}" role="button" tabindex="0">${esc(item.question)}${tags(item)}<span class="qid" title="si-qa set ${id} answered">${id}</span></div>
       <div class="a">${answer}</div>
       ${item.resolved_in && item.first_status ? `<div class="resolved">${t("resolved", statusLabel(item.first_status), statusLabel(item.auto_status))} ${clock(item.resolved_at)}</div>`
         : item.rechecked_at && item.first_status && item.first_status !== item.auto_status
@@ -596,30 +720,102 @@ function renderTurn(turn, items) {
       <button class="mini" data-qa-archive="${id}" ${busy}>${item.archived ? t("restore") : t("archive")}</button>
       ${item.manual ? `<button class="mini" data-qa-reset="${id}" ${busy}>${t("reset_auto")}</button>` : ""}</div></div></div>`;
   }).join("");
-  return `<div class="card qa-turn"><div class="qa-head"><span>${clock(turn.ts)}</span><span class="p" title="${esc(turn.prompt)}">${esc(turn.prompt)}</span>
+  const failed = turn.status !== REC.OK;
+  const open = items.some(i => i.status !== QA.ANSWERED && !i.archived);
+  return `<div class="card qa-turn ${failed ? "failed" : open ? "open" : ""}"><div class="qa-head"><span>${clock(turn.ts)}</span><span class="p" title="${esc(turn.prompt)}">${esc(turn.prompt)}</span>
     <span>${esc(turn.model || "")}${turn.scope === SCOPE_THROUGH_END ? t("through_end") : ""}</span>
     ${turn.status !== REC.OK ? `<button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button>` : ""}</div>
     ${turn.status !== REC.OK ? `<div class="err-box">${esc(turn.error || text("qa_fail"))}</div>` : ""}
     <div class="qa">${rows || (turn.status === REC.OK ? `<div class="empty">${t("qa_noq")}</div>` : "")}</div></div>`;
 }
 
-function toolsCard(limit) {
-  const tools = list(S.state.tools).slice(-limit).reverse();
-  return `<div class="card"><h3>${t("tools", list(S.state.tools).length)}</h3>${tools.map(tool => {
-    const icon = TOOL_ICON[tool.state] || "-";
-    const dur = tool.state === TOOL.RUN ? `<span data-since="${Number(tool.start) || 0}"></span>` : tool.end && tool.start ? secs(tool.end - tool.start) : "";
-    const cls = EDIT_TOOLS.has(tool.tool) ? "edit" : (tool.tool || "").startsWith("mcp__") ? "mcp" : "other";
-    return `<div class="tool"><span class="st-${esc(tool.state)}">${icon}</span><span class="time">${clock(tool.start)}</span>
-      <span class="name ${cls}" title="${esc(tool.tool)}">${esc(tool.label)}</span><span class="sum" title="${esc(tool.file || tool.summary)}">${esc(tool.file || tool.summary)}</span><span class="dur">${dur}</span></div>`;
-  }).join("") || `<div class="empty">${t("not_yet")}</div>`}</div>`;
+const toolId = tool => `${tool.start ?? ""}:${tool.tool}`;
+
+function toolRow(tool) {
+  const icon = TOOL_ICON[tool.state] || "-";
+  const dur = tool.state === TOOL.RUN ? `<span data-since="${Number(tool.start) || 0}"></span>` : tool.end && tool.start ? secs(tool.end - tool.start) : "";
+  const cls = EDIT_TOOLS.has(tool.tool) ? "edit" : (tool.tool || "").startsWith("mcp__") ? "mcp" : "other";
+  const what = tool.file || tool.summary;
+  const failed = tool.state === TOOL.ERR;
+  const open = failed && S.toolOpen === toolId(tool);
+  const attrs = failed ? `class="tool click" role="button" tabindex="0" data-tool-open="${esc(toolId(tool))}" aria-expanded="${open}"` : `class="tool"`;
+  return `<div ${attrs}><span class="st-${esc(tool.state)}">${icon}</span><span class="time">${clock(tool.start)}</span>
+    <span class="name ${cls}" title="${esc(tool.tool)}">${esc(tool.label || tool.tool)}</span><span class="sum" title="${esc(what)}">${esc(what)}</span><span class="dur">${dur}</span>
+    ${open ? `<div class="tool-reason ${tool.reason ? "" : "none"}">${esc(tool.reason || text("mod_no_reason"))}</div>` : ""}</div>`;
+}
+
+function toolsCard(tools, limit, filter) {
+  const shown = filter ? tools.filter(x => x.state === filter) : tools;
+  const title = filter ? `${t("term_tools", `${shown.length} / ${tools.length}`)}  ${t(TOOL_FILTER_LABEL[filter])}` : t("term_tools", tools.length);
+  const rows = shown.slice(-limit).reverse().map(toolRow).join("");
+  return `<div class="card"><h3>${title}</h3>${rows || `<div class="empty">${t(filter ? "mod_filter_none" : "not_yet")}</div>`}</div>`;
+}
+
+function tile(value, label, color, filterAttr, on) {
+  const cls = `tile ${value ? "" : "dim"} ${on ? "on" : ""}`;
+  const body = `<b>${esc(value)}</b><span>${label}</span>`;
+  return filterAttr ? `<button class="${cls}" style="--c:${color}" ${filterAttr} aria-pressed="${on}">${body}</button>` : `<div class="${cls}" style="--c:${color}">${body}</div>`;
+}
+
+function meter(segments, total, suffix = "") {
+  const bars = total ? segments.filter(s => s.value).map(s => `<i style="--c:${s.color};width:${(100 * s.value) / total}%"></i>`).join("") : "";
+  return `<div class="meter"><div class="bar">${bars}</div>${suffix}</div>`;
+}
+
+function fileLink(path, label = path) {
+  const on = S.diff?.path === path;
+  return `<button class="file-link ${on ? "on" : ""}" data-diff-file="${esc(path)}" aria-pressed="${on}">${esc(label)}</button>`;
+}
+
+function diffLines(hunks) {
+  return hunks.split("\n").map(line => {
+    const cls = line.startsWith("@@") ? "hunk" : line.startsWith("+") ? "add" : line.startsWith("-") ? "del" : "";
+    return `<span class="${cls}">${esc(line) || " "}</span>`;
+  }).join("");
+}
+
+function diffCard() {
+  const d = S.diff;
+  if (!d) return "";
+  const data = d.data;
+  const source = data?.source;
+  const shown = SOURCE_VIEW[source] || (source === "none" && d.view !== DIFF_VIEW.AUTO ? d.view : DIFF_VIEW.WORKING);
+  const views = DIFF_VIEWS.map(([view, key]) => `<button class="mini ${shown === view ? "on" : ""}" data-diff-view="${view}" aria-pressed="${shown === view}">${t(key)}</button>`).join("")
+    + `<button class="mini" data-act="diff-close">${t("mod_k_close_diff")}</button>`;
+  const body = d.loading || !data ? `<div class="diff-source">${t("mod_diff_loading")}</div>` : `
+    <div class="diff-source ${source === "none" ? "none" : ""}">${t(DIFF_SOURCE_LABEL[source] || "mod_diff_none", data.commit || "")}</div>
+    ${data.error ? `<div class="meta">${esc(data.error)}</div>` : ""}
+    ${data.hunks ? `<pre class="code diff">${diffLines(data.hunks)}</pre>` : ""}
+    ${data.text !== undefined ? `<pre class="code numbered">${String(data.text).split("\n").map((l, n) => `<span><i>${n + 1}</i>${esc(l) || " "}</span>`).join("")}</pre>` : ""}
+    ${data.cut ? `<div class="meta">${t("mod_diff_cut", data.cut)}</div>` : ""}`;
+  return `<div class="card diff-card"><h3>${t("mod_diff_title", d.path)}</h3><div class="diff-views">${views}</div>${body}</div>`;
+}
+
+async function showDiff(path, view = DIFF_VIEW.AUTO) {
+  if (!view || view === DIFF_VIEW.AUTO) {
+    if (S.diff?.path === path) { S.diff = null; return render(); }
+  }
+  S.diff = { path, view, loading: true };
+  render();
+  const r = await api("GET", `/api/${KEY}/diff?path=${encodeURIComponent(path)}&view=${view}`);
+  if (S.diff?.path !== path || S.diff.view !== view) return;
+  S.diff = { path, view, loading: false, data: r.ok ? r.data : { source: "none", hunks: "", cut: 0, error: r.error } };
+  render();
 }
 
 function renderLive() {
-  const files = list(S.state.files);
-  const filesCard = `<div class="card"><h3>${t("files", files.length)}</h3><div class="rows">${files.map(f => `<div class="row">
-    <span class="k ${f.created ? "A" : "M"}">${f.created ? "A" : "M"}</span><span class="path">${esc(f.path)}</span><span class="v">${Number(f.count) > 1 ? "×" + Number(f.count) : ""}</span></div>`).join("")
-    || `<div class="empty">${t("none")}</div>`}</div></div>`;
-  return `<div class="live-grid">${toolsCard(TOOLS_IN_LIVE)}<div>${filesCard}</div></div>`;
+  const tools = list(S.state.tools);
+  const files = [...list(S.state.files)].sort((a, b) => (b.last || 0) - (a.last || 0));
+  const count = state => tools.filter(x => x.state === state).length;
+  const tiles = `<div class="tiles">${TOOL_STATES.map(state => tile(count(state), t(TOOL_FILTER_LABEL[state]), TOOL_COLOR[state],
+    `data-tool-filter="${state}"`, S.toolFilter === state)).join("")}${tile(files.length, t("mod_edited_tile"), "var(--purple)")}</div>`;
+  const bar = meter(TOOL_STATES.map(state => ({ value: count(state), color: TOOL_COLOR[state] })), tools.length);
+  const rows = files.slice(0, MAX_FILES).map(f => `<div class="row file ${S.diff?.path === f.path ? "on" : ""}">
+    <span class="k ${f.created ? "A" : "M"}">${f.created ? "A" : "M"}</span>${fileLink(f.path)}<span class="v">${Number(f.count) > 1 ? "×" + Number(f.count) : ""}</span></div>`).join("");
+  const more = files.length > MAX_FILES ? `<div class="meta">${t("term_more", files.length - MAX_FILES)}</div>` : "";
+  const filesCard = `<div class="card"><h3>${t("mod_edited_files", files.length)}</h3><div class="rows">${rows || `<div class="empty">${t("none")}</div>`}</div>${more}
+    <div class="meta">${t("mod_edited_note")}</div></div>`;
+  return `${tiles}${bar}<div class="live-grid"><div>${filesCard}${diffCard()}</div>${toolsCard(tools, TOOLS_IN_LIVE, S.toolFilter)}</div>`;
 }
 
 function renderDialog() {
@@ -640,10 +836,11 @@ function renderHelpBody() {
       ${row("si-panel", t("h_panel"))}${row("si-open [all]", t("h_flow"))}${row("si-qa list [--open]", t("h_qa_list"))}
       ${row("si-qa set &lt;id&gt; answered|partial|unanswered|auto", t("h_qa_set"))}${row("si-qa archive|restore &lt;id&gt;", t("h_qa_arch"))}</table>
     <h4>${t("help_keys")}</h4><table>
-      ${row("<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>", t("k_tabs"))}${row("<kbd>←</kbd> <kbd>→</kbd>", t("k_steps"))}${row("<kbd>?</kbd>", t("k_help"))}${row("<kbd>Esc</kbd>", t("k_escape"))}</table>
+      ${row("<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>", t("k_tabs"))}${row("<kbd>←</kbd> <kbd>→</kbd>", t("k_steps"))}${row("<kbd>p</kbd> <kbd>n</kbd>", t("term_k_flows"))}
+      ${row("<kbd>k</kbd> <kbd>j</kbd>", t("mod_k_files"))}${row("<kbd>x</kbd>", t("mod_k_close_diff"))}${row("<kbd>?</kbd>", t("k_help"))}${row("<kbd>Esc</kbd>", t("k_escape"))}</table>
     <h4>${t("help_settings")}</h4><table>
       ${row(`model = ${esc(c.model)}`, t("s_model"))}${row(`lang = ${esc(c.lang)}`, t("s_lang"))}
-      ${row(`flow_auto = ${c.flow_auto ? 1 : 0}`, t("s_flow_auto"))}${row(`qa_auto = ${c.qa_auto ? 1 : 0}`, t("s_qa_auto"))}${row(`panel_auto = ${c.panel_auto ? 1 : 0}`, t("s_panel_auto"))}</table>`;
+      ${row(`flow_auto = ${c.flow_auto ? 1 : 0}`, t("s_flow_auto"))}${row(`qa_auto = ${c.qa_auto ? 1 : 0}`, t("s_qa_auto"))}${row(`panel_auto = ${c.panel_auto ? 1 : 0}`, t("s_panel_auto"))}${row(`theme = ${esc(c.theme)}`, t("s_theme"))}</table>`;
 }
 
 function renderSettingsBody() {
@@ -666,7 +863,8 @@ function renderSettingsBody() {
     ${row("lang", t("s_lang"), select("lang", t("s_lang"), langs))}
     ${row("flow_auto", t("s_flow_auto"), toggle("flow_auto", t("s_flow_auto")))}
     ${row("qa_auto", t("s_qa_auto"), toggle("qa_auto", t("s_qa_auto")))}
-    ${row("panel_auto", t("s_panel_auto"), toggle("panel_auto", t("s_panel_auto")))}</table>
+    ${row("panel_auto", t("s_panel_auto"), toggle("panel_auto", t("s_panel_auto")))}
+    ${row("theme", t("s_theme"), select("theme", t("s_theme"), list(c.themes).map(th => ({ value: th, label: text(`theme_${th}`) }))))}</table>
     ${S.settingsMsg ? `<p class="${S.settingsMsg.ok ? "msg-ok" : "msg-err"}">${esc(S.settingsMsg.text)}</p>` : ""}`;
 }
 
@@ -724,11 +922,13 @@ function selectFlow(id) {
   stopAutoplay();
   S.step = S.flowId === null ? S.step : 0;
   S.flowId = id;
+  S.diff = null;
 }
 
 function setMode(mode) {
   if (!MODES.includes(mode)) return;
   if (mode !== "flow") stopAutoplay();
+  if (mode !== S.mode) S.diff = null;
   S.mode = mode;
   render();
 }
@@ -745,7 +945,9 @@ function stepCount() {
 function go(n) {
   const len = stepCount();
   if (!len || S.mode !== "flow" || S.dialog) return;
-  S.step = (n + len) % len;
+  const next = (n + len) % len;
+  if (next !== S.step) S.diff = null;
+  S.step = next;
   render();
 }
 
@@ -767,6 +969,15 @@ function postOverride(item, body) {
     if (!r.ok) notify(r.error, true);
     await poll(true);
   });
+}
+
+async function pickQuestion(item) {
+  try {
+    await navigator.clipboard.writeText(String(item.question || ""));
+    notify(text("mod_copied_question"));
+  } catch {
+    notify(text("copy_failed"), true);
+  }
 }
 
 function copyQuestion(item) {
@@ -825,6 +1036,7 @@ const ACTIONS = {
   full: openFull,
   regen: () => regen("flow", null),
   "qa-regen": () => regen("qa", null, null, "open", S.qaPageTurns),
+  "diff-close": () => { S.diff = null; render(); },
 };
 
 const ITEM_ACTIONS = {
@@ -833,6 +1045,7 @@ const ITEM_ACTIONS = {
   qaReset: item => postOverride(item, { status: null }),
   qaRecheck: item => regen("qa", null, item.id),
   qaCopy: copyQuestion,
+  qaPick: pickQuestion,
 };
 
 const DATA_ACTIONS = {
@@ -842,12 +1055,17 @@ const DATA_ACTIONS = {
   mode: mode => setMode(mode),
   flow: async id => { selectFlow(id); S.mode = "flow"; await loadFlow(); render(); },
   step: n => go(Number(n)),
+  toolFilter: state => { S.toolFilter = S.toolFilter === state ? null : state; render(); },
+  toolOpen: id => { S.toolOpen = S.toolOpen === id ? null : id; render(); },
+  qaStatus: status => { S.qaStatus = S.qaStatus === status ? null : status; S.qaPage = 1; render(); },
+  diffFile: path => showDiff(path),
+  diffView: view => S.diff && showDiff(S.diff.path, view),
 };
 
 document.addEventListener("click", e => {
   const overlay = e.target.closest("[data-overlay]");
   if (overlay && e.target === overlay) return closeDialog();
-  const el = e.target.closest("button, [data-act=qa-open], [data-act=qa-archived]");
+  const el = e.target.closest("button, [role=button], [data-act=qa-open], [data-act=qa-archived]");
   if (!el || el.disabled || el.getAttribute("aria-disabled") === "true") return;
   const d = el.dataset;
   touch();
@@ -875,7 +1093,28 @@ document.addEventListener("keydown", e => {
   if (S.dialog || !KEY) return;
   if (KEY_MODES[e.key]) { touch(); return setMode(KEY_MODES[e.key]); }
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") { touch(); go(S.step + (e.key === "ArrowRight" ? 1 : -1)); }
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[role=button]")) { e.preventDefault(); e.target.click(); }
+  if (e.key === "x" && S.diff) { S.diff = null; render(); }
+  if ((e.key === "j" || e.key === "k") && S.mode === "live") { touch(); fileBy(e.key === "j" ? 1 : -1); }
+  if ((e.key === "n" || e.key === "p") && S.mode === "flow") { touch(); flowBy(e.key === "n" ? 1 : -1); }
 });
+
+function fileBy(delta) {
+  const files = [...list(S.state?.files)].sort((a, b) => (b.last || 0) - (a.last || 0)).slice(0, MAX_FILES);
+  if (!files.length) return;
+  const at = files.findIndex(f => f.path === S.diff?.path);
+  const next = at < 0 ? 0 : Math.max(0, Math.min(files.length - 1, at + delta));
+  if (files[next].path !== S.diff?.path) showDiff(files[next].path);
+}
+
+async function flowBy(delta) {
+  const at = S.flows.findIndex(f => f.id === S.flowId);
+  const next = S.flows[Math.max(0, Math.min(S.flows.length - 1, at + delta))];
+  if (!next || next.id === S.flowId) return;
+  selectFlow(next.id);
+  await loadFlow();
+  render();
+}
 
 const TIP_GAP = 8;
 const tip = document.getElementById("tip");
