@@ -19,6 +19,7 @@ OPENED = "opened"
 ALL_SESSIONS = "all"
 ANALYZE = (OPENED, ALL_SESSIONS)
 QA_BATCHES = (5, 10, 20, 30)
+MODEL_QA_BATCH = {"opus": 20, "sonnet": 10, "haiku": 5}
 _MODEL_RE = re.compile(r"^(%s|claude-[a-z0-9.-]+)$" % "|".join(MODELS))
 _SAVE_LOCK = threading.Lock()
 
@@ -29,7 +30,7 @@ class Setting(Enum):
     FLOW_AUTO = ("flow_auto", True)
     QA_AUTO = ("qa_auto", True)
     ANALYZE = ("analyze", OPENED)
-    QA_BATCH = ("qa_batch", 30)
+    QA_BATCH = ("qa_batch", 20)
     ENABLED = ("enabled", False)
     PANEL_AUTO = ("panel_auto", False)
     THEME = ("theme", AUTO_THEME)
@@ -86,6 +87,9 @@ def save(update, pane=None):
     for name, value in update.items():
         if name not in _BY_KEY or not (_BY_KEY[name].valid(value) or (pane and value is None)):
             raise ValueError(f"invalid setting: {name}={value!r}")
+    family = next((name for name in MODEL_QA_BATCH if name in str(update.get(Setting.MODEL.key, ""))), None)
+    if family and Setting.QA_BATCH.key not in update:
+        update = {**update, Setting.QA_BATCH.key: MODEL_QA_BATCH[family]}
     with _SAVE_LOCK:
         saved = _saved()
         panes = saved.get(_PANES)

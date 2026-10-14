@@ -38,9 +38,9 @@ class PendingTurnsTest(unittest.TestCase):
         self.assertEqual(asked(seg), [f"question {n}" for n in range(16, 26)])
         self.assertEqual((seg["skipped"], seg["skipped_after"], seg["turn_id"]), (15, None, "u16"))
 
-    def test_the_default_batch_covers_a_whole_25_turn_session_in_one_check(self):
+    def test_the_default_batch_covers_the_latest_20_turns(self):
         seg = qa.extract_since(self.path, None)
-        self.assertEqual((len(seg["users"]), seg["skipped"]), (25, 0))
+        self.assertEqual((len(seg["users"]), seg["skipped"]), (20, 5))
 
     def test_the_reply_budget_grows_with_the_number_of_turns(self):
         replies = [(True, f"q{n}") if n % 2 == 0 else (False, "x" * 9000) for n in range(60)]
