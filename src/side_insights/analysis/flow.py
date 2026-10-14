@@ -169,7 +169,8 @@ def extract_turn(path):
 
 
 def new_flow_id():
-    return f"{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}"
+    now = time.time()
+    return f"{time.strftime('%Y%m%d-%H%M%S', time.localtime(now))}-{int(now * 1e6) % 1000000:06d}-{uuid.uuid4().hex[:6]}"
 
 
 def _turns_of(record):
