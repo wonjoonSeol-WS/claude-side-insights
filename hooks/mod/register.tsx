@@ -17,6 +17,9 @@ import {
   Scope,
   DiffView,
   noDiff,
+  probeSystemDark,
+  isAbsolutePath,
+  bashCandidates,
   type ConfigPayload,
   type DiffState,
   type DiffViewValue,
@@ -79,7 +82,6 @@ const NOTE_MS = 5000
 const SEP = '  |  '
 const FRAME_MS = 140
 const IDLE_FRAME_EVERY = 4
-const THEME_PROBE_MS = 2000
 
 type Mod = {
   io?: Io
@@ -216,9 +218,17 @@ const startServer = async (io: Io) => {
     return
   }
   mod.lastStart = at
-  await io
-    .run(['/bin/bash', '-c', '. "$1/shell/key.sh" && [ -z "$(panel_missing)" ] && ensure_panel_server', '_', io.root], { timeoutMs: START_TIMEOUT_MS })
-    .catch(() => undefined)
+  const script = '. "$1/shell/key.sh" && [ -z "$(panel_missing)" ] && ensure_panel_server'
+  const root = io.root.replace(/\\/g, '/')
+  for (const bash of bashCandidates(mod.env)) {
+    const ran = await io.run([bash, '-c', script, '_', root], { timeoutMs: START_TIMEOUT_MS }).then(
+      () => true,
+      () => false,
+    )
+    if (ran) {
+      return
+    }
+  }
 }
 
 const toasts = (io: Io, s: PanelState) => {
@@ -435,7 +445,7 @@ const absolute = (path: string) => {
   if (path.startsWith('~/') && home) {
     return `${home}${path.slice(1)}`
   }
-  return path.startsWith('/') || !cwd ? path : `${cwd}/${path}`
+  return isAbsolutePath(path) || !cwd ? path : `${cwd}/${path}`
 }
 
 const dropDiff = () => {
@@ -818,11 +828,14 @@ const bandLine = (cols: number): string | undefined => {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const [cmux, orca, iterm, home, data, port, legacyPort, child, session] = await Promise.all([
+    const [cmux, orca, iterm, home, profile, os, gitBash, data, port, legacyPort, child, session] = await Promise.all([
       $.env.get('CMUX_PANEL_ID'),
       $.env.get('ORCA_PANE_KEY'),
       $.env.get('ITERM_SESSION_ID'),
       $.env.get('HOME'),
+      $.env.get('USERPROFILE'),
+      $.env.get('OS'),
+      $.env.get('CLAUDE_CODE_GIT_BASH_PATH'),
       $.env.get('SIDE_INSIGHTS_DATA'),
       $.env.get('SIDE_INSIGHTS_PORT'),
       $.env.get('CLAUDE_PANEL_PORT'),
@@ -839,13 +852,7 @@ export const register: Register = on => {
         invalidate: () => $.ui.invalidate('ui.render'),
         blit: (key, columns, rows, cells) => $.ui.blit({ requestId: PANE, key, columns, rows, cells }),
         every: (ms, fn) => $.clock.every(ms, fn),
-        systemDark: async () => {
-          const out = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle'], { timeoutMs: THEME_PROBE_MS }).catch(() => undefined)
-          if (out?.stdout.trim().toLowerCase() === 'dark') {
-            return true
-          }
-          return out && /does not exist/.test(out.stderr) ? false : undefined
-        },
+        systemDark: () => probeSystemDark((argv, init) => $.process.run(argv, init)),
         theme: async () => {
           const row = (await $.config.list()).find(r => r.key === 'theme')
           return row?.value === undefined ? undefined : String(row.value)
@@ -853,7 +860,7 @@ export const register: Register = on => {
         now: () => $.clock.now(),
         root: $.plugin.root,
       },
-      { cmux, orca, iterm, home, data, port, legacyPort, child, session },
+      { cmux, orca, iterm, home: home || profile, data, port, legacyPort, child, session, windows: os === 'Windows_NT', gitBash },
     )
     mod.timer?.cancel()
     mod.timer = mod.quiet ? undefined : $.clock.every(POLL_MS, () => void poll())

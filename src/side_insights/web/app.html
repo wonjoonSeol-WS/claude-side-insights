@@ -589,13 +589,13 @@ function changeFiles(file) {
 
 const knownFiles = () => [...list(S.flowCache[S.flowId]?.edited), ...list(S.state?.files).map(f => f.path)];
 
-const underDir = (path, dir) => Boolean(dir) && path.startsWith(`${dir.replace(/\/$/, "")}/`);
+const underDir = (path, dir) => Boolean(dir) && slashes(path).startsWith(`${slashes(dir).replace(/\/$/, "")}/`);
 
 function resolveChange(file, known, cwd) {
   const matches = known.filter(k => sameFile(k, file));
   const found = matches.find(k => underDir(k, cwd)) || matches[0];
   if (found) return found;
-  return file.startsWith("/") || file.startsWith("~/") || !cwd ? file : `${cwd.replace(/\/$/, "")}/${file}`;
+  return isAbsolutePath(file) || file.startsWith("~/") || !cwd ? file : `${cwd.replace(/[\\/]$/, "")}/${file}`;
 }
 
 function changeRows(changes) {
@@ -605,8 +605,12 @@ function changeRows(changes) {
     <div class="v"><div class="path">${changeFiles(c.file).map(f => fileLink(resolveChange(f, known, cwd), f, S.flowId)).join(", ")}</div>${inline(c.what)}</div></div>`).join("");
 }
 
+const slashes = path => String(path).replace(/\\/g, "/");
+
+const isAbsolutePath = path => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
+
 function sameFile(a, b) {
-  const x = a.replace(/^~\//, ""), y = b.replace(/^~\//, "");
+  const x = slashes(a).replace(/^~\//, ""), y = slashes(b).replace(/^~\//, "");
   return Boolean(x && y && (x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`)));
 }
 
@@ -787,7 +791,7 @@ function fileLink(path, label = path, flow = "") {
 
 function relative(path) {
   const cwd = S.state?.cwd;
-  return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path;
+  return cwd && slashes(path).startsWith(`${slashes(cwd)}/`) ? path.slice(cwd.length + 1) : path;
 }
 
 function diffLines(hunks) {

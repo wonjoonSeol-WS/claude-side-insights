@@ -6,7 +6,7 @@ PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$PANEL_ROOT/shell/key.sh"
 input=""
 [ -t 0 ] || input=$(cat)
-[ "$(printf '%s' "$input" | jq -r '.reason // empty' 2>/dev/null)" = "clear" ] && exit 0
+[ "$(panel_json_field reason "$input")" = "clear" ] && exit 0
 key=$(panel_key "$input")
 [ -n "$key" ] || exit 0
 adapter=$(panel_terminal) || exit 0

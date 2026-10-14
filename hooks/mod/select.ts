@@ -1,4 +1,4 @@
-import { Kind, RecordStatus, Source, Status, turnRow, type FileChange, type FlowRecord, type FlowRef, type FlowStep, type QaItem, type QaTurn } from './data'
+import { Kind, RecordStatus, Source, Status, isAbsolutePath, turnRow, type FileChange, type FlowRecord, type FlowRef, type FlowStep, type QaItem, type QaTurn } from './data'
 import type { View } from './views'
 
 export const MAX_FILES = 30
@@ -63,9 +63,11 @@ export const changeFiles = (file: string | undefined): string[] => {
   return parts.map((x, i) => (i === 0 || x.includes('/') ? x : `${dir}${x}`))
 }
 
+const slashes = (path: string) => path.replace(/\\/g, '/')
+
 const sameFile = (a: string, b: string) => {
-  const x = a.replace(/^~\//, '')
-  const y = b.replace(/^~\//, '')
+  const x = slashes(a).replace(/^~\//, '')
+  const y = slashes(b).replace(/^~\//, '')
   return !!x && !!y && (x === y || x.endsWith(`/${y}`) || y.endsWith(`/${x}`))
 }
 
@@ -114,7 +116,7 @@ export const jumpTargets = (turn: QaTurn, item: QaItem, shown: Map<string, strin
   return [...new Set([...own, turn.turn_id, promptMessage(shown, turn.prompt)].filter((x): x is string => !!x))]
 }
 
-const underDir = (path: string, dir: string | undefined) => !!dir && path.startsWith(`${dir.replace(/\/$/, '')}/`)
+const underDir = (path: string, dir: string | undefined) => !!dir && slashes(path).startsWith(`${slashes(dir).replace(/\/$/, '')}/`)
 
 export const resolveChange = (file: string, known: readonly string[], cwd?: string) => {
   const matches = known.filter(k => sameFile(k, file))
@@ -122,7 +124,7 @@ export const resolveChange = (file: string, known: readonly string[], cwd?: stri
   if (found) {
     return found
   }
-  return file.startsWith('/') || file.startsWith('~/') || !cwd ? file : `${cwd.replace(/\/$/, '')}/${file}`
+  return isAbsolutePath(file) || file.startsWith('~/') || !cwd ? file : `${cwd.replace(/[\\/]$/, '')}/${file}`
 }
 
 export const stepChanges = (s: FlowStep, changes: Change[]) => {

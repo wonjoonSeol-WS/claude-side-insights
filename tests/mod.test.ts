@@ -1,7 +1,7 @@
 import { expect, mock, test, type Engine } from 'claude-code/testing'
 import type { HttpResponse, On } from 'claude-code'
 
-import { Kind, Setting, Status, cells, connect, type FileDiff } from '../hooks/mod/data'
+import { Kind, Setting, Status, bashCandidates, cells, connect, isAbsolutePath, probeSystemDark, type FileDiff } from '../hooks/mod/data'
 import { changeFiles, jumpTargets, rememberMessage, resolveChange } from '../hooks/mod/select'
 import { PILL_STRONG_TINT, PILL_TINT, TAB_TINT, TOGGLES, Tab } from '../hooks/mod/views'
 import { AUTO_THEME, DARK, LIGHT, THEMES, hex, mix, resolvePalette, type Palette, type Rgb } from '../hooks/mod/theme'
@@ -1212,6 +1212,37 @@ test('a change opens the edited file under the flow folder when several edited f
   await ui.press({ key: 'step-change-0' })
   expect(diffCalls(calls).at(-1)?.get('path')).toBe('/repo/src/checkout/idempotency.ts')
   await ui.unmount()
+})
+
+test('the system theme is read from macOS, then Windows, then GNOME, using the first that runs', async () => {
+  const out = (stdout: string, exitCode = 0, stderr = '') => ({ exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false })
+  const only = (name: string, reply: ReturnType<typeof out>) => async (argv: readonly string[]) => {
+    if (argv[0] !== name) {
+      throw new Error('ENOENT')
+    }
+    return reply
+  }
+  expect(await probeSystemDark(only('/usr/bin/defaults', out('Dark\n')))).toBe(true)
+  expect(await probeSystemDark(only('reg', out('\r\n    AppsUseLightTheme    REG_DWORD    0x0\r\n')))).toBe(true)
+  expect(await probeSystemDark(only('reg', out('    AppsUseLightTheme    REG_DWORD    0x1')))).toBe(false)
+  expect(await probeSystemDark(only('gsettings', out("'prefer-dark'\n")))).toBe(true)
+  expect(await probeSystemDark(only('gsettings', out("'default'\n")))).toBe(false)
+  expect(await probeSystemDark(async () => { throw new Error('ENOENT') })).toBeUndefined()
+})
+
+test('Windows paths count as absolute, and Windows looks for Git Bash before giving up', () => {
+  expect(['/a', 'C:\\x\\a.ts', 'c:/x/a.ts', '\\\\server\\share\\a'].map(isAbsolutePath)).toEqual([true, true, true, true])
+  expect(['src/a.ts', 'src\\a.ts', '~/a'].map(isAbsolutePath)).toEqual([false, false, false])
+  expect(bashCandidates({ session: 's', windows: true, gitBash: 'D:\\Git\\bin\\bash.exe' })[0]).toBe('D:\\Git\\bin\\bash.exe')
+  expect(bashCandidates({ session: 's', windows: true })[0]).toBe('C:\\Program Files\\Git\\bin\\bash.exe')
+  expect(bashCandidates({ session: 's' })).toEqual(['/bin/bash', 'bash'])
+})
+
+test('resolveChange matches Windows paths whichever separator the flow used', () => {
+  const known = ['C:\\other\\src\\store.ts', 'C:\\repo\\src\\store.ts']
+  expect(resolveChange('src/store.ts', known, 'C:\\repo')).toBe('C:\\repo\\src\\store.ts')
+  expect(resolveChange('src\\new.ts', known, 'C:\\repo\\')).toBe('C:\\repo/src\\new.ts')
+  expect(resolveChange('D:\\x\\y.ts', known, 'C:\\repo')).toBe('D:\\x\\y.ts')
 })
 
 test('resolveChange prefers a known file under the flow folder, then any known file, then the flow folder', () => {

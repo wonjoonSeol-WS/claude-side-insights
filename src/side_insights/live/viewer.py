@@ -8,7 +8,6 @@ import enum
 import os
 import select
 import signal
-import subprocess
 import sys
 import termios
 import time
@@ -21,6 +20,7 @@ from side_insights.live import client, views
 from side_insights.live.activity import RUN, ActivityTail
 from side_insights.live.term import GREEN, MUTED, ORANGE, RED, RESET, TEXT, box, inner_width, key_cap, paint, styled, visible_width
 from side_insights.paths import KEY_RE, PORT, pane_key, read_token
+from side_insights.system import open_url
 
 POLL_SECONDS = 0.1
 ANIMATE_SECONDS = 0.15
@@ -34,7 +34,6 @@ CONFIRM_SECONDS = 3
 AUTOPLAY_SECONDS = 2.5
 ARROWS = {"A": "up", "B": "down", "C": "right", "D": "left"}
 ESC = "esc"
-OPEN = "/usr/bin/open"
 ALT_SCREEN_ON, ALT_SCREEN_OFF = "\033[?1049h", "\033[?1049l"
 STATUS_CYCLE = {Status.ANSWERED.value: Status.PARTIAL.value, Status.PARTIAL.value: Status.UNANSWERED.value,
                 Status.UNANSWERED.value: Status.ANSWERED.value}
@@ -236,7 +235,7 @@ class Screen:
         elif key == "o":
             url = f"http://127.0.0.1:{PORT}/p/{self.pane}?t={read_token() or ''}&full=1&mode={self.tab.value}"
             try:
-                subprocess.Popen([OPEN, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                open_url(url)
             except OSError:
                 pass
         elif key == "q":

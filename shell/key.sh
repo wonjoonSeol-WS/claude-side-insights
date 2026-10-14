@@ -1,25 +1,62 @@
 # Sourced by the hooks, the bin/ commands and the terminal adapters.
 : "${PANEL_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
 PANEL_DATA="${SIDE_INSIGHTS_DATA:-$HOME/.claude/side-insights}"
-PANEL_PYTHON=/usr/bin/python3
+command -v cygpath >/dev/null 2>&1 && PANEL_DATA=$(cygpath -u "$PANEL_DATA")
 PANEL_APP=side-insights
 PANEL_DEFAULT_PORT=47821
+PANEL_JQ="${SIDE_INSIGHTS_JQ:-jq}"
+PANEL_PYTHON_CACHE="$PANEL_DATA/python-path"
+PANEL_PYTHON_OK='import sys; sys.exit(sys.version_info < (3, 9))'
 
-panel_py() { PYTHONPATH="$PANEL_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" "$PANEL_PYTHON" -m side_insights "$@"; }
+panel_native() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
+}
+
+panel_pathsep() { if command -v cygpath >/dev/null 2>&1; then printf ';'; else printf ':'; fi; }
+
+# Without the Command Line Tools, macOS /usr/bin/python3 is a stub that pops an install dialog, so check first.
+# On Windows `python3` is often the Microsoft Store placeholder, which fails to run and is skipped.
+panel_find_python() {
+  local candidate found
+  if [ "$(uname -s)" = Darwin ]; then
+    xcode-select -p >/dev/null 2>&1 && /usr/bin/python3 -c "$PANEL_PYTHON_OK" 2>/dev/null && printf /usr/bin/python3
+    return 0
+  fi
+  if [ -f "$PANEL_PYTHON_CACHE" ]; then
+    found=$(cat "$PANEL_PYTHON_CACHE" 2>/dev/null)
+    [ -n "$found" ] && [ -x "$found" ] && { printf '%s' "$found"; return 0; }
+  fi
+  for candidate in python py python3; do
+    command -v "$candidate" >/dev/null 2>&1 || continue
+    if [ "$candidate" = py ]; then
+      found=$(py -3 -c "$PANEL_PYTHON_OK"' or print(sys.executable)' 2>/dev/null) || continue
+    else
+      found=$("$candidate" -c "$PANEL_PYTHON_OK"' or print(sys.executable)' 2>/dev/null) || continue
+    fi
+    found=$(printf '%s' "$found" | tr -d '\r')
+    [ -n "$found" ] || continue
+    command -v cygpath >/dev/null 2>&1 && found=$(cygpath -u "$found")
+    mkdir -p "$PANEL_DATA" 2>/dev/null && printf '%s' "$found" > "$PANEL_PYTHON_CACHE"
+    printf '%s' "$found"
+    return 0
+  done
+}
+
+PANEL_PYTHON=$(panel_find_python)
+
+panel_py() {
+  PYTHONUTF8=1 PYTHONPATH="$(panel_native "$PANEL_ROOT/src")${PYTHONPATH:+$(panel_pathsep)$PYTHONPATH}" "$PANEL_PYTHON" -m side_insights "$@"
+}
+
+panel_has_jq() { command -v "$PANEL_JQ" >/dev/null 2>&1; }
 
 panel_missing() {
-  local missing=""
-  # Without the Command Line Tools, macOS /usr/bin/python3 is a stub that pops an install dialog, so check first.
+  [ -n "$PANEL_PYTHON" ] && return 0
   if [ "$(uname -s)" = Darwin ]; then
-    if ! xcode-select -p >/dev/null 2>&1 || ! "$PANEL_PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
-      missing="python3 (xcode-select --install)"
-    fi
-  elif ! "$PANEL_PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 9))' 2>/dev/null; then
-    missing="python3 3.9+ at $PANEL_PYTHON"
+    printf 'python3 (xcode-select --install)'
+  else
+    printf 'Python 3.9+ (python.org, winget install Python.Python.3.12, or your package manager)'
   fi
-  command -v jq >/dev/null 2>&1 || missing="${missing:+$missing, }jq"
-  command -v curl >/dev/null 2>&1 || missing="${missing:+$missing, }curl"
-  printf '%s' "$missing"
 }
 
 # Must sanitise the same way as side_insights.paths.pane_key and paneKey in hooks/mod/data.ts.
@@ -29,7 +66,7 @@ panel_key() {
     eval "raw=\"\${$name:-}\""
     [ -n "$raw" ] && break
   done
-  [ -n "$raw" ] || raw=$(printf '%s' "$1" | jq -r '.session_id // empty' 2>/dev/null)
+  [ -n "$raw" ] || raw=$(panel_json_field session_id "$1")
   [ -n "$raw" ] || raw="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$raw" ] || return 0
   printf '%s' "$raw" | LC_ALL=C tr -c 'A-Za-z0-9_.-' '_' | tail -c 80 | sed 's/^[.-]/_/'
@@ -44,8 +81,6 @@ panel_port() {
   printf '%s' "$port"
 }
 
-panel_health() { curl -s -m 1 "http://127.0.0.1:$(panel_port)/health" 2>/dev/null; }
-
 panel_token() { cat "$PANEL_DATA/token" 2>/dev/null; }
 
 panel_url() { printf 'http://127.0.0.1:%s/p/%s?t=%s' "$(panel_port)" "$1" "$(panel_token)"; }
@@ -58,25 +93,15 @@ panel_link() {
 }
 
 ensure_panel_server() {
-  local health pid root i
-  health=$(panel_health)
-  pid=$(printf '%s' "$health" | jq -r --arg app "$PANEL_APP" 'select(.app == $app or .app == "claude-panel") | .pid // empty' 2>/dev/null)
-  root=$(printf '%s' "$health" | jq -r '.root // empty' 2>/dev/null)
-  [ -n "$pid" ] && [ "$root" = "$PANEL_ROOT" ] && return 0
-  if [ -n "$pid" ]; then
-    kill "$pid" 2>/dev/null
-    for i in 1 2 3 4 5 6 7 8 9 10; do
-      [ -z "$(panel_health)" ] && break
-      sleep 0.2
-    done
-  fi
-  mkdir -p "$PANEL_DATA" && chmod 700 "$PANEL_DATA"
-  (umask 077; panel_py detach server </dev/null >> "$PANEL_DATA/server.log" 2>&1 &)
-  for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30; do
-    [ -n "$(panel_health | jq -r --arg app "$PANEL_APP" 'select(.app == $app) | .pid // empty' 2>/dev/null)" ] && return 0
-    sleep 0.1
-  done
-  return 1
+  [ -n "$PANEL_PYTHON" ] || return 1
+  (umask 077; panel_py ensure-server </dev/null)
+}
+
+panel_open_url() { panel_py open-url "$1" </dev/null >/dev/null 2>&1; }
+
+# A top-level string field of a hook payload, without needing jq.
+panel_json_field() {
+  printf '%s' "$2" | tr -d '\n' | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
 }
 
 panel_view_title() { printf 'si-panel:%s' "$1"; }

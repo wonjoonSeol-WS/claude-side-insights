@@ -1,16 +1,15 @@
 """Requests to the local panel server, shared by the terminal panel and si-qa."""
 import http.client
 import json
-import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
 
 from side_insights.i18n import t
 from side_insights.paths import PORT, TOKEN_HEADER, read_token
+from side_insights.system import copy_text
 
 TIMEOUT = 5
-PBCOPY = "/usr/bin/pbcopy"
 
 
 class ServerError(Exception):
@@ -54,9 +53,5 @@ def regen(pane, target, item=None, turn=None, scope=None, turns=None):
     return call("POST", f"/api/{pane}/regen", params=params)
 
 
-def copy_question(pane, question, pbcopy=PBCOPY):
-    message = t("ask_message", " ".join(str(question or "").split()), pane=pane)
-    try:
-        return subprocess.run([pbcopy], input=message.encode("utf-8"), timeout=TIMEOUT).returncode == 0
-    except (OSError, subprocess.TimeoutExpired):
-        return False
+def copy_question(pane, question):
+    return copy_text(t("ask_message", " ".join(str(question or "").split()), pane=pane))

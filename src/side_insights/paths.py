@@ -7,6 +7,7 @@ import re
 import secrets
 import tempfile
 import threading
+import time
 
 PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(PACKAGE_DIR))
@@ -23,6 +24,8 @@ CHILD_ENV = "SIDE_INSIGHTS_CHILD"
 TOKEN_HEADER = "X-Side-Insights"
 ANALYSIS_LOG = os.path.join(DATA, "analysis.log")
 EDIT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+REPLACE_TRIES = 20
+REPLACE_WAIT = 0.05
 _KEY_BYTES = frozenset(b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-")
 
 
@@ -88,6 +91,16 @@ def safe_name(value, fallback="unknown"):
     return re.sub(r"[^A-Za-z0-9-]", "", str(value or ""))[:60] or fallback
 
 
+def _replace(tmp, path, tries=REPLACE_TRIES):
+    for attempt in range(tries):
+        try:
+            return os.replace(tmp, path)
+        except PermissionError:
+            if attempt == tries - 1:
+                raise
+            time.sleep(REPLACE_WAIT)
+
+
 def atomic_write_json(path, obj):
     directory = os.path.dirname(path)
     os.makedirs(directory, mode=0o700, exist_ok=True)
@@ -95,7 +108,7 @@ def atomic_write_json(path, obj):
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             json.dump(obj, fh, ensure_ascii=False)
-        os.replace(tmp, path)
+        _replace(tmp, path)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -137,15 +150,3 @@ def json_files(directory):
     return [os.path.join(directory, n) for n in names if n.endswith(".json") and not n.startswith(".")]
 
 
-def process_alive(pid):
-    try:
-        pid = int(pid)
-        os.kill(pid, 0)
-    except PermissionError:
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
-    try:
-        return os.waitpid(pid, os.WNOHANG) == (0, 0)
-    except ChildProcessError:
-        return True

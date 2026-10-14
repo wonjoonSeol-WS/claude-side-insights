@@ -11,4 +11,4 @@ def command_line(command, args):
 
 def child_env():
     src = os.path.join(ROOT, "src")
-    return {**os.environ, "PYTHONPATH": os.pathsep.join(filter(None, [src, os.environ.get("PYTHONPATH")]))}
+    return {**os.environ, "PYTHONUTF8": "1", "PYTHONPATH": os.pathsep.join(filter(None, [src, os.environ.get("PYTHONPATH")]))}

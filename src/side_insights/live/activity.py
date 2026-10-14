@@ -84,11 +84,22 @@ class State:
             changed["created"] = changed["created"] or e.get("kind") == "create"
 
     def rel(self, path):
-        root = (self.cwd or "").rstrip("/")
-        if root and path.startswith(root + "/"):
+        root = (self.cwd or "").rstrip("/\\")
+        inside = _below(path, root)
+        if inside is not None:
+            return inside
+        home = os.path.expanduser("~").rstrip("/\\")
+        below_home = _below(path, home)
+        return "~/" + below_home if below_home is not None else path
+
+
+def _below(path, root):
+    if not root:
+        return None
+    for sep in ("/", "\\"):
+        if path.startswith(root + sep):
             return path[len(root) + 1:]
-        home = os.path.expanduser("~")
-        return "~" + path[len(home):] if path.startswith(home + "/") else path
+    return None
 
 
 class ActivityTail:

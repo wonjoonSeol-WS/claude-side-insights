@@ -1,13 +1,11 @@
 """Running a headless `claude -p` for the analyses, and the marker that shows one is in progress."""
 import json
 import os
-import signal
 import subprocess
 import time
 
-import fcntl
-
-from side_insights.paths import CHILD_ENV, atomic_write_json, process_alive, read_json, terminal_settings
+from side_insights.paths import CHILD_ENV, atomic_write_json, read_json, terminal_settings
+from side_insights.system import FileLock, claude_command, detached, kill_tree, process_alive
 
 STALE_AFTER = 1800
 _PARENT_PREFIXES = ("CLAUDE_CODE_MESSAGING_", *terminal_settings("CHILD_ENV_PREFIX"))
@@ -20,20 +18,17 @@ def run_claude(system, schema, message, model, tools, cwd, timeout, max_turns):
     env = {k: v for k, v in os.environ.items() if k not in _PARENT_VARS and not k.startswith(_PARENT_PREFIXES)}
     env[CHILD_ENV] = "1"
     tool_list = ",".join(tools)
-    cmd = ["claude", "-p", "--model", model, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
+    cmd = [claude_command(), "-p", "--model", model, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
            "--system-prompt", system, "--no-session-persistence", "--output-format", "json", "--tools", tool_list,
            "--max-turns", str(max_turns), "--json-schema", json.dumps(schema, ensure_ascii=False)]
     if tools:
         cmd += ["--allowedTools", tool_list]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            cwd=cwd if cwd and os.path.isdir(cwd) else None, env=env, start_new_session=True)
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8",
+                            errors="replace", cwd=cwd if cwd and os.path.isdir(cwd) else None, env=env, **detached(breakaway=False))
     try:
         out, err = proc.communicate(message, timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
+        kill_tree(proc)
         proc.communicate()
         raise RuntimeError(f"timed out after {timeout}s")
     try:
@@ -58,12 +53,7 @@ class Pending:
 
     def __enter__(self):
         os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
-        self.lock = open(self.path + ".lock", "w")
-        try:
-            fcntl.flock(self.lock, fcntl.LOCK_EX)
-        except BaseException:
-            self.lock.close()
-            raise
+        self.lock = FileLock(self.path + ".lock").__enter__()
         atomic_write_json(self.path, {"pid": os.getpid(), "since": time.time(), **self.info})
         return self
 
@@ -74,8 +64,7 @@ class Pending:
                 os.remove(self.path)
             except OSError:
                 pass
-        fcntl.flock(self.lock, fcntl.LOCK_UN)
-        self.lock.close()
+        self.lock.__exit__(None, None, None)
 
     @staticmethod
     def claim(path, pid):

@@ -768,7 +768,7 @@ const filterPress = (current: string | undefined, value: string, act: (value: st
 
 const relative = (c: Ctx, path: string) => {
   const cwd = c.s?.activity.cwd
-  return cwd && path.startsWith(`${cwd}/`) ? path.slice(cwd.length + 1) : path
+  return cwd && path.replace(/\\/g, '/').startsWith(`${cwd.replace(/\\/g, '/')}/`) ? path.slice(cwd.length + 1) : path
 }
 
 const codeBlock = (c: Ctx, key: string, code: RenderChildren, column = false) => {

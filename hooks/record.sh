@@ -14,18 +14,23 @@ input=$(cat)
 key=$(panel_key "$input")
 [ -n "$key" ] || exit 0
 
-out=$(printf '%s' "$input" | jq -r -f "$PANEL_ROOT/hooks/record.jq" 2>/dev/null) || exit 0
+if panel_has_jq; then
+  out=$(printf '%s' "$input" | "$PANEL_JQ" -r -f "$PANEL_ROOT/hooks/record.jq" 2>/dev/null) || exit 0
+else
+  [ -n "$PANEL_PYTHON" ] || exit 0
+  out=$(printf '%s' "$input" | panel_py record-event 2>/dev/null) || exit 0
+fi
 log="$base/logs/$key.jsonl"
 printf '%s\n' "$out" | sed -n 1p >> "$log"
-if [ "$(stat -f%z "$log" 2>/dev/null || echo 0)" -gt "$LOG_MAX_BYTES" ]; then
+if [ "$(($(wc -c < "$log" 2>/dev/null || echo 0)))" -gt "$LOG_MAX_BYTES" ]; then
   tail -n "$LOG_KEEP_LINES" "$log" > "$log.tmp" && mv "$log.tmp" "$log"
 fi
 stop_json=$(printf '%s\n' "$out" | sed -n 2p)
-if [ -n "$stop_json" ]; then
+if [ -n "$stop_json" ] && [ -n "$PANEL_PYTHON" ]; then
   turn_file="$base/turns/$key.json"
   printf '%s\n' "$stop_json" > "$turn_file.tmp" && mv "$turn_file.tmp" "$turn_file"
-  transcript=$(printf '%s' "$stop_json" | jq -r '.transcript')
-  cwd=$(printf '%s' "$stop_json" | jq -r '.cwd')
+  transcript=$(printf '%s\n' "$out" | sed -n 3p)
+  cwd=$(printf '%s\n' "$out" | sed -n 4p)
   panel_py detach flow "$key" "$transcript" "$cwd" </dev/null >> "$base/analysis.log" 2>&1 &
   panel_py detach qa "$key" "$transcript" </dev/null >> "$base/analysis.log" 2>&1 &
 fi

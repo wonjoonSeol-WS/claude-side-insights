@@ -29,6 +29,8 @@ _NO_PREFERENCE = ("c", "posix")
 _LANG_RE = re.compile(r"^(ko|ja)([_.@-]|$)")
 _APPLE_LANGUAGES = ["/usr/bin/defaults", "read", "-g", "AppleLanguages"]
 _DETECT_TIMEOUT = 2
+_WINDOWS_LANGUAGE = {0x12: "ko", 0x11: "ja"}
+_PRIMARY_LANGUAGE_MASK = 0x3FF
 
 
 def _clean(value):
@@ -48,6 +50,15 @@ def _apple_first_language():
     return next((_clean(line) for line in out.splitlines() if _clean(line)), "")
 
 
+def _windows_ui_language():
+    try:
+        import ctypes
+        lang_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+    except (AttributeError, OSError):
+        return ""
+    return _WINDOWS_LANGUAGE.get(lang_id & _PRIMARY_LANGUAGE_MASK, "")
+
+
 def _locale_preference():
     value = next((_clean(os.environ.get(name)) for name in _LOCALE_ENV if _clean(os.environ.get(name))), "")
     return "" if re.split(r"[.@]", value)[0] in _NO_PREFERENCE else value
@@ -60,4 +71,6 @@ def system_language():
         return _match(preference) or DEFAULT
     if sys.platform == "darwin":
         return _match(_apple_first_language()) or DEFAULT
+    if sys.platform == "win32":
+        return _match(_windows_ui_language()) or DEFAULT
     return DEFAULT

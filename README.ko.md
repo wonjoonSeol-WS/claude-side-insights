@@ -4,6 +4,8 @@
 
 ## 설치
 
+macOS, Linux, Windows에서 동작합니다. 필요하면 먼저 Python을 준비하세요: [요구 사항과 설정](#요구-사항과-설정).
+
 Claude Code 안에서:
 
 ```
@@ -123,12 +125,40 @@ Claude Code 2.1.287 이상이 필요합니다 (2.1.296에서 테스트). Claude 
 - 새 Flow가 준비되거나 점검 뒤 미해결 질문이 남으면 짧은 알림이 뜹니다.
 - 다른 패널과 같은 로컬 서버에서 읽고, 서버가 꺼져 있으면 켭니다.
 
-## 요구 사항
+## 요구 사항과 설정
 
-- macOS (`osascript`, `open`, 시스템 Python을 씁니다)
-- Claude Code 2.1.275 이상 (`/si`와 `/si-browser`는 2.1.287 이상)
-- `jq`, `curl`
-- `/usr/bin/python3` 3.9 이상 (`xcode-select --install`)
+Claude Code 2.1.275 이상(`/si`와 `/si-browser`는 2.1.287 이상)과 Python 3.9 이상이 필요합니다. 그 밖에는 필요 없습니다. `jq`가 설치되어 있으면 조금 더 빨라서 그것을 씁니다.
+
+### macOS
+
+1. Python: macOS에 들어 있는 것을 씁니다. `python3 --version`이 개발 도구 설치를 요청하면 `xcode-select --install`을 실행하세요.
+2. [설치](#설치)대로 플러그인을 설치합니다.
+3. 선택: `brew install jq`.
+
+모든 기능이 됩니다. `/si`, `/si-browser`, 터미널 패널, 그리고 cmux, Orca, Ghostty, iTerm2에서 Claude 옆에 열리는 패널까지.
+
+### Linux
+
+1. Python 3.9+: 보통 이미 있습니다. 없으면 `sudo apt install python3`(Debian, Ubuntu)나 `sudo dnf install python3`(Fedora).
+2. [설치](#설치)대로 플러그인을 설치합니다.
+3. 선택: `jq`(`sudo apt install jq`), 복사 버튼용으로 `wl-clipboard`(Wayland)나 `xclip`(X11).
+
+`/si`, `/si-browser`(기본 브라우저), 터미널 패널(`si-activity`, 별도 터미널에서 실행)이 됩니다. Claude 옆에 패널이 열리는 것은 Orca에서만 됩니다.
+
+### Windows
+
+Claude Code는 플러그인 hook을 Git for Windows에 들어 있는 Git Bash로 실행합니다.
+
+1. Git for Windows(Claude Code에도 필요합니다): `winget install Git.Git`.
+2. Python 3.9+: `winget install Python.Python.3.12`, 또는 python.org 설치 파일. Microsoft Store를 여는 `python3` 명령은 자리만 차지하는 바로 가기라서, 플러그인은 그것을 건너뛰고 `python`이나 `py`를 씁니다.
+3. [설치](#설치)대로 플러그인을 설치하고 Claude Code를 다시 시작합니다.
+4. 선택: `winget install jqlang.jq`.
+
+`/si`와 `/si-browser`(기본 브라우저)가 됩니다. 터미널 패널과 Claude 옆에 열리는 패널은 Windows에서 쓸 수 없습니다. Git을 특이한 위치에 설치했다면 `CLAUDE_CODE_GIT_BASH_PATH`에 그 `bash.exe` 경로를 넣으세요. Claude Code도 같은 변수를 씁니다.
+
+### 설정 확인
+
+Claude Code 안에서 `! si-panel`을 실행하세요. 빠진 것이 있으면 `side-insights needs: Python 3.9+`처럼 알려 줍니다.
 
 ## 명령
 

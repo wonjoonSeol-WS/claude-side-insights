@@ -20,6 +20,7 @@ from side_insights.launch import child_env, command_line
 from side_insights.live.activity import ActivityTail, log_path
 from side_insights.paths import (ANALYSIS_LOG, APP_NAME, DATA, ITEM_ID_RE, KEY_RE, PORT, ROOT, TOKEN_HEADER, TURN_ID_RE, api_token,
                                  last_turn_path, read_json)
+from side_insights.system import copy_text, open_url, spawn_detached
 from side_insights.web import diff
 
 MAX_BODY = 64 * 1024
@@ -35,7 +36,6 @@ TOKEN = api_token()
 REQUEST_TIMEOUT = 10
 _spawn_lock = threading.Lock()
 _MARKERS = re.compile(r"__PANEL_(KEY|I18N|TOKEN)__")
-COPY_TIMEOUT = 5
 
 _tails = OrderedDict()
 _waiting = OrderedDict()
@@ -276,16 +276,11 @@ class Handler(BaseHTTPRequestHandler):
             return
         question = " ".join(str(found[1].get("question", "")).split())
         message = t("ask_message", question, pane=pane)
-        try:
-            copied = subprocess.run(["/usr/bin/pbcopy"], input=message.encode("utf-8"), timeout=COPY_TIMEOUT).returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
-            copied = False
-        self.json({"copied": copied})
+        self.json({"copied": copy_text(message)})
 
     def post_open(self, pane):
         mode = self.param("mode") if self.param("mode") in ("flow", "live", "qa") else ""
-        subprocess.Popen(["/usr/bin/open", f"http://127.0.0.1:{PORT}/p/{pane}?full=1&t={TOKEN}" + (f"&mode={mode}" if mode else "")],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        open_url(f"http://127.0.0.1:{PORT}/p/{pane}?full=1&t={TOKEN}" + (f"&mode={mode}" if mode else ""))
         self.json({"ok": True})
 
     def post_regen(self, pane):
@@ -321,8 +316,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.error(400, "err_bad_request", pane=pane)
                 args.append("--open-items" + (f"={','.join(only)}" if only else ""))
         with open(ANALYSIS_LOG, "a") as log:
-            child = subprocess.Popen(command_line(command, [*args, "--force"]), env=child_env(),
-                                     stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
+            child = spawn_detached(command_line(command, [*args, "--force"]), env=child_env(), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
         Pending.claim(marker, child.pid)
         threading.Thread(target=child.wait, daemon=True).start()
         self.json({"ok": True})

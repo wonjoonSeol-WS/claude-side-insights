@@ -14,7 +14,7 @@ key=$(panel_key "$input")
 [ -n "$key" ] || exit 0
 adapter=$(panel_terminal)
 if [ "$force" = 0 ]; then
-  [ "$(uname -s)" = Darwin ] && [ -n "$adapter" ] || exit 0
+  [ -n "$adapter" ] || exit 0
 fi
 
 missing=$(panel_missing)
@@ -32,7 +32,7 @@ fi
   ensure_panel_server || exit 0
   url=$(panel_url "$key")
   if [ -z "$adapter" ]; then
-    /usr/bin/open "$url&full=1"
+    panel_open_url "$url&full=1"
     exit 0
   fi
   [ -n "$(panel_adapter "$adapter" find "$key")" ] && exit 0

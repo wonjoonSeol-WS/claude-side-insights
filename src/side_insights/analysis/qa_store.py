@@ -1,5 +1,4 @@
 """Where Q&A records live and how items are identified, overridden and re-judged."""
-import fcntl
 import hashlib
 import os
 import threading
@@ -8,6 +7,7 @@ from contextlib import contextmanager
 from enum import Enum
 
 from side_insights.paths import DATA, atomic_write_json, json_files, read_json, safe_name
+from side_insights.system import FileLock
 
 
 class Status(Enum):
@@ -131,12 +131,8 @@ def set_override(pane, turn_id, question, status=..., archived=None):
 def session_lock(pane, sid):
     directory = session_dir(pane, sid)
     os.makedirs(directory, mode=0o700, exist_ok=True)
-    with open(os.path.join(directory, ".lock"), "w") as fh:
-        fcntl.flock(fh, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(fh, fcntl.LOCK_UN)
+    with FileLock(os.path.join(directory, ".lock")):
+        yield
 
 
 def open_items(pane, sid, current_turn, limit=None):

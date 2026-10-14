@@ -1,0 +1,56 @@
+#!/bin/bash
+# The hook, the server and the diff endpoint end to end, with and without jq. Run from the repository root.
+set -u
+ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+DATA=$(mktemp -d)
+NATIVE_DATA=$DATA
+command -v cygpath >/dev/null 2>&1 && NATIVE_DATA=$(cygpath -w "$DATA")
+export SIDE_INSIGHTS_DATA="$NATIVE_DATA" SIDE_INSIGHTS_PORT="${SIDE_INSIGHTS_PORT:-47899}"
+unset CMUX_PANEL_ID ORCA_PANE_KEY ITERM_SESSION_ID CLAUDE_CODE_SESSION_ID
+printf '{"flow_auto": false, "qa_auto": false}' > "$DATA/config.json"
+failures=0
+check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; failures=$((failures + 1)); fi; }
+
+. "$ROOT/shell/key.sh"
+check "a Python 3.9+ is found" '[ -n "$PANEL_PYTHON" ]'
+
+repo="$DATA/repo"
+mkdir -p "$repo/app/[id]" "$repo/app/i"
+git -C "$repo" init -q && printf 'one\n' > "$repo/app/[id]/page.tsx" && printf 'one\n' > "$repo/app/i/page.tsx"
+git -C "$repo" add . && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm first
+printf 'two\n' > "$repo/app/[id]/page.tsx"
+printf 'two\n' > "$repo/app/i/page.tsx"
+file=$(panel_native "$repo/app/[id]/page.tsx")
+cwd=$(panel_native "$repo")
+json_path() { printf '%s' "$1" | sed 's/\\/\\\\/g'; }
+
+hook() {
+  printf '{"hook_event_name":"%s","session_id":"e2e-%s","cwd":"%s","transcript_path":"","tool_use_id":"u1","tool_name":"Edit","tool_input":{"file_path":"%s","old_string":"one"},"tool_response":{"type":"update"}}' \
+    "$1" "$2" "$(json_path "$cwd")" "$(json_path "$file")" | "$ROOT/hooks/record.sh"
+}
+hook PreToolUse jq
+hook PostToolUse jq
+SIDE_INSIGHTS_JQ=no-such-jq hook PreToolUse python
+SIDE_INSIGHTS_JQ=no-such-jq hook PostToolUse python
+for pane in e2e-jq e2e-python; do
+  [ "$pane" = e2e-jq ] && ! panel_has_jq && continue
+  check "$pane: two events logged" '[ "$(wc -l < "$DATA/logs/$pane.jsonl" | tr -d " ")" = 2 ]'
+  check "$pane: the edit is recorded" 'grep -q "\"tool\":\"Edit\"" "$DATA/logs/$pane.jsonl"'
+done
+
+check "the server starts" 'ensure_panel_server'
+check "a second start reuses it" 'ensure_panel_server'
+token=$(cat "$DATA/token")
+state=$(curl -s -m 5 -H "X-Side-Insights: $token" "http://127.0.0.1:$SIDE_INSIGHTS_PORT/api/e2e-python/state")
+check "the state lists the edited file" 'printf "%s" "$state" | grep -q "page.tsx"'
+diff_reply=$(curl -s -m 15 -G -H "X-Side-Insights: $token" --data-urlencode "path=$file" "http://127.0.0.1:$SIDE_INSIGHTS_PORT/api/e2e-python/diff")
+check "the diff of a bracketed path is that one file" '[ "$(printf "%s" "$diff_reply" | grep -o "@@ -" | wc -l | tr -d " ")" = 1 ]'
+check "the diff shows the change" 'printf "%s" "$diff_reply" | grep -q "+two"'
+refused=$(curl -s -o /dev/null -w '%{http_code}' -G -H "X-Side-Insights: $token" --data-urlencode "path=$(panel_native "$DATA/token")" "http://127.0.0.1:$SIDE_INSIGHTS_PORT/api/e2e-python/diff")
+check "a file outside the session is refused" '[ "$refused" = 404 ]'
+
+pid=$(curl -s -m 2 "http://127.0.0.1:$SIDE_INSIGHTS_PORT/health" | sed -n 's/.*"pid": *\([0-9]*\).*/\1/p')
+PYTHONPATH="$(panel_native "$ROOT/src")" "$PANEL_PYTHON" -c "import sys; from side_insights.system import terminate; terminate(sys.argv[1])" "$pid"
+rm -rf "$DATA"
+echo "$failures failed"
+[ "$failures" = 0 ]

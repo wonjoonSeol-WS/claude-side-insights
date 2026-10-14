@@ -4,6 +4,8 @@
 
 ## インストール
 
+macOS、Linux、Windows で動きます。必要なら先に Python を用意してください: [必要なものと設定](#必要なものと設定)。
+
 Claude Code の中で:
 
 ```
@@ -123,12 +125,40 @@ Claude Code 2.1.287 以降が必要です (2.1.296 でテスト)。Claude Code �
 - 新しいフローができたとき、またはチェック後に未解決の質問が残ったときに短い通知が出ます。
 - ほかのパネルと同じローカルサーバーから読み、止まっていれば起動します。
 
-## 必要なもの
+## 必要なものと設定
 
-- macOS (`osascript`、`open`、システムの Python を使います)
-- Claude Code 2.1.275 以上 (`/si` と `/si-browser` は 2.1.287 以上)
-- `jq`、`curl`
-- `/usr/bin/python3` 3.9 以上 (`xcode-select --install`)
+Claude Code 2.1.275 以上 (`/si` と `/si-browser` は 2.1.287 以上) と Python 3.9 以上が必要です。ほかには何もいりません。`jq` が入っていれば少し速いのでそれを使います。
+
+### macOS
+
+1. Python: macOS に入っているものを使います。`python3 --version` が開発ツールのインストールを求めたら `xcode-select --install` を実行してください。
+2. [インストール](#インストール) のとおりにプラグインを入れます。
+3. 任意: `brew install jq`。
+
+すべての機能が使えます。`/si`、`/si-browser`、ターミナルパネル、そして cmux、Orca、Ghostty、iTerm2 で Claude の横に開くパネルまで。
+
+### Linux
+
+1. Python 3.9+: たいてい入っています。なければ `sudo apt install python3` (Debian、Ubuntu) か `sudo dnf install python3` (Fedora)。
+2. [インストール](#インストール) のとおりにプラグインを入れます。
+3. 任意: `jq` (`sudo apt install jq`)、コピーボタン用に `wl-clipboard` (Wayland) か `xclip` (X11)。
+
+`/si`、`/si-browser` (既定のブラウザ)、ターミナルパネル (`si-activity`、別のターミナルで実行) が使えます。Claude の横にパネルが開くのは Orca だけです。
+
+### Windows
+
+Claude Code はプラグインの hook を Git for Windows に含まれる Git Bash で実行します。
+
+1. Git for Windows (Claude Code にも必要です): `winget install Git.Git`。
+2. Python 3.9+: `winget install Python.Python.3.12`、または python.org のインストーラー。Microsoft Store を開く `python3` コマンドはただのショートカットなので、プラグインはそれを飛ばして `python` か `py` を使います。
+3. [インストール](#インストール) のとおりにプラグインを入れ、Claude Code を再起動します。
+4. 任意: `winget install jqlang.jq`。
+
+`/si` と `/si-browser` (既定のブラウザ) が使えます。ターミナルパネルと Claude の横に開くパネルは Windows では使えません。Git を変わった場所に入れた場合は、`CLAUDE_CODE_GIT_BASH_PATH` にその `bash.exe` を設定してください。Claude Code も同じ変数を使います。
+
+### 設定の確認
+
+Claude Code の中で `! si-panel` を実行してください。足りないものがあれば `side-insights needs: Python 3.9+` のように表示します。
 
 ## コマンド
 

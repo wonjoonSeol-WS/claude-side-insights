@@ -47,7 +47,10 @@ class AllowedPathTest(unittest.TestCase):
         self.assertIsNone(_allowed_path(self.cwd + "-evil/x", snap))
 
     def test_a_link_out_of_the_working_directory_is_refused(self):
-        os.symlink(self.other, os.path.join(self.cwd, "link"))
+        try:
+            os.symlink(self.other, os.path.join(self.cwd, "link"))
+        except OSError:
+            self.skipTest("this account cannot make links")
         self.assertIsNone(_allowed_path("link/secret.md", {"cwd": self.cwd, "files": []}))
 
     def test_a_directory_absolute_path_outside_or_empty_is_refused(self):

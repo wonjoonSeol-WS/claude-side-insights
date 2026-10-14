@@ -8,12 +8,17 @@
   config get <name> [pane]
   say <message-key> [args...]
   detach <command> [args...]    run a command in its own session, so it outlives the hook
+  ensure-server                 start the server unless this copy of the code already serves
+  record-event                  turn one hook payload on stdin into log lines (when jq is missing)
+  open-url <url>                open a page in the default browser
 """
 import os
 import runpy
+import subprocess
 import sys
 
 from side_insights.launch import child_env, command_line
+from side_insights.system import WINDOWS, spawn_detached
 
 COMMANDS = {
     "server": "side_insights.web.server",
@@ -23,6 +28,9 @@ COMMANDS = {
     "qa-cli": "side_insights.cli",
     "config": "side_insights.config",
     "say": "side_insights.i18n",
+    "ensure-server": "side_insights.web.ensure",
+    "record-event": "side_insights.live.record_event",
+    "open-url": "side_insights.web.open_url",
 }
 DETACHABLE = ("server", "flow", "qa")
 
@@ -30,6 +38,9 @@ DETACHABLE = ("server", "flow", "qa")
 def detach(args):
     if not args or args[0] not in DETACHABLE:
         sys.exit(f"usage: python3 -m side_insights detach {{{'|'.join(DETACHABLE)}}} [args...]")
+    if WINDOWS:
+        spawn_detached(command_line(args[0], args[1:]), env=child_env(), stdin=subprocess.DEVNULL, stdout=sys.stdout, stderr=sys.stderr)
+        return
     try:
         os.setsid()
     except OSError:

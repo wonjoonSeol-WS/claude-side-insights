@@ -24,4 +24,6 @@ def cut(n): if type == "string" and length > n then .[0:n] + "…" else . end;
              | tostring | gsub("[[:cntrl:]]"; " ") | gsub("\\s+"; " ") | cut(600))
   } as $event
 | ($event | tojson),
-  (if .hook_event_name == "Stop" and (.transcript_path // "") != "" then {transcript: .transcript_path, cwd: (.cwd // "")} | tojson else empty end)
+  (if .hook_event_name == "Stop" and (.transcript_path // "") != ""
+   then {transcript: .transcript_path, cwd: (.cwd // "")} | (tojson, .transcript, .cwd)
+   else empty end)

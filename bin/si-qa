@@ -3,4 +3,5 @@
 set -u
 PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 . "$PANEL_ROOT/shell/key.sh"
-exec env PYTHONPATH="$PANEL_ROOT/src${PYTHONPATH:+:$PYTHONPATH}" "$PANEL_PYTHON" -m side_insights qa-cli "$@"
+[ -z "$(panel_missing)" ] || { echo "side-insights needs: $(panel_missing)" >&2; exit 1; }
+panel_py qa-cli "$@"

@@ -24,7 +24,40 @@ export type Env = {
   legacyPort?: string
   child?: string
   session: string
+  windows?: boolean
+  gitBash?: string
 }
+
+type Run = (argv: readonly string[], init: ProcessRunInit) => Promise<ProcessRunResult>
+
+const THEME_PROBE_MS = 2000
+const WINDOWS_THEME = ['reg', 'query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize', '/v', 'AppsUseLightTheme']
+const GNOME_THEME = ['gsettings', 'get', 'org.gnome.desktop.interface', 'color-scheme']
+
+export const probeSystemDark = async (run: Run): Promise<boolean | undefined> => {
+  const probe = (argv: readonly string[]) => run(argv, { timeoutMs: THEME_PROBE_MS }).catch(() => undefined)
+  const mac = await probe(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle'])
+  if (mac) {
+    return mac.stdout.trim().toLowerCase() === 'dark' ? true : /does not exist/.test(mac.stderr) ? false : undefined
+  }
+  const windows = await probe(WINDOWS_THEME)
+  const light = windows && /AppsUseLightTheme\s+REG_DWORD\s+0x([0-9a-f]+)/i.exec(windows.stdout)
+  if (light) {
+    return parseInt(light[1] ?? '1', 16) === 0
+  }
+  const gnome = await probe(GNOME_THEME)
+  if (gnome?.exitCode === 0) {
+    return /dark/.test(gnome.stdout) ? true : /default|light/.test(gnome.stdout) ? false : undefined
+  }
+  return undefined
+}
+
+const WINDOWS_BASH = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files (x86)\\Git\\bin\\bash.exe']
+
+export const bashCandidates = (env: Env | undefined): string[] =>
+  env?.windows ? [...(env.gitBash ? [env.gitBash] : []), ...WINDOWS_BASH] : ['/bin/bash', 'bash']
+
+export const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\')
 
 export const Status = { ANSWERED: 'answered', PARTIAL: 'partial', UNANSWERED: 'unanswered' } as const
 export const ToolState = { RUN: 'run', OK: 'ok', ERR: 'err', LOST: 'lost' } as const
