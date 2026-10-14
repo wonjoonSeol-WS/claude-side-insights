@@ -171,14 +171,15 @@ const setup = (on: On, world: World) => {
     value: world.claudeTheme === undefined ? [] : ([{ key: 'theme', label: 'Theme', kind: 'choice', value: world.claudeTheme, provider: { kind: 'engine' }, isLocked: false }] as never),
   }))
   on('fs.read', async ($, e) => {
-    const locale = /\/(en|ko|ja)\.json$/.exec(e.path)?.[1] as 'en' | 'ko' | 'ja' | undefined
+    const path = e.path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
+    const locale = /\/(en|ko|ja)\.json$/.exec(path)?.[1] as 'en' | 'ko' | 'ja' | undefined
     if (locale) {
       return { value: JSON.stringify({ ...LOCALES[locale], ...(world.messages?.[locale as 'en' | 'ko'] ?? {}) }) }
     }
-    if (e.path.endsWith('/token')) {
+    if (path.endsWith('/token')) {
       return { value: 'tok\n' }
     }
-    const file = world.files?.[e.path]
+    const file = world.files?.[path]
     if (file === undefined) {
       throw new Error(`ENOENT: ${e.path}`)
     }
