@@ -68,7 +68,13 @@ class AllowedPathTest(unittest.TestCase):
         self.assertIsNone(_allowed_path("", snap))
 
     def test_a_session_at_the_filesystem_root_still_reaches_its_files(self):
-        self.assertEqual(_allowed_path(os.path.join(self.cwd, "a.py"), {"cwd": "/", "files": []}), os.path.join(self.cwd, "a.py"))
+        root = os.path.splitdrive(self.cwd)[0] + os.sep
+        self.assertEqual(_allowed_path(os.path.join(self.cwd, "a.py"), {"cwd": root, "files": []}), os.path.join(self.cwd, "a.py"))
+
+    def test_a_file_on_another_drive_is_refused_not_an_error(self):
+        snap = {"cwd": self.cwd, "files": []}
+        with mock.patch("os.path.commonpath", side_effect=ValueError("Paths don't have the same drive")):
+            self.assertIsNone(_allowed_path(os.path.join(self.other, "x.md"), snap))
 
 
 if __name__ == "__main__":

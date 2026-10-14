@@ -328,7 +328,12 @@ def _absolute(path, cwd):
 
 
 def _inside(path, root):
-    return bool(root) and os.path.commonpath([path, os.path.realpath(root)]) == os.path.realpath(root)
+    if not root:
+        return False
+    try:
+        return os.path.commonpath([path, os.path.realpath(root)]) == os.path.realpath(root)
+    except ValueError:
+        return False
 
 
 def _allowed_path(path, snap, flow=None):
