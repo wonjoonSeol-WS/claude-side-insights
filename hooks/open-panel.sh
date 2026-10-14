@@ -17,6 +17,7 @@ if [ "$force" = 0 ]; then
   [ -n "$adapter" ] || exit 0
 fi
 
+panel_python
 missing=$(panel_missing)
 if [ -n "$missing" ]; then
   [ "$force" = 1 ] && echo "side-insights needs: $missing" >&2 \

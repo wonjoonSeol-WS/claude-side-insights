@@ -12,8 +12,8 @@ failures=0
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; failures=$((failures + 1)); fi; }
 
 . "$ROOT/shell/key.sh"
-panel_python
-check "a Python 3.9+ is found" '[ -n "$PANEL_PYTHON" ]'
+check "a Python 3.9+ is found" '[ -n "$(panel_python; printf %s "$PANEL_PYTHON")" ]'
+check "nothing is reported missing" '[ -z "$(panel_missing)" ]'
 
 repo="$DATA/repo"
 mkdir -p "$repo/app/[id]" "$repo/app/i"
@@ -66,6 +66,7 @@ refused=$(curl -s -o /dev/null -w '%{http_code}' -G -H "X-Side-Insights: $token"
 check "a file outside the session is refused" '[ "$refused" = 404 ]'
 
 pid=$(curl -s -m 2 "http://127.0.0.1:$SIDE_INSIGHTS_PORT/health" | sed -n 's/.*"pid": *\([0-9]*\).*/\1/p')
+panel_python
 PYTHONPATH="$PANEL_SRC" "$PANEL_PYTHON" -c "import sys; from side_insights.system import terminate; terminate(sys.argv[1])" "$pid"
 rm -rf "$DATA"
 echo "$failures failed"

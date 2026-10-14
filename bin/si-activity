@@ -8,5 +8,4 @@ if [ ! -t 0 ] || [ ! -t 1 ]; then
   panel_py say term_needs_tty >&2
   exit 1
 fi
-panel_python
 exec env PYTHONUTF8=1 PYTHONPATH="$PANEL_SRC${PYTHONPATH:+$PANEL_PATHSEP$PYTHONPATH}" "$PANEL_PYTHON" -m side_insights activity "$@"

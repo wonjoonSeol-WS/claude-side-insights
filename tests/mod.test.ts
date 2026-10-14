@@ -411,6 +411,34 @@ test('band sits above what the engine draws, yields to a survey, and yields when
   }
 })
 
+test('the footer leaves out keys with nothing to act on', async ($, on) => {
+  const world: World = { current: STATE, up: true }
+  const { clock } = setup(on, world)
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'tab-flow' })
+  const footer = async () => (await ui.find({ key: 'footer' }))?.text ?? ''
+  expect(await footer()).toContain(EN.term_k_flows!)
+  expect(await footer()).toContain(EN.term_k_rebuild!)
+  world.current = { ...STATE, flows: [STATE.flows[0]!] }
+  await clock.advance(2000)
+  expect(await footer(), 'one flow: nothing to switch to').not.toContain(EN.term_k_flows!)
+  expect(await footer()).toContain(EN.term_k_steps!)
+  world.current = { ...STATE, flows: [], qa: { ...STATE.qa, turns: [], waiting: [] }, activity: { ...STATE.activity, files: [] } }
+  await clock.advance(2000)
+  const empty = await footer()
+  expect(empty).not.toContain(EN.term_k_rebuild!)
+  expect(empty).not.toContain(EN.term_k_steps!)
+  expect(empty).toContain(EN.term_k_check_now!)
+  await ui.press({ key: 'tab-qa' })
+  expect(await footer()).not.toContain(EN.term_k_archive!)
+  expect(await footer()).not.toContain(EN.term_k_recheck!)
+  await ui.press({ key: 'tab-live' })
+  expect(await footer()).not.toContain(EN.mod_k_files!)
+  await ui.unmount()
+})
+
 test('spinner gets the waiting count as a suffix', async ($, on) => {
   const { clock } = setup(on, { current: STATE, up: true })
   const seen: string[] = []

@@ -28,8 +28,7 @@ if [ "$(($(wc -c < "$log" 2>/dev/null || echo 0)))" -gt "$LOG_MAX_BYTES" ]; then
   tail -n "$LOG_KEEP_LINES" "$log" > "$log.tmp" && mv "$log.tmp" "$log"
 fi
 stop_json=$(printf '%s\n' "$out" | sed -n 2p)
-panel_python
-if [ -n "$stop_json" ] && [ -n "$PANEL_PYTHON" ]; then
+if [ -n "$stop_json" ] && panel_python && [ -n "$PANEL_PYTHON" ]; then
   turn_file="$base/turns/$key.json"
   printf '%s\n' "$stop_json" > "$turn_file.tmp" && mv "$turn_file.tmp" "$turn_file"
   transcript=$(printf '%s\n' "$out" | sed -n 3p)

@@ -563,7 +563,27 @@ export const hotkeyLayer = (c: Ctx) => {
   )
 }
 
-const footerHints = (c: Ctx): [string, string][] => (c.view.settings ? SETTINGS_KEYS : c.view.help ? [] : [...HINTS[c.view.tab], ...(c.diff ? DIFF_KEYS.filter(([key]) => !lookup(DIFF_KEY_VIEW, key)) : [])])
+const idleKeys = (c: Ctx): string[] => {
+  const flows = c.s?.flows.length ?? 0
+  if (c.view.tab === Tab.FLOW) {
+    return flows ? (flows === 1 ? ['p n'] : []) : ['p n', 'k j', 'r']
+  }
+  if (c.view.tab === Tab.QA && !(c.s?.qa.turns ?? []).length) {
+    return ['a', 'c', 'r', 'm', 'f', 'v']
+  }
+  return c.view.tab === Tab.LIVE && !(c.s?.activity.files ?? []).length ? ['k j'] : []
+}
+
+const footerHints = (c: Ctx): [string, string][] => {
+  if (c.view.settings) {
+    return SETTINGS_KEYS
+  }
+  if (c.view.help) {
+    return []
+  }
+  const idle = idleKeys(c)
+  return [...HINTS[c.view.tab].filter(([key]) => !idle.includes(key)), ...(c.diff ? DIFF_KEYS.filter(([key]) => !lookup(DIFF_KEY_VIEW, key)) : [])]
+}
 
 export const footer = (c: Ctx) => {
   const { Box, Text } = c.ui

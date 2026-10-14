@@ -21,7 +21,6 @@ PANEL_PYTHON_RETRY_MINUTES=10
 PANEL_PYTHON_OK='import sys; sys.exit(sys.version_info < (3, 9))'
 PANEL_PYTHON_WHERE='import sys; sys.exit(1) if sys.version_info < (3, 9) else print(sys.executable)'
 PANEL_PYTHON="${SIDE_INSIGHTS_PYTHON:-}"
-[ "$PANEL_OS" = mac ] && [ -z "$PANEL_PYTHON" ] && PANEL_PYTHON=/usr/bin/python3
 
 panel_native() { if [ "$PANEL_OS" = windows ]; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
 
@@ -29,6 +28,10 @@ panel_native() { if [ "$PANEL_OS" = windows ]; then cygpath -w "$1"; else printf
 # A miss is remembered for a few minutes so hooks do not probe on every tool call.
 panel_find_python() {
   local candidate found
+  if [ "$PANEL_OS" = mac ]; then
+    xcode-select -p >/dev/null 2>&1 && /usr/bin/python3 -c "$PANEL_PYTHON_OK" 2>/dev/null && printf /usr/bin/python3
+    return 0
+  fi
   if [ -f "$PANEL_PYTHON_CACHE" ]; then
     found=$(cat "$PANEL_PYTHON_CACHE" 2>/dev/null)
     if [ "$found" = - ]; then
@@ -64,21 +67,19 @@ panel_py() {
 
 panel_has_jq() { command -v "$PANEL_JQ" >/dev/null 2>&1; }
 
-# Without the Command Line Tools, macOS /usr/bin/python3 is a stub that pops an install dialog, so check first.
 panel_missing() {
+  panel_python
+  [ -n "$PANEL_PYTHON" ] && return 0
   case "$PANEL_OS" in
-    mac)
-      { [ -n "${SIDE_INSIGHTS_PYTHON:-}" ] || xcode-select -p >/dev/null 2>&1; } && "$PANEL_PYTHON" -c "$PANEL_PYTHON_OK" 2>/dev/null \
-        || printf 'python3 (xcode-select --install)' ;;
-    windows) panel_python; [ -n "$PANEL_PYTHON" ] || printf 'Python 3.9+ (winget install Python.Python.3.12, or python.org)' ;;
-    *) panel_python; [ -n "$PANEL_PYTHON" ] || printf 'Python 3.9+ (your package manager, for example sudo apt install python3)' ;;
+    mac) printf 'python3 (xcode-select --install)' ;;
+    windows) printf 'Python 3.9+ (winget install Python.Python.3.12, or python.org)' ;;
+    *) printf 'Python 3.9+ (your package manager, for example sudo apt install python3)' ;;
   esac
 }
 
 panel_require_python() {
-  local missing
-  missing=$(panel_missing)
-  [ -z "$missing" ] || { echo "side-insights needs: $missing" >&2; exit 1; }
+  panel_python
+  [ -n "$PANEL_PYTHON" ] || { echo "side-insights needs: $(panel_missing)" >&2; exit 1; }
 }
 
 # Must sanitise the same way as side_insights.paths.pane_key and paneKey in hooks/mod/data.ts.
@@ -88,6 +89,9 @@ panel_key() {
     eval "raw=\"\${$name:-}\""
     [ -n "$raw" ] && break
   done
+  if [ -z "$raw" ] && panel_has_jq; then
+    raw=$(printf '%s' "$1" | "$PANEL_JQ" -r '.session_id // empty' 2>/dev/null | tr -d '\r')
+  fi
   [ -n "$raw" ] || raw=$(panel_json_field session_id "$1")
   [ -n "$raw" ] || raw="${CLAUDE_CODE_SESSION_ID:-}"
   [ -n "$raw" ] || return 0
@@ -115,6 +119,7 @@ panel_link() {
 }
 
 ensure_panel_server() {
+  panel_python
   [ -n "$PANEL_PYTHON" ] || return 1
   (umask 077; panel_py ensure-server </dev/null)
 }

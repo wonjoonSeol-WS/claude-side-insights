@@ -538,14 +538,13 @@ const showDiff = async (path: string, view: DiffViewValue = DiffView.AUTO) => {
   }
 }
 
-const enableHere = async (wanted: () => boolean) => {
+const enableHere = async (wanted: () => boolean = () => true) => {
   const api = mod.api
-  if (!api || mod.quiet) {
+  if (!api || mod.quiet || !wanted()) {
     return
   }
-  const reply = await api.config()
-  const cfg = reply.data
-  if (!isOk(reply) || !cfg?.effective || cfg.pane?.enabled === true || api !== mod.api || !wanted()) {
+  const before = await api.config()
+  if (api !== mod.api || !wanted() || (isOk(before) && before.data?.pane?.enabled === true)) {
     return
   }
   const seq = ++mod.configSeq
@@ -553,19 +552,21 @@ const enableHere = async (wanted: () => boolean) => {
   if (!isOk(saved) || api !== mod.api) {
     return
   }
-  if (saved.data && seq === mod.configSeq) {
+  if (seq !== mod.configSeq) {
+    void refreshConfig()
+  } else if (saved.data) {
     mod.config = saved.data
     repaint()
     redraw()
   }
-  const shared = cfg.global ?? cfg.effective
-  if (shared.analyze === Analyze.ALL) {
+  const cfg = before.data
+  if (!wanted() || !isOk(before) || !cfg?.global || cfg.global.analyze === Analyze.ALL) {
     return
   }
-  if (shared.qa_auto) {
+  if (cfg.global.qa_auto) {
     void api.regen({ target: Regen.QA })
   }
-  if (shared.flow_auto) {
+  if (cfg.global.flow_auto) {
     void api.regen({ target: Regen.FLOW, new: '1' })
   }
 }
@@ -585,8 +586,7 @@ const reopenIfOn = async () => {
     return
   }
   mod.paneOpen = true
-  const opened = await open({ id: PANE, title: paneTitle() }).catch(() => undefined)
-  mod.paneOpen = !!opened?.isPlaced
+  mod.paneOpen = !!(await open({ id: PANE, title: paneTitle() }).catch(() => undefined))
 }
 
 const openBrowserPanel = async (): Promise<string> => {
@@ -595,7 +595,7 @@ const openBrowserPanel = async (): Promise<string> => {
   if (!io || !api) {
     return t('panel_failed')
   }
-  void enableHere(() => true)
+  void enableHere()
   if (mod.env?.cmux) {
     const out = await io.run([`${io.root}/bin/si-panel`], { timeoutMs: BROWSER_TIMEOUT_MS, env: { SIDE_INSIGHTS_NO_LINK: '1' } }).catch(() => undefined)
     return out ? [out.stdout, out.stderr].map(x => x.trim()).filter(Boolean).join('\n') || t('panel_shown') : t('panel_failed')
@@ -975,8 +975,7 @@ export const register: Register = on => {
 
   on('command.run', { command: PANE_COMMANDS }, async $ => {
     mod.paneOpen = true
-    const opened = await $.ui.open({ id: PANE, title: paneTitle(), focus: true })
-    mod.paneOpen = opened.isPlaced
+    mod.paneOpen = !!(await $.ui.open({ id: PANE, title: paneTitle(), focus: true }).catch(() => undefined))
     void enableHere(() => mod.paneOpen)
     const io = mod.io
     if (io && (await loadTheme(io))) {

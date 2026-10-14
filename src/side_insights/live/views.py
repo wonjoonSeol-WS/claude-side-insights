@@ -89,7 +89,16 @@ FOOTER_KEYS = {
 HELP_HINT = ("h", "term_k_help")
 
 
-def footer(pane, cols, tab, toast=None):
+def idle_keys(tab, flows, rows):
+    """Footer keys with nothing to act on: flow keys without flows, question keys without questions."""
+    if tab == "flow":
+        return {"[ ]", "←→", "p", "r"} if not flows else {"[ ]"} if flows == 1 else set()
+    if tab == "qa" and not rows:
+        return {"↑↓", "s", "a", "c", "r", "f"}
+    return set()
+
+
+def footer(pane, cols, tab, toast=None, hidden=frozenset()):
     """Key hints for the tab; the help hint always stays, other hints drop from the end when space runs out."""
     if toast:
         text, color = toast
@@ -98,7 +107,7 @@ def footer(pane, cols, tab, toast=None):
     def hint(key, label):
         return f"{key_cap(key)} {paint(t(label, pane=pane), MUTED)}"
 
-    keys, help_hint = FOOTER_KEYS[tab], hint(*HELP_HINT)
+    keys, help_hint = [k for k in FOOTER_KEYS[tab] if k[0] not in hidden], hint(*HELP_HINT)
     candidates = [paint(t("term_click", pane=pane), FAINT) + " " + " ".join([hint(*k) for k in keys] + [help_hint])]
     candidates += [" ".join([hint(*k) for k in keys[:n]] + [help_hint]) for n in range(len(keys), -1, -1)]
     candidates += [" ".join([key_cap(k) for k, _ in keys] + [help_hint]), help_hint, key_cap(HELP_HINT[0])]

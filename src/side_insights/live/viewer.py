@@ -107,9 +107,10 @@ class Screen:
         cols -= RIGHT_MARGIN + 2 * MARGIN
         head = views.header(TAB_KEYS, self.tab, self.tail.state, self.tick, cols)
         toast = self.toast[:2] if self.toast and self.toast[2] > time.time() else None
-        foot = views.footer(self.pane, cols, self.tab.value, toast)
         space = max(1, rows - len(head) - 1)
         body = self.help_lines(cols) if self.help else self.body(cols, space)
+        hidden = views.idle_keys(self.tab.value, len(flow_store.records(self.pane)), self.rows)
+        foot = views.footer(self.pane, cols, self.tab.value, toast, hidden)
         if self.tab == Tab.QA and not self.help:
             self.keep_selection_visible(space)
         top = max(0, min(self.scroll[self.tab], len(body) - space))
