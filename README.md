@@ -12,15 +12,14 @@ Inside Claude Code:
 /reload-plugins
 ```
 
-Then open the panel inside Claude Code:
+Then open the panel inside Claude Code, as a pane or in a browser:
 
 ```
-/si
+/si            # pane next to the session
+/si-browser    # full panel in a browser
 ```
 
-Close the pane with `ctrl+x x`.
-
-For the full panel in a browser, run `/si-browser`. In cmux it opens a browser split, and running it again hides it. Elsewhere it opens your default browser.
+Close the pane with `ctrl+x x`. In cmux, `/si-browser` opens a browser split, and running it again hides it. Elsewhere it opens your default browser.
 
 Update:
 
