@@ -387,8 +387,8 @@ const marker = (c: Ctx, on: boolean, idle?: Rgb) => {
 const selectableRow = (c: Ctx, key: string, on: boolean, children: RenderChildren[], idle?: Rgb) => {
   const { Box } = c.ui
   return (
-    <Box key={key} flexDirection="row" columnGap={1} backgroundColor={selectedBg(c, on)}>
-      {marker(c, on, idle)}
+    <Box key={key} flexDirection="row" alignItems="flex-start" columnGap={1} backgroundColor={selectedBg(c, on)}>
+      <Box flexShrink={0}>{marker(c, on, idle)}</Box>
       {children}
     </Box>
   )
@@ -1230,10 +1230,12 @@ const pipelineStep = (c: Ctx, s: FlowStep, i: number, on: boolean) => {
     `step-row-${i}`,
     on,
     [
-      chip(c, String(i + 1), tint(c.p, color, on ? STEP_ON_TINT : STEP_TINT), on ? c.p.text : color),
-      <Text key={`changed-${i}`} color={hex(c.p.yellow)}>
-        {s.changed ? '●' : ' '}
-      </Text>,
+      <Box key={`step-chip-${i}`} flexShrink={0}>
+        {chip(c, String(i + 1), tint(c.p, color, on ? STEP_ON_TINT : STEP_TINT), on ? c.p.text : color)}
+      </Box>,
+      <Box key={`step-dot-${i}`} flexShrink={0}>
+        <Text color={hex(c.p.yellow)}>{s.changed ? '●' : ' '}</Text>
+      </Box>,
       <Box flexGrow={1} flexShrink={1}>
         <Button key={`step-${i}`} plain dimColor={!on} onPress={() => c.act.stepTo(i)}>
           {label(c, s.title ?? '')}

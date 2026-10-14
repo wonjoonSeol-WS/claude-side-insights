@@ -1246,6 +1246,20 @@ test('resolveChange matches Windows paths whichever separator the flow used', ()
   expect(resolveChange('D:\\x\\y.ts', known, 'C:\\repo')).toBe('D:\\x\\y.ts')
 })
 
+test('a step whose title wraps keeps its number chip, dot and marker on the first line at full width', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'tab-flow' })
+  const row = await ui.find({ key: 'step-row-0' })
+  expect(row?.props.alignItems, 'items sit on the first line instead of stretching down').toBe('flex-start')
+  for (const key of ['step-chip-0', 'step-dot-0']) {
+    expect((await ui.find({ key }))?.props.flexShrink, `${key} keeps its width`).toBe(0)
+  }
+  await ui.unmount()
+})
+
 test('resolveChange prefers a known file under the flow folder, then any known file, then the flow folder', () => {
   const known = ['/elsewhere/README.md', '/repo/README.md', '/r/x.ts']
   expect(resolveChange('README.md', known, '/repo'), 'two edited READMEs: the one in the flow folder').toBe('/repo/README.md')
