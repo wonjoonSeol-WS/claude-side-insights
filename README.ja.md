@@ -127,13 +127,13 @@ Claude Code 2.1.287 以降が必要です (2.1.296 でテスト)。Claude Code �
 
 ## 必要なものと設定
 
-Claude Code 2.1.275 以上 (`/si` と `/si-browser` は 2.1.287 以上) と Python 3.9 以上が必要です。ほかには何もいりません。`jq` が入っていれば少し速いのでそれを使います。
+Claude Code 2.1.275 以上 (`/si` と `/si-browser` は 2.1.287 以上) と Python 3.9 以上、そして `jq` が必要です。プラグインはツール呼び出しごとに小さな hook を実行し、`jq` があるとその hook が速くなります。`jq` がなくても Python で代わりに動きます。
 
 ### macOS
 
 1. Python: macOS に入っているものを使います。`python3 --version` が開発ツールのインストールを求めたら `xcode-select --install` を実行してください。
 2. [インストール](#インストール) のとおりにプラグインを入れます。
-3. 任意: `brew install jq`。
+3. `jq`: macOS 15 以降には最初から入っています。それより古い macOS は `brew install jq`。
 
 すべての機能が使えます。`/si`、`/si-browser`、ターミナルパネル、そして cmux、Orca、Ghostty、iTerm2 で Claude の横に開くパネルまで。
 
@@ -141,7 +141,8 @@ Claude Code 2.1.275 以上 (`/si` と `/si-browser` は 2.1.287 以上) と Pyth
 
 1. Python 3.9+: たいてい入っています。なければ `sudo apt install python3` (Debian、Ubuntu) か `sudo dnf install python3` (Fedora)。
 2. [インストール](#インストール) のとおりにプラグインを入れます。
-3. 任意: `jq` (`sudo apt install jq`)、コピーボタン用に `wl-clipboard` (Wayland) か `xclip` (X11)。
+3. `jq`: `sudo apt install jq` (Debian、Ubuntu) か `sudo dnf install jq` (Fedora)。
+4. 任意: コピーボタン用に `wl-clipboard` (Wayland) か `xclip` (X11)。
 
 `/si`、`/si-browser` (既定のブラウザ)、ターミナルパネル (`si-activity`、別のターミナルで実行) が使えます。Claude の横にパネルが開くのは Orca だけです。
 
@@ -152,7 +153,7 @@ Claude Code はプラグインの hook を Git for Windows に含まれる Git B
 1. Git for Windows (Claude Code にも必要です): `winget install Git.Git`。
 2. Python 3.9+: `winget install Python.Python.3.12`、または python.org のインストーラー。Microsoft Store を開く `python3` コマンドはただのショートカットなので、プラグインはそれを飛ばして `python` か `py` を使います。
 3. [インストール](#インストール) のとおりにプラグインを入れ、Claude Code を再起動します。
-4. 任意: `winget install jqlang.jq`。
+4. `jq`: `winget install jqlang.jq` のあと Claude Code を再起動すると Git Bash から見えるようになります。
 
 `/si` と `/si-browser` (既定のブラウザ) が使えます。ターミナルパネルと Claude の横に開くパネルは Windows では使えません。Git を変わった場所に入れた場合は、`CLAUDE_CODE_GIT_BASH_PATH` にその `bash.exe` を設定してください。Claude Code も同じ変数を使います。
 

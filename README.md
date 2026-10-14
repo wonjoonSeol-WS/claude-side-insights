@@ -127,13 +127,13 @@ Also:
 
 ## Requirements and setup
 
-You need Claude Code 2.1.275 or later (2.1.287 or later for `/si` and `/si-browser`) and Python 3.9 or later. Nothing else is required. `jq` is used when it is installed, because it is a little faster.
+You need Claude Code 2.1.275 or later (2.1.287 or later for `/si` and `/si-browser`), Python 3.9 or later, and `jq`. The plugin runs a small hook on every tool call; with `jq` that hook is faster. Without `jq` it still works, using Python instead.
 
 ### macOS
 
 1. Python: the one macOS ships. If `python3 --version` asks you to install developer tools, run `xcode-select --install`.
 2. Install the plugin as shown in [Install](#install).
-3. Optional: `brew install jq`.
+3. `jq`: built in on macOS 15 and later. On older macOS, `brew install jq`.
 
 Everything works: `/si`, `/si-browser`, the terminal panel, and panels opening next to Claude in cmux, Orca, Ghostty and iTerm2.
 
@@ -141,7 +141,8 @@ Everything works: `/si`, `/si-browser`, the terminal panel, and panels opening n
 
 1. Python 3.9+: usually already there. Otherwise `sudo apt install python3` (Debian, Ubuntu) or `sudo dnf install python3` (Fedora).
 2. Install the plugin as shown in [Install](#install).
-3. Optional: `jq` (`sudo apt install jq`), and `wl-clipboard` (Wayland) or `xclip` (X11) for the copy buttons.
+3. `jq`: `sudo apt install jq` (Debian, Ubuntu) or `sudo dnf install jq` (Fedora).
+4. Optional: `wl-clipboard` (Wayland) or `xclip` (X11) for the copy buttons.
 
 `/si`, `/si-browser` (your default browser) and the terminal panel (`si-activity`, run in a separate terminal) work. Panels open next to Claude only in Orca.
 
@@ -152,7 +153,7 @@ Claude Code runs plugin hooks in Git Bash, which comes with Git for Windows.
 1. Git for Windows (Claude Code needs it anyway): `winget install Git.Git`.
 2. Python 3.9+: `winget install Python.Python.3.12`, or the installer from python.org. The `python3` command that opens the Microsoft Store is only a placeholder; the plugin skips it and uses `python` or `py`.
 3. Install the plugin as shown in [Install](#install), then restart Claude Code.
-4. Optional: `winget install jqlang.jq`.
+4. `jq`: `winget install jqlang.jq`, then restart Claude Code so its Git Bash finds it.
 
 `/si` and `/si-browser` (your default browser) work. The terminal panel and panels opening next to Claude are not available on Windows. If Git is installed somewhere unusual, set `CLAUDE_CODE_GIT_BASH_PATH` to its `bash.exe`, the same variable Claude Code uses.
 
