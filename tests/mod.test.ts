@@ -368,14 +368,13 @@ test('band names Q&A with the locale word', async ($, on) => {
   expect(line).not.toContain('Q&A')
 })
 
-test('band uses the server counts and says when automatic checks are off', async ($, on) => {
+test('band uses the server counts and lists no waiting turns when automatic checks are off', async ($, on) => {
   const counts = { answered: 7, partial: 0, unanswered: 3, open: 3, total: 10 }
-  const { clock } = setup(on, { current: { ...STATE, qa: { ...STATE.qa, auto: false, counts } }, up: true })
+  const { clock } = setup(on, { current: { ...STATE, qa: { ...STATE.qa, auto: false, waiting: [], counts } }, up: true })
   await start($, clock)
   const line = (await bandText($, 200)).text ?? ''
   expect(line).toContain('Q&A ✓ 7  ◐ 0  ✗ 3')
-  expect(line).toContain(`2  ${EN.qa_wait_off}`)
-  expect(line).not.toContain('checked ~34s')
+  expect(line).not.toContain('⏳')
 })
 
 test('band fits a Korean line by display width', async ($, on) => {
@@ -1792,6 +1791,28 @@ test('focus never rests on a hidden button: Tab past the end wraps to the first 
   expect(landed.at(-1), 'backward off the start').toBe(visible.at(-1))
   await raise(visible[3]!)
   expect(landed.at(-1), 'a visible control is left alone').toBe(visible[3])
+  await ui.unmount()
+})
+
+test('in settings the arrow-key focus ring and the j/k highlight are the same row', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true })
+  const landed: (string | undefined)[] = []
+  on('ui.focus', async ($, e) => {
+    landed.push(e.element)
+    return {}
+  })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'settings' })
+  const highlighted = async () => {
+    const rows: Found[] = await ui.findAll({ type: 'Box' })
+    return rows.find(r => String(r.key).startsWith('setting-') && (r.text ?? '').includes('▶'))?.key
+  }
+  await $.ui.focus({ component: 'Pane', requestId: PANE, element: 'set-qa_auto', origin: { kind: 'person' } } as never)
+  expect(await highlighted(), 'the focus ring moves the highlight').toBe('setting-qa_auto')
+  await ui.press({ key: 'hk-k' })
+  expect(await highlighted()).toBe('setting-flow_auto')
   await ui.unmount()
 })
 

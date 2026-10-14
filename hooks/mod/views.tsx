@@ -637,6 +637,8 @@ export const settingRows = (cfg: ConfigPayload | undefined, t: Ctx['t']): Settin
   ]
 }
 
+export const settingKey = (id: string) => `set-${id}`
+
 const settingLine = (c: Ctx, r: SettingRow, i: number, on: boolean) => {
   const { Box, Text, Button } = c.ui
   const shown = r.options.find(o => o.value === r.value)?.label ?? r.value
@@ -646,7 +648,7 @@ const settingLine = (c: Ctx, r: SettingRow, i: number, on: boolean) => {
         {r.label}
       </Text>
     </Box>,
-    <Button key={`set-${r.id}`} plain onPress={() => c.act.settingValue(1, i)}>
+    <Button key={settingKey(r.id)} plain onPress={() => c.act.settingValue(1, i)}>
       <Text color={hex(on ? c.p.blue : c.p.text)} bold>{`‹ ${shown} ›`}</Text>
     </Button>,
   ])
@@ -1412,7 +1414,7 @@ const qaSummary = (c: Ctx, q: PanelState['qa'] | undefined): RenderChildren[] =>
 
 const waitingCard = (c: Ctx, q: PanelState['qa']) => {
   const { Text } = c.ui
-  const note = q.pending ? c.t('qa_wait_checking') : q.auto ? c.t('qa_wait_d', q.eta) : c.t('qa_wait_off')
+  const note = q.pending ? c.t('qa_wait_checking') : c.t('qa_wait_d', q.eta)
   return card(
     c,
     'waiting',

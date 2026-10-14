@@ -687,7 +687,7 @@ function waitingCard() {
   const waiting = list(S.qa.waiting);
   const eta = S.qa.eta;
   if (!waiting.length) return `<div class="qa-eta">${t("qa_eta", eta)}</div>`;
-  const note = S.qa.pending ? t("qa_wait_checking") : S.qa.auto === false ? t("qa_wait_off") : t("qa_wait_d", eta);
+  const note = S.qa.pending ? t("qa_wait_checking") : t("qa_wait_d", eta);
   return `<div class="card qa-wait" role="status"><b>⏳ ${t("qa_wait_t", waiting.length)}</b><p class="qa-note">${note}</p>
     <ul>${waiting.map(w => `<li>${esc(w.text)}${w.mid_turn ? `<small>${t("midturn")}</small>` : ""}</li>`).join("")}</ul></div>`;
 }

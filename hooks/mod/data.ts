@@ -7,6 +7,7 @@ export type Io = {
   toast: (text: string) => void
   invalidate: () => void
   blit: (key: string, columns: number, rows: number, cells: string) => Promise<unknown>
+  focus: (key: string) => Promise<unknown>
   every: (ms: number, fn: () => void) => { cancel: () => void }
   theme: () => Promise<string | undefined>
   systemDark: () => Promise<boolean | undefined>

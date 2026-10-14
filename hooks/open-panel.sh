@@ -25,7 +25,7 @@ if [ -n "$missing" ]; then
 fi
 
 if [ "$force" = 0 ]; then
-  [ "$(panel_py config get panel_auto "$key" 2>/dev/null | tr -d '\r')" = "1" ] || exit 0
+  [ "$(panel_py config opens-panel "$key" 2>/dev/null | tr -d '\r')" = "1" ] || exit 0
 fi
 
 {

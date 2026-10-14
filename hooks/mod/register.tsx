@@ -55,6 +55,7 @@ import {
   isHiddenKey,
   live,
   qa,
+  settingKey,
   settingRows,
   settings,
   type Actions,
@@ -721,6 +722,10 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
     const rows = settingRows(mod.config, t)
     mod.view.settingRow = clampIndex(mod.view.settingRow + delta, rows.length)
     redraw()
+    const row = rows[mod.view.settingRow]
+    if (row) {
+      void mod.io?.focus(settingKey(row.id)).catch(() => undefined)
+    }
   },
   settingValue: (delta, row) => {
     const rows = settingRows(mod.config, t)
@@ -884,7 +889,7 @@ const bandLine = (cols: number): string | undefined => {
   if (s.qa.pending) {
     parts.push(`⠋ ${t('qa_checking')}`)
   } else if (waiting) {
-    parts.push(`⏳ ${s.qa.auto ? t('mod_band_waiting', waiting, s.qa.eta) : `${waiting}  ${t('qa_wait_off')}`}`)
+    parts.push(`⏳ ${t('mod_band_waiting', waiting, s.qa.eta)}`)
   }
   if (s.pending) {
     parts.push(`⠋ ${t('flow_gen')}`)
@@ -925,6 +930,7 @@ export const register: Register = on => {
         toast: text => $.ui.toast(text),
         invalidate: () => $.ui.invalidate('ui.render'),
         blit: (key, columns, rows, cells) => $.ui.blit({ requestId: PANE, key, columns, rows, cells }),
+        focus: key => $.ui.focus({ requestId: PANE, key }),
         every: (ms, fn) => $.clock.every(ms, fn),
         systemDark: () => probeSystemDark((argv, init) => $.process.run(argv, init)),
         theme: async () => {
@@ -993,6 +999,11 @@ export const register: Register = on => {
   }).catch(($, e, next) => next(e))
 
   on('ui.focus', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const row = mod.view.settings && e.element ? settingRows(mod.config, t).findIndex(r => settingKey(r.id) === e.element) : -1
+    if (row >= 0 && row !== mod.view.settingRow) {
+      mod.view.settingRow = row
+      redraw()
+    }
     const visible = mod.focusable
     if (!e.element || !isHiddenKey(e.element) || !visible.length) {
       mod.lastFocus = e.element

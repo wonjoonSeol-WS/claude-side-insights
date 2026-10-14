@@ -1,6 +1,7 @@
 """Panel settings, stored in config.json and edited from the panel's settings dialog.
 
 usage: python3 -m side_insights config get <name> [pane]   prints the value (booleans as 1/0), for shell scripts
+       python3 -m side_insights config opens-panel <pane>   prints 1 when a session start there opens the panel
 """
 import os
 import re
@@ -32,7 +33,7 @@ class Setting(Enum):
     ANALYZE = ("analyze", OPENED)
     QA_BATCH = ("qa_batch", 20)
     ENABLED = ("enabled", False)
-    PANEL_AUTO = ("panel_auto", False)
+    PANEL_AUTO = ("panel_auto", True)
     THEME = ("theme", AUTO_THEME)
 
     def __init__(self, key, default):
@@ -122,6 +123,12 @@ def runs(kind, pane=None):
     return bool(shared[f"{kind}_auto"]) and (shared["analyze"] == ALL_SESSIONS or bool(settings["enabled"]))
 
 
+def opens_panel(pane):
+    """Whether a session start in this pane opens the panel: switched on, and the pane analyzed or all sessions."""
+    shared = load()
+    return bool(shared[Setting.PANEL_AUTO.key]) and (shared["analyze"] == ALL_SESSIONS or bool(load(pane)["enabled"]))
+
+
 def payload(pane=None):
     return {"global": load(), "pane": overrides(pane), "effective": load(pane), "models": list(MODELS), "themes": list(THEMES),
             "analyze": list(ANALYZE), "qa_batches": list(QA_BATCHES),
@@ -132,5 +139,7 @@ if __name__ == "__main__":
     if len(sys.argv) in (3, 4) and sys.argv[1] == "get" and sys.argv[2] in _BY_KEY:
         value = get(sys.argv[2], sys.argv[3] if len(sys.argv) == 4 else None)
         print(int(value) if isinstance(value, bool) else value)
+    elif len(sys.argv) == 3 and sys.argv[1] == "opens-panel":
+        print(int(opens_panel(sys.argv[2])))
     else:
         sys.exit(__doc__)

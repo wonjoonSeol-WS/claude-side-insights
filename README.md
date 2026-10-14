@@ -201,7 +201,7 @@ In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a que
 | Q&A turns per check | 20 | How many pending turns one check covers: 5, 10, 20 or 30. Changing the model resets it to that model's default (Opus 20, Sonnet 10, Haiku 5); you can change it again afterwards. Bigger batches mean fewer calls, each bigger, and a smaller model judges them less reliably |
 | Analysis model | `opus` | `opus`, `sonnet` or `haiku` (set a full model id in config.json) |
 | Language (UI and analysis) | your system language if it is Korean or Japanese, else `en` | English, 한국어, 日本語 |
-| Open the panel when a session starts | off | When on, the panel opens by itself in cmux, Orca, Ghostty or iTerm2 when a session starts |
+| Open the panel when a session starts | on | In cmux, Orca, Ghostty and iTerm2, the panel opens by itself when a session starts in an analyzed panel (or in any panel with **All sessions**) |
 | Theme of the /si pane | follow Claude Code | Follow Claude Code, dark or light |
 
 A "panel" is the terminal pane in cmux, Orca and iTerm2, so it stays on across sessions there. Elsewhere it is one Claude Code session, and resuming it reopens `/si`.

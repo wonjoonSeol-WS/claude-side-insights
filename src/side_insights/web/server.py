@@ -217,10 +217,11 @@ class Handler(BaseHTTPRequestHandler):
         snap = snapshot(pane)
         records = qa_store.with_overrides(pane, qa_store.records(pane, snap["sid"])) if snap["sid"] else []
         qa_pending = Pending.active(qa_store.pending_path(pane))
-        waiting = waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"])) if snap["sid"] else []
+        auto = config.runs("qa", pane)
+        waiting = waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"])) if snap["sid"] and auto else []
         self.json({"activity": snap, "flows": pane_flows, "pending": pending,
                    "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending), "waiting": waiting,
-                          "eta": eta_seconds(records), "auto": config.runs("qa", pane), "batch": config.load(pane)["qa_batch"],
+                          "eta": eta_seconds(records), "auto": auto, "batch": config.load(pane)["qa_batch"],
                           "counts": qa_store.counts(records)}})
 
     def get_flow(self, pane, flow_id):

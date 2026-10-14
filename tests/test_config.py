@@ -58,5 +58,16 @@ class ConfigTest(unittest.TestCase):
         self.assertFalse(config.load("p2").get("enabled"))
 
 
+    def test_a_session_start_opens_the_panel_only_where_it_is_analyzed(self):
+        self.assertFalse(config.opens_panel("p1"))
+        config.save({"enabled": True}, "p1")
+        self.assertTrue(config.opens_panel("p1"))
+        self.assertFalse(config.opens_panel("p2"))
+        config.save({"analyze": "all"})
+        self.assertTrue(config.opens_panel("p2"))
+        config.save({"panel_auto": False})
+        self.assertFalse(config.opens_panel("p1"))
+
+
 if __name__ == "__main__":
     unittest.main()

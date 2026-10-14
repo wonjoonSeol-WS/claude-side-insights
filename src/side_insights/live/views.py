@@ -167,8 +167,7 @@ def live_lines(st, tick, cols, rows):
 
 
 def _waiting_lines(pane, waiting, eta, checking, cols):
-    note = t("qa_wait_checking", pane=pane) if checking else t("qa_wait_d", eta, pane=pane) if config.runs("qa", pane) \
-        else t("qa_wait_off", pane=pane)
+    note = t("qa_wait_checking", pane=pane) if checking else t("qa_wait_d", eta, pane=pane)
     inner = [*styled(note, inner_width(cols), MUTED), ""]
     for item in waiting:
         mid = "  " + t("midturn", pane=pane) if item["mid_turn"] else ""
@@ -223,7 +222,7 @@ def qa_lines(st, tick, cols, selected=None, open_only=False, show_archived=False
     """Screen lines plus the selectable rows, each with the line range it occupies."""
     pane = st.pane
     turns = qa_store.with_overrides(pane, qa_store.records(pane, st.sid)) if st.sid else []
-    waiting = WAITING.since(st.transcript, qa_store.read_cursor(pane, st.sid)) if st.sid else []
+    waiting = WAITING.since(st.transcript, qa_store.read_cursor(pane, st.sid)) if st.sid and config.runs("qa", pane) else []
     eta = eta_seconds(turns)
     pending = Pending.active(qa_store.pending_path(pane))
     items = [i for turn in turns for i in turn.get("items") or [] if not i.get("archived")]
