@@ -16,7 +16,7 @@ import {
   rowTurn,
   Scope,
   DiffView,
-  loadDiff,
+  noDiff,
   type ConfigPayload,
   type DiffState,
   type DiffViewValue,
@@ -503,17 +503,16 @@ const saveSetting = (key: SettingKey, value: string | boolean) => {
 }
 
 const showDiff = async (path: string, view: DiffViewValue = DiffView.AUTO) => {
-  const io = mod.io
-  if (!io) {
+  const api = mod.api
+  if (!api) {
     return
   }
-  const full = absolute(path)
-  const slash = full.lastIndexOf('/')
-  const dir = slash > 0 ? full.slice(0, slash) : slash === 0 ? '/' : '.'
+  const flow = mod.view.tab === Tab.FLOW ? flowId() : undefined
   mod.view.file = path
   mod.diff = { path, loading: true, view }
   redraw()
-  const data = await loadDiff(io, dir, full, view)
+  const reply = await api.diff(absolute(path), view, flow)
+  const data = isOk(reply) && reply.data ? reply.data : noDiff(reply.status === FETCH_ERROR ? t('server_down') : (reply.error ?? t('unknown_err')))
   if (mod.diff?.path === path && mod.diff.view === view) {
     mod.diff = { path, loading: false, data, view }
     redraw()

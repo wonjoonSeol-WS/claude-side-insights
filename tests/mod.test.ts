@@ -1,7 +1,7 @@
 import { expect, mock, test, type Engine } from 'claude-code/testing'
 import type { HttpResponse, On } from 'claude-code'
 
-import { Kind, Setting, Status, cells, connect, trimHunks } from '../hooks/mod/data'
+import { Kind, Setting, Status, cells, connect, type FileDiff } from '../hooks/mod/data'
 import { changeFiles, jumpTargets, rememberMessage, resolveChange } from '../hooks/mod/select'
 import { PILL_STRONG_TINT, PILL_TINT, TAB_TINT, TOGGLES, Tab } from '../hooks/mod/views'
 import { AUTO_THEME, DARK, LIGHT, THEMES, hex, mix, resolvePalette, type Palette, type Rgb } from '../hooks/mod/theme'
@@ -106,7 +106,6 @@ const FLOW_F1 = {
 
 type Call = { url: string; method: string; body?: string }
 type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean }
-type GitOut = { exitCode: number; stdout: string; stderr?: string }
 
 type World = {
   current: unknown
@@ -118,7 +117,7 @@ type World = {
   sid?: string
   env?: Record<string, string>
   taken?: string[]
-  git?: (args: string[]) => GitOut
+  diff?: (q: URLSearchParams) => FileDiff
   files?: Record<string, string>
   messages?: Partial<Record<'en' | 'ko', Record<string, string>>>
   claudeTheme?: string
@@ -208,6 +207,9 @@ const setup = (on: On, world: World) => {
       answer = reply(200, configPayload(world, pane))
     } else if (path.endsWith('/state')) {
       answer = world.stateStatus ? reply(world.stateStatus, { error: 'Request refused. Reopen the panel and try again.' }) : reply(200, world.current)
+    } else if (path.startsWith(`/api/${KEY}/diff?`)) {
+      const q = new URL(e.url).searchParams
+      answer = reply(200, world.diff ? world.diff(q) : WORKING_DIFF)
     } else if (path === `/api/${KEY}/flow/f2`) {
       answer = world.flowStatus ? reply(world.flowStatus, { error: 'Flow file is unreadable' }) : reply(200, world.flow ?? FLOW)
     } else if (path === `/api/${KEY}/flow/f1`) {
@@ -234,7 +236,7 @@ const setup = (on: On, world: World) => {
       const out = world.systemDark === undefined ? { exitCode: 1, stdout: '', stderr: 'boom' } : world.systemDark ? { exitCode: 0, stdout: 'Dark\n', stderr: '' } : { exitCode: 1, stdout: '', stderr: 'The domain/default pair of (kCFPreferencesAnyApplication, AppleInterfaceStyle) does not exist' }
       return { value: { ...out, isStdoutTruncated: false, isStderrTruncated: false } }
     }
-    const out = e.argv[0] === 'git' && world.git ? world.git([...e.argv]) : { exitCode: 0, stdout: '' }
+    const out = { exitCode: 0, stdout: '' }
     return { value: { stderr: '', ...out, isStdoutTruncated: false, isStderrTruncated: false } }
   })
   on('ui.toast', async ($, e) => {
@@ -834,7 +836,7 @@ const PANE_VIEWS = (ui: { press: (t: { key: string }) => Promise<unknown> }): [s
 ]
 
 test('hotkeys live on hidden buttons drawn last; visible buttons carry none; unused keys are caught without a clash', async ($, on) => {
-  const { clock } = setup(on, { current: STATE, up: true, git: (a: string[]) => (a.includes('HEAD') ? { exitCode: 0, stdout: `${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }) })
+  const { clock } = setup(on, { current: STATE, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   for (const surface of SURFACES) {
@@ -862,7 +864,7 @@ test('hotkeys live on hidden buttons drawn last; visible buttons carry none; unu
 })
 
 test('every text in the pane has a palette colour of its own or from the text around it', async ($, on) => {
-  const { clock } = setup(on, { current: STATE, up: true, git: (a: string[]) => (a.includes('HEAD') ? { exitCode: 0, stdout: `${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }) })
+  const { clock } = setup(on, { current: STATE, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   for (const surface of SURFACES) {
@@ -917,18 +919,18 @@ test('re-checking a question marked by hand clears the mark first, so the check 
 })
 
 const HUNK_TEXT = '@@ -1,2 +1,2 @@\n-old line\n+new line\n same'
-const NOT_A_REPO = 'fatal: not a git repository (or any of the parent directories): .git'
+const WORKING_DIFF: FileDiff = { source: 'working', hunks: HUNK_TEXT, cut: 0 }
+const diffCalls = (calls: Call[]) => calls.filter(c => c.url.includes('/diff?')).map(c => new URL(c.url).searchParams)
 
-const DIFF_CASES = [
-  { name: 'uncommitted', git: (a: string[]) => (a.includes('diff') && a.includes('HEAD') ? { exitCode: 0, stdout: `diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }), label: /git diff HEAD/ },
-  { name: 'new', git: (a: string[]) => (a.includes('ls-files') ? { exitCode: 1, stdout: '', stderr: "error: pathspec 'x' did not match" } : a.includes('--no-index') ? { exitCode: 1, stdout: `--- /dev/null\n+++ b/x\n${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }), label: /New file/ },
-  { name: 'committed', git: (a: string[]) => (a.includes('log') ? { exitCode: 0, stdout: `abc1234 Add retries\n\ndiff --git a/x b/x\n${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }), label: /Last commit that changed this file: abc1234 Add retries/ },
+const DIFF_CASES: { name: string; diff: FileDiff; label: RegExp }[] = [
+  { name: 'uncommitted', diff: WORKING_DIFF, label: /git diff HEAD/ },
+  { name: 'new', diff: { source: 'new', hunks: HUNK_TEXT, cut: 0 }, label: /New file/ },
+  { name: 'committed', diff: { source: 'commit', commit: 'abc1234 Add retries', hunks: HUNK_TEXT, cut: 0 }, label: /Last commit that changed this file: abc1234 Add retries/ },
 ]
 
 for (const k of DIFF_CASES) {
   test(`pressing a changed file shows its diff: ${k.name}`, async ($, on) => {
-    const world: World = { current: STATE, up: true, git: k.git }
-    const { clock, runs } = setup(on, world)
+    const { clock, calls } = setup(on, { current: STATE, up: true, diff: () => k.diff })
     await start($, clock)
     await $.command.run(RUN_SI)
     const ui = await mountPane($)
@@ -939,16 +941,8 @@ for (const k of DIFF_CASES) {
     expect(code?.props.format, `${k.name}: drawn as a diff`).toBe('diff')
     expect(String(code?.props.source).startsWith('@@ '), `${k.name}: only hunks reach the Code`).toBe(true)
     expect((await ui.find({ key: 'diff-code' }))?.props.backgroundColor, `${k.name}: on the code background the engine colours it for`).toBe(hex(DARK.code))
-    const gits = runs.filter(r => r[0] === 'git')
-    expect(gits.length).toBeGreaterThan(0)
-    for (const argv of gits) {
-      expect(argv.slice(1, 3), 'runs in the file\'s folder').toEqual(['-C', '/repo/src'])
-      expect(argv, 'with the absolute path').toContain(FILE)
-      expect(argv.join(' '), 'no fsmonitor hook').toContain('-c core.fsmonitor=false')
-      if (argv.includes('diff') || argv.includes('log')) {
-        expect(argv, 'no textconv driver').toContain('--no-textconv')
-      }
-    }
+    const asked = diffCalls(calls)
+    expect(asked.map(q => [q.get('path'), q.get('view'), q.get('flow')]), 'asks the server once, for the absolute path, with no flow from Live').toEqual([[FILE, 'auto', null]])
     await ui.press({ key: 'diff-close' })
     expect(await ui.find({ key: 'diff' }), `${k.name}: closed`).toBeUndefined()
     await ui.unmount()
@@ -956,7 +950,7 @@ for (const k of DIFF_CASES) {
 }
 
 test('an untracked new file keeps d lit, and d shows the new file again', async ($, on) => {
-  const { clock } = setup(on, { current: STATE, up: true, git: DIFF_CASES[1]!.git })
+  const { clock } = setup(on, { current: STATE, up: true, diff: () => DIFF_CASES[1]!.diff })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -971,13 +965,8 @@ test('an untracked new file keeps d lit, and d shows the new file again', async 
   await ui.unmount()
 })
 
-test('a file outside any git repository opens as the whole file', async ($, on) => {
-  const { clock } = setup(on, {
-    current: STATE,
-    up: true,
-    git: () => ({ exitCode: 128, stdout: '', stderr: NOT_A_REPO }),
-    files: { [FILE]: 'line one\nline two' },
-  })
+test('a whole file from the server is drawn as plain code from line 1, with the cut noted', async ($, on) => {
+  const { clock } = setup(on, { current: STATE, up: true, diff: () => ({ source: 'file', hunks: '', text: 'line one\nline two', cut: 101 }) })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -985,33 +974,23 @@ test('a file outside any git repository opens as the whole file', async ($, on) 
   await ui.press({ key: `file-${FILE}` })
   expect(await ui.find({ type: 'Text', text: EN.mod_diff_file }), 'whole-file label').toBeDefined()
   expect(await ui.find({ type: 'Text', text: /New file/ }), 'not called a new file').toBeUndefined()
-  expect((await ui.find({ type: 'Code' }))?.props.source).toBe('line one\nline two')
+  const code = await ui.find({ type: 'Code' })
+  expect([code?.props.source, code?.props.startLine, code?.props.format]).toEqual(['line one\nline two', 1, undefined])
+  expect(await ui.find({ type: 'Text', text: EN.mod_diff_cut!.replace('{0}', '101') })).toBeDefined()
   await ui.unmount()
 })
 
-test('a first hunk longer than the limit is cut to a hunk whose header matches what is kept, so it still draws as a diff', async ($, on) => {
-  const body = Array.from({ length: 500 }, (_, i) => (i % 4 < 2 ? `-old ${i}` : i % 4 === 2 ? `+new ${i}` : ` same ${i}`))
-  const long = `diff --git a/x b/x\n@@ -10,334 +12,333 @@ function f() {\n${body.join('\n')}\n`
-  const cut = trimHunks(long)
-  const kept = cut.hunks.split('\n')
-  expect(kept).toHaveLength(400)
-  expect(cut.cut).toBe(101)
-  const old = kept.slice(1).filter(l => !l.startsWith('+')).length
-  const added = kept.slice(1).filter(l => !l.startsWith('-')).length
-  expect(kept[0]).toBe(`@@ -10,${old} +12,${added} @@ function f() {`)
-  expect(old, 'the two counts differ, so a swapped pair fails').not.toBe(added)
-  const two = trimHunks(`@@ -1 +1 @@\n+a\n@@ -9 +9 @@\n${Array.from({ length: 500 }, () => '+b').join('\n')}`)
-  expect(two.hunks, 'a cut at a hunk boundary keeps whole hunks as they are').toBe('@@ -1 +1 @@\n+a')
-  const { clock } = setup(on, { current: STATE, up: true, git: (a: string[]) => (a.includes('HEAD') ? { exitCode: 0, stdout: long } : { exitCode: 0, stdout: '' }) })
+test('a diff the server cannot load shows why instead of a blank card', async ($, on) => {
+  const world: World = { current: STATE, up: true }
+  const { clock } = setup(on, world)
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'tab-live' })
+  world.up = false
   await ui.press({ key: `file-${FILE}` })
-  const code = await ui.find({ type: 'Code' })
-  expect(code?.props.format).toBe('diff')
-  expect(String(code?.props.source).split('\n')[0]).toBe(kept[0])
-  expect(await ui.find({ type: 'Text', text: EN.mod_diff_cut!.replace('{0}', '101') })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: EN.server_down })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: new RegExp(EN.mod_diff_none!) })).toBeDefined()
   await ui.unmount()
 })
 
@@ -1065,7 +1044,7 @@ const twoFiles = (cwd: string | null = '/repo') => ({
 })
 
 test('j and k walk the files and stay put at either end with the diff open', async ($, on) => {
-  const { clock, runs } = setup(on, { current: twoFiles(), up: true, git: DIFF_CASES[0]!.git })
+  const { clock, calls } = setup(on, { current: twoFiles(), up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -1074,10 +1053,10 @@ test('j and k walk the files and stay put at either end with the diff open', asy
   expect((await ui.find({ key: 'diff' }))?.text, 'the newest file first').toContain('src/b.ts')
   await ui.press({ key: 'file-next' })
   expect((await ui.find({ key: 'diff' }))?.text).toContain('src/a.ts')
-  const loads = runs.length
+  const loads = diffCalls(calls).length
   await ui.press({ key: 'file-next' })
   expect((await ui.find({ key: 'diff' }))?.text, 'j at the last file keeps its diff open').toContain('src/a.ts')
-  expect(runs.length, 'and does not load it again').toBe(loads)
+  expect(diffCalls(calls).length, 'and does not load it again').toBe(loads)
   await ui.press({ key: 'file-prev' })
   await ui.press({ key: 'file-prev' })
   expect((await ui.find({ key: 'diff' }))?.text, 'k at the first file keeps its diff open').toContain('src/b.ts')
@@ -1085,7 +1064,7 @@ test('j and k walk the files and stay put at either end with the diff open', asy
 })
 
 test('file rows are keyed by path, so a re-sort keeps the open file marked', async ($, on) => {
-  const world: World = { current: twoFiles(), up: true, git: DIFF_CASES[0]!.git }
+  const world: World = { current: twoFiles(), up: true }
   const { clock } = setup(on, world)
   await start($, clock)
   await $.command.run(RUN_SI)
@@ -1102,7 +1081,7 @@ test('file rows are keyed by path, so a re-sort keeps the open file marked', asy
 
 test('j stops at the last file shown, not at files hidden past the limit', async ($, on) => {
   const files = Array.from({ length: 32 }, (_, i) => ({ path: `/repo/f${String(i).padStart(2, '0')}.ts`, count: 1, created: false, last: 1791906000 - i }))
-  const { clock } = setup(on, { current: { ...STATE, activity: { ...STATE.activity, files } }, up: true, git: DIFF_CASES[0]!.git })
+  const { clock } = setup(on, { current: { ...STATE, activity: { ...STATE.activity, files } }, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -1113,23 +1092,20 @@ test('j stops at the last file shown, not at files hidden past the limit', async
   await ui.unmount()
 })
 
-test('a path without a folder runs git in the current folder; ~/ paths expand to home', async ($, on) => {
-  const { clock, runs } = setup(on, { current: { ...STATE, activity: { ...STATE.activity, cwd: null, files: [{ path: 'notes.md', count: 1, created: false, last: 1 }] } }, up: true, git: DIFF_CASES[0]!.git })
+test('a path without a folder goes to the server as is; ~/ paths expand to home', async ($, on) => {
+  const { clock, calls } = setup(on, { current: { ...STATE, activity: { ...STATE.activity, cwd: null, files: [{ path: 'notes.md', count: 1, created: false, last: 1 }] } }, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'tab-live' })
   await ui.press({ key: 'file-notes.md' })
-  const first = runs.find(r => r[0] === 'git')
-  expect(first?.slice(1, 3)).toEqual(['-C', '.'])
-  expect(first).toContain('notes.md')
-  runs.length = 0
+  expect(diffCalls(calls).at(-1)?.get('path')).toBe('notes.md')
+  calls.length = 0
   await ui.press({ key: 'tab-flow' })
   await ui.press({ key: 'flow-tab-f1' })
   await ui.press({ key: 'change-0' })
-  const home = runs.find(r => r[0] === 'git')
-  expect(home?.slice(1, 3)).toEqual(['-C', '/home/u/notes'])
-  expect(home).toContain('/home/u/notes/todo.md')
+  const home = diffCalls(calls).at(-1)
+  expect([home?.get('path'), home?.get('flow')], 'a Flow change names its flow').toEqual(['/home/u/notes/todo.md', 'f1'])
   expect(await ui.find({ key: 'change-0-1' }), 'the second file of a comma list without a space').toBeDefined()
   await ui.unmount()
 })
@@ -1142,9 +1118,9 @@ test('a change entry naming several files is split into one path per file', () =
 })
 
 test('the diff card switches between the uncommitted diff, the last commit and the whole file', async ($, on) => {
-  const git = (a: string[]) =>
-    a.includes('log') ? { exitCode: 0, stdout: `abc1234 Add retries\n\n${HUNK_TEXT}\n` } : a.includes('HEAD') ? { exitCode: 0, stdout: `${HUNK_TEXT}\n` } : { exitCode: 0, stdout: '' }
-  const { clock, runs } = setup(on, { current: STATE, up: true, git, files: { [FILE]: 'whole\nfile' } })
+  const diff = (q: URLSearchParams): FileDiff =>
+    q.get('view') === 'commit' ? DIFF_CASES[2]!.diff : q.get('view') === 'file' ? { source: 'file', hunks: '', text: 'whole\nfile', cut: 0 } : WORKING_DIFF
+  const { clock, calls } = setup(on, { current: STATE, up: true, diff })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -1158,7 +1134,7 @@ test('the diff card switches between the uncommitted diff, the last commit and t
   const code = await ui.find({ type: 'Code' })
   expect(code?.props.format, 'the whole file is plain code').toBeUndefined()
   expect(code?.props.startLine).toBe(1)
-  expect(runs.some(r => r.includes('log')), 'git log ran for the commit view').toBe(true)
+  expect(diffCalls(calls).map(q => q.get('view')), 'one request per view').toEqual(['auto', 'commit', 'file'])
   await ui.press({ key: 'diff-view-working' })
   expect(await ui.find({ type: 'Text', text: /git diff HEAD/ }), 'd goes back to the uncommitted diff').toBeDefined()
   expect(await ui.find({ key: 'diff' }), 'd never closes the card').toBeDefined()
@@ -1166,7 +1142,7 @@ test('the diff card switches between the uncommitted diff, the last commit and t
 })
 
 test('the Live footer offers x only while a diff is open', async ($, on) => {
-  const { clock } = setup(on, { current: STATE, up: true, git: DIFF_CASES[0]!.git })
+  const { clock } = setup(on, { current: STATE, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -1178,7 +1154,7 @@ test('the Live footer offers x only while a diff is open', async ($, on) => {
 })
 
 test('a diff opened from a flow closes when the step or the flow changes', async ($, on) => {
-  const { clock } = setup(on, { current: STATE, up: true, git: DIFF_CASES[0]!.git })
+  const { clock } = setup(on, { current: STATE, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -1197,7 +1173,7 @@ test('a diff opened from a flow closes when the step or the flow changes', async
 })
 
 test('each step lists only the changes to its own file, and a change opens its diff', async ($, on) => {
-  const { clock } = setup(on, { current: STATE, up: true, git: DIFF_CASES[0]!.git })
+  const { clock } = setup(on, { current: STATE, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -1213,31 +1189,28 @@ test('each step lists only the changes to its own file, and a change opens its d
 test('a change named relative to another repo opens the edited file there, not the same name under the session folder', async ($, on) => {
   const elsewhere = '~/other/src/checkout/idempotency.ts'
   const current = { ...STATE, activity: { ...STATE.activity, files: [{ path: elsewhere, count: 1, created: false, last: 1 }] } }
-  const { clock, runs } = setup(on, { current, up: true, git: DIFF_CASES[0]!.git })
+  const { clock, calls } = setup(on, { current, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'tab-flow' })
   await ui.press({ key: 'step-next' })
-  runs.length = 0
   await ui.press({ key: 'step-change-0' })
-  const git = runs.find(r => r[0] === 'git')
-  expect(git?.slice(1, 3)).toEqual(['-C', '/home/u/other/src/checkout'])
+  expect(diffCalls(calls).at(-1)?.get('path')).toBe('/home/u/other/src/checkout/idempotency.ts')
   await ui.unmount()
 })
 
 test('a change opens the edited file under the flow folder when several edited files share its name', async ($, on) => {
   const flow = { ...FLOW, cwd: '/repo', edited: ['/elsewhere/src/checkout/idempotency.ts', '/repo/src/checkout/idempotency.ts'] }
   const current = { ...STATE, activity: { ...STATE.activity, files: [{ path: '~/other/src/checkout/idempotency.ts', count: 1, created: false, last: 1 }] } }
-  const { clock, runs } = setup(on, { current, up: true, flow, git: DIFF_CASES[0]!.git })
+  const { clock, calls } = setup(on, { current, up: true, flow })
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'tab-flow' })
   await ui.press({ key: 'step-next' })
-  runs.length = 0
   await ui.press({ key: 'step-change-0' })
-  expect(runs.find(r => r[0] === 'git')?.slice(1, 3)).toEqual(['-C', '/repo/src/checkout'])
+  expect(diffCalls(calls).at(-1)?.get('path')).toBe('/repo/src/checkout/idempotency.ts')
   await ui.unmount()
 })
 

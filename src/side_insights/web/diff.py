@@ -1,4 +1,4 @@
-"""File diffs for the browser panel, the same views the /si pane shows: working tree, last commit, whole file."""
+"""File diffs for both panels: working tree, last commit, or the whole file."""
 import itertools
 import os
 import re
