@@ -168,6 +168,19 @@ Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`) and `SIDE_INSIGHTS
 
 ## FAQ
 
+**When does it call Claude, and does it double my usage?**
+
+No. At most two extra Claude calls run after each turn, as a separate `claude -p`, outside your session:
+
+| When | What | Extra calls | Only if |
+|---|---|---|---|
+| A turn ends | Q&A check | 1 (no tools, one request) | "Check Q&A when a turn ends" is on |
+| A turn ends | Flow | 1 (read-only tools, so several requests inside) | the turn changed files (edits, or shell commands that write files) and "Build a flow when a turn ends" is on |
+| You press `r` | Re-check / rebuild | 1 per press | you press it twice to confirm |
+| The `/si` pane itself | drawing, keys, diffs, theme | 0 | it only talks to the local server and git |
+
+A working turn usually makes dozens of model requests on its own, so one or two analysis runs after it are a small share. Many short chat-only turns raise the share, since each still gets a Q&A check.
+
 **Cost** (Claude Code list-price estimates)
 
 | What | Claude calls | Cost |
