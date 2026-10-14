@@ -26,6 +26,7 @@ export type Env = {
   session: string
   windows?: boolean
   gitBash?: string
+  localAppData?: string
 }
 
 type Run = (argv: readonly string[], init: ProcessRunInit) => Promise<ProcessRunResult>
@@ -55,7 +56,9 @@ export const probeSystemDark = async (run: Run): Promise<boolean | undefined> =>
 const WINDOWS_BASH = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files (x86)\\Git\\bin\\bash.exe']
 
 export const bashCandidates = (env: Env | undefined): string[] =>
-  env?.windows ? [...(env.gitBash ? [env.gitBash] : []), ...WINDOWS_BASH] : ['/bin/bash', 'bash']
+  env?.windows
+    ? [...(env.gitBash ? [env.gitBash] : []), ...WINDOWS_BASH, ...(env.localAppData ? [`${env.localAppData}\\Programs\\Git\\bin\\bash.exe`] : [])]
+    : ['/bin/bash', 'bash']
 
 export const isAbsolutePath = (path: string) => path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\')
 
@@ -123,7 +126,7 @@ export type PanelState = {
   activity: { sid?: string | null; cwd?: string | null; busy?: boolean; tools: Tool[]; files: FileChange[] }
   flows: FlowRef[]
   pending: unknown
-  qa: { sid?: string | null; turns: QaTurn[]; pending: boolean; waiting: Waiting[]; eta: number; auto: boolean; counts?: QaCounts }
+  qa: { sid?: string | null; turns: QaTurn[]; pending: boolean; waiting: Waiting[]; eta: number; auto: boolean; batch?: number; counts?: QaCounts }
 }
 export type FlowStep = {
   title?: string

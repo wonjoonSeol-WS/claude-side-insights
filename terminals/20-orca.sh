@@ -2,7 +2,7 @@
 PANE_ENV=ORCA_PANE_KEY
 CHILD_ENV_PREFIX=ORCA_
 
-term_detect() { [ -n "${ORCA_TERMINAL_HANDLE:-}" ] && command -v orca >/dev/null 2>&1; }
+term_detect() { [ -n "${ORCA_TERMINAL_HANDLE:-}" ] && command -v orca >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; }
 
 _orca_saved() { printf '%s/terminals/orca-%s' "$PANEL_DATA" "$1"; }
 

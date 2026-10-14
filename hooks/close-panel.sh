@@ -2,7 +2,7 @@
 # SessionEnd hook: close this pane's panel when Claude exits. On /clear the session ends and a new one starts in the same pane, so the panel stays.
 set -u
 [ -z "${SIDE_INSIGHTS_CHILD:-}" ] || exit 0
-PANEL_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+PANEL_ROOT=$(cd "$(dirname "${0//\\//}")/.." && pwd)
 . "$PANEL_ROOT/shell/key.sh"
 input=""
 [ -t 0 ] || input=$(cat)

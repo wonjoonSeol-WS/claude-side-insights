@@ -153,7 +153,7 @@ const LEFT_MAX = 48
 const LEFT_SHARE = 2 / 5
 const COLUMN_GAP = 2
 const MAX_TOOLS = 40
-const PENDING_BATCH = 10
+const PENDING_BATCH = 20
 const TOOLS_IN_FLOW = 12
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const LINK_SURFACES = new Set<RenderSurface>(['desktop'])
@@ -488,13 +488,13 @@ const tabButton = (c: Ctx, key: string, tab: TabValue) => {
 
 export const header = (c: Ctx) => {
   const { Box, Text, Link } = c.ui
-  const where = (c.s?.activity.cwd ?? '').replace(/\/+$/, '').split('/').pop() || '-'
+  const where = (c.s?.activity.cwd ?? '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || '-'
   return (
     <Box key="header" flexDirection="column">
       {banner(c)}
       <Box flexDirection="row" flexWrap="wrap" columnGap={2}>
         {TAB_KEYS.map(([key, tab]) => tabButton(c, key, tab))}
-        {keyButton(c, 'check-now', 'u', c.t('check_now'), () => c.act.checkNow())}
+        {c.view.settings || c.view.help ? null : keyButton(c, 'check-now', 'u', c.t('check_now'), () => c.act.checkNow())}
         {keyButton(c, 'open', 'o', c.t('full'), () => c.act.openBrowser(), true)}
         <Text color={hex(c.p.faint)}>
           {c.busy ? (
@@ -629,7 +629,7 @@ export const settingRows = (cfg: ConfigPayload | undefined, t: Ctx['t']): Settin
     choice(Setting.ANALYZE, (cfg.analyze?.length ? cfg.analyze : Object.values(Analyze)).map(a => ({ value: a, label: t(`analyze_${a}`) })), all.analyze ?? Analyze.OPENED),
     toggle(Setting.FLOW_AUTO),
     toggle(Setting.QA_AUTO),
-    choice(Setting.QA_BATCH, (cfg.qa_batches ?? []).map(n => ({ value: String(n), label: String(n) })), String(all.qa_batch ?? 30)),
+    choice(Setting.QA_BATCH, (cfg.qa_batches ?? []).map(n => ({ value: String(n), label: String(n) })), String(all.qa_batch ?? PENDING_BATCH)),
     choice(Setting.LANG, (cfg.langs ?? []).map(l => ({ value: l.code, label: l.label })), all.lang),
     choice(Setting.MODEL, (cfg.models ?? []).map(m => ({ value: m, label: m })), all.model),
     toggle(Setting.PANEL_AUTO),
@@ -1467,7 +1467,7 @@ const turnCard = (c: Ctx, { turn, failed, shown: items }: TurnEntry, ti: number,
           <Button key={`older-${ti}-${turn.turn_id}`} plain onPress={() => c.act.checkOlder(turn.turn_id)}>
             <Text color={hex(c.p.muted)}>
               {`${c.t('qa_skipped', turn.skipped_turns)}  `}
-              <Text color={hex(c.p.blue)}>{c.t('check_older', Math.min(turn.skipped_turns, PENDING_BATCH))}</Text>
+              <Text color={hex(c.p.blue)}>{c.t('check_older', Math.min(turn.skipped_turns, c.s?.qa.batch ?? PENDING_BATCH))}</Text>
             </Text>
           </Button>,
         ]

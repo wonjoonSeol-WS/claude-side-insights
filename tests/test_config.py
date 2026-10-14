@@ -43,5 +43,20 @@ class ConfigTest(unittest.TestCase):
         self.assertFalse(config.runs("qa", "p1"))
 
 
+    def test_a_panel_saves_only_enabled_and_the_shared_settings_never_do(self):
+        with self.assertRaises(ValueError):
+            config.save({"lang": "ko"}, "p1")
+        with self.assertRaises(ValueError):
+            config.save({"enabled": True})
+        with self.assertRaises(ValueError):
+            config.save({"qa_batch": "20"})
+        config.save({"lang": "ja"})
+        self.assertEqual(config.load("p1")["lang"], "ja")
+        self.assertFalse(config.load("p2").get("enabled"))
+        config.save({"enabled": True}, "p1")
+        self.assertTrue(config.load("p1")["enabled"])
+        self.assertFalse(config.load("p2").get("enabled"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -128,7 +128,7 @@ Also:
 
 ## Requirements and setup
 
-You need Claude Code 2.1.275 or later (2.1.287 or later for `/si` and `/si-browser`), Python 3.9 or later, and `jq`. The plugin runs a small hook on every tool call; with `jq` that hook is faster. Without `jq` it still works, using Python instead.
+You need Claude Code 2.1.275 or later (2.1.287 or later for `/si` and `/si-browser`), Python 3.9 or later. `jq` is recommended: the plugin runs a small hook on every tool call, and `jq` makes it faster. Without `jq` the hook uses Python instead. The Orca split needs `jq`.
 
 ### macOS
 
@@ -218,9 +218,9 @@ No. By default it only analyzes sessions where you opened `/si`, and closing the
 |---|---|---|---|
 | A turn ends | Q&A check | 1 (no tools, one request) | this panel is analyzed (or all sessions are) and "Check Q&A when a turn ends" is on |
 | A turn ends | Flow | 1 (read-only tools, so several requests inside) | the same, the turn changed files (edits, or shell commands that write files), and "Build a flow when a turn ends" is on |
-| You open `/si` in a session for the first time | Q&A for the latest turns (20 by default), Flow for the latest turn | up to 2 | the session already has turns; the flow only if that turn changed files and has none yet |
-| You press `u`, `r` or ↻, or **Check older** | Check now / re-check / rebuild / the next batch of older turns | 1 per press | you press `u` and `r` twice to confirm |
-| The `/si` pane itself | drawing, keys, diffs, theme | 0 | it only talks to the local server and git |
+| You switch a panel on by opening `/si` or `/si-browser` | Q&A for the latest turns (20 by default), Flow for the latest turn | up to 2 | the session already has turns; the flow only if that turn changed files and has none yet |
+| You press `u`, `r` or ↻, or **Check older** | Check now / re-check / rebuild / the next batch of older turns | 1 per press | in `/si`, `u` and `r` run on the second press; browser buttons run at once |
+| The `/si` pane itself | drawing, keys, diffs, theme | 0 | it only talks to the local server |
 
 A single Q&A check covers at most the latest turns not checked yet, 20 by default (**Q&A turns per check**: 5, 10, 20 or 30). Older ones are listed as skipped on that turn's card, and **Check older** checks the next batch each time. Each batch is its own card.
 

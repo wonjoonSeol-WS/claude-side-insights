@@ -92,6 +92,8 @@ def safe_name(value, fallback="unknown"):
 
 
 def _replace(tmp, path, tries=REPLACE_TRIES):
+    if os.name != "nt":
+        return os.replace(tmp, path)
     for attempt in range(tries):
         try:
             return os.replace(tmp, path)

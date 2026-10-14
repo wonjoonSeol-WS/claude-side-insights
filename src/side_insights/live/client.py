@@ -7,7 +7,7 @@ import urllib.request
 
 from side_insights.i18n import t
 from side_insights.paths import PORT, TOKEN_HEADER, read_token
-from side_insights.system import copy_text
+from side_insights.system import copy_text, local_urlopen
 
 TIMEOUT = 5
 
@@ -26,7 +26,7 @@ def call(method, path, body=None, params=None):
                                  data=json.dumps(body).encode() if body is not None else None,
                                  headers={"Content-Type": "application/json", TOKEN_HEADER: read_token() or ""})
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with local_urlopen(req, timeout=TIMEOUT) as resp:
             return json.load(resp)
     except urllib.error.HTTPError as exc:
         try:

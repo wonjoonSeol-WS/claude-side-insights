@@ -8,6 +8,7 @@ from side_insights.paths import CHILD_ENV, atomic_write_json, read_json, termina
 from side_insights.system import FileLock, claude_command, detached, kill_tree, process_alive
 
 STALE_AFTER = 1800
+KILL_WAIT = 10
 _PARENT_PREFIXES = ("CLAUDE_CODE_MESSAGING_", *terminal_settings("CHILD_ENV_PREFIX"))
 _PARENT_VARS = {*terminal_settings("PANE_ENV"), "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_BRIDGE_SESSION_ID",
                 "CLAUDE_CODE_CHILD_SESSION", "CLAUDE_CODE_SSE_PORT", "CLAUDE_PID", "CLAUDE_EFFORT"}
@@ -18,7 +19,7 @@ def run_claude(system, schema, message, model, tools, cwd, timeout, max_turns):
     env = {k: v for k, v in os.environ.items() if k not in _PARENT_VARS and not k.startswith(_PARENT_PREFIXES)}
     env[CHILD_ENV] = "1"
     tool_list = ",".join(tools)
-    cmd = [claude_command(), "-p", "--model", model, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
+    cmd = [*claude_command(), "-p", "--model", model, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands",
            "--system-prompt", system, "--no-session-persistence", "--output-format", "json", "--tools", tool_list,
            "--max-turns", str(max_turns), "--json-schema", json.dumps(schema, ensure_ascii=False)]
     if tools:
@@ -29,7 +30,10 @@ def run_claude(system, schema, message, model, tools, cwd, timeout, max_turns):
         out, err = proc.communicate(message, timeout=timeout)
     except subprocess.TimeoutExpired:
         kill_tree(proc)
-        proc.communicate()
+        try:
+            proc.communicate(timeout=KILL_WAIT)
+        except subprocess.TimeoutExpired:
+            pass
         raise RuntimeError(f"timed out after {timeout}s")
     try:
         result = json.loads(out or "{}")

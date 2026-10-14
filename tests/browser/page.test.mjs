@@ -81,19 +81,24 @@ const element = () => ({
   focus() {},
 })
 
-async function openPage({ state = STATE, mode = 'live', diff, pane = {} } = {}) {
+async function openPage({ state = STATE, mode = 'live', diff, pane = {}, shared = {}, batches = [5, 10, 20, 30], search = '' } = {}) {
   const requests = []
   const handlers = {}
   const copied = []
   const els = { app: element(), toast: element(), tip: element() }
+  const configPayload = () => {
+    const global = { analyze: 'opened', flow_auto: true, qa_auto: true, qa_batch: 20, model: 'opus', lang: 'en', theme: 'auto', ...shared }
+    return { global, pane, effective: { ...global, ...pane }, models: ['opus'], langs: [], themes: ['auto', 'dark', 'light'], analyze: ['opened', 'all'],
+      ...(batches ? { qa_batches: batches } : {}) }
+  }
   const fetch = async (url, init = {}) => {
     const u = new URL(url, 'http://127.0.0.1:47821')
     requests.push({ method: init.method || 'GET', path: u.pathname, params: u.searchParams, body: init.body })
+    if (u.pathname === '/api/config' && init.method === 'POST' && u.searchParams.get('pane')) pane = { ...pane, ...JSON.parse(init.body) }
     const body = u.pathname.endsWith('/state') ? state
       : u.pathname.endsWith('/flow/f1') ? FLOW
       : u.pathname.endsWith('/diff') ? (diff ? diff(u.searchParams) : { source: 'working', hunks: HUNK, cut: 0 })
-      : u.pathname === '/api/config' ? { global: { analyze: 'opened', flow_auto: true, qa_auto: true, model: 'opus', lang: 'en', theme: 'auto' }, pane,
-        effective: { ...pane, theme: 'auto' }, models: ['opus'], langs: [], themes: ['auto', 'dark', 'light'], analyze: ['opened', 'all'] }
+      : u.pathname === '/api/config' ? configPayload()
       : { ok: true }
     return { ok: true, status: 200, statusText: 'OK', json: async () => body }
   }
@@ -109,7 +114,7 @@ async function openPage({ state = STATE, mode = 'live', diff, pane = {} } = {}) 
   const context = vm.createContext({
     document,
     window: { scrollY: 0, scrollTo() {}, getSelection: () => '' },
-    location: { search: `?full=1&mode=${mode}`, href: `http://127.0.0.1:47821/p/${KEY}?full=1` },
+    location: { search: `?full=1&mode=${mode}${search}`, href: `http://127.0.0.1:47821/p/${KEY}?full=1` },
     navigator: { clipboard: { writeText: async text => { copied.push(text) } } },
     fetch,
     URL,
@@ -146,7 +151,11 @@ async function openPage({ state = STATE, mode = 'live', diff, pane = {} } = {}) 
     handlers.keydown({ key: k, target: { closest: () => null, matches: () => false }, preventDefault() {}, ...extra })
     for (let i = 0; i < 5; i++) await settle()
   }
-  return { html: () => els.app.innerHTML, toast: () => els.toast.textContent, requests, run, click, key, copied }
+  const change = async target => {
+    handlers.change({ target: { type: 'select-one', ...target } })
+    for (let i = 0; i < 5; i++) await settle()
+  }
+  return { html: () => els.app.innerHTML, toast: () => els.toast.textContent, requests, run, click, key, change, copied }
 }
 
 const diffRequests = page => page.requests.filter(r => r.path.endsWith('/diff')).map(r => Object.fromEntries(r.params))
@@ -239,11 +248,31 @@ test('a new finished flow is announced, a pending one only once it finishes', as
 
 const posted = page => page.requests.filter(r => r.method === 'POST').map(r => `${r.path}?${r.params}${r.body ? ` ${r.body}` : ''}`)
 
-test('opening a panel page switches the panel on and checks what is already there, unless it already has a value', async () => {
+test('opening a panel page switches the panel on and checks what is already there, unless it is already on', async () => {
+  const expected = ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow&new=1', '/api/pane1/regen?target=qa']
   const page = await openPage()
-  assert.deepEqual(posted(page).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow&new=1', '/api/pane1/regen?target=qa'])
+  assert.deepEqual(posted(page).sort(), expected)
   const off = await openPage({ pane: { enabled: false } })
-  assert.deepEqual(posted(off), [])
+  assert.deepEqual(posted(off).sort(), expected)
+  const on = await openPage({ pane: { enabled: true } })
+  assert.deepEqual(posted(on), [])
+})
+
+test('switching on with analyze set to all sessions starts no check, since the hooks already run them', async () => {
+  const page = await openPage({ shared: { analyze: 'all' } })
+  assert.deepEqual(posted(page), ['/api/config?pane=pane1 {"enabled":true}'])
+})
+
+test('switching on asks only for the checks whose switch is on', async () => {
+  const qa = await openPage({ shared: { flow_auto: false } })
+  assert.deepEqual(posted(qa).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=qa'])
+  const flow = await openPage({ shared: { qa_auto: false } })
+  assert.deepEqual(posted(flow).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow&new=1'])
+})
+
+test('a page opened on its settings shows this panel as on once it has been switched on', async () => {
+  const page = await openPage({ search: '&dialog=settings' })
+  assert.match(page.html(), /data-setting="enabled" data-setting-scope="pane"[^>]*checked/)
 })
 
 test('settings show this panel, which sessions, and the shared switches, each saved to its own scope', async () => {
@@ -269,11 +298,47 @@ test('check now builds the flow on Flow, checks pending turns on Q&A, and only r
   }
 })
 
-test('a check that skipped older turns offers to check the next ten of them', async () => {
+test('a check that skipped older turns offers to check the next batch of them', async () => {
   const turn = { ...STATE.qa.turns[0], skipped_turns: 15 }
-  const page = await openPage({ mode: 'qa', pane: { enabled: true }, state: { ...STATE, qa: { ...STATE.qa, turns: [turn] } } })
+  const page = await openPage({ mode: 'qa', pane: { enabled: true }, state: { ...STATE, qa: { ...STATE.qa, batch: 7, turns: [turn] } } })
   assert.match(page.html(), new RegExp(EN.qa_skipped.replace('{0}', '15')))
-  assert.match(page.html(), new RegExp(EN.check_older.replace('{0}', '10').replace('↻', '.')))
+  assert.match(page.html(), new RegExp(EN.check_older.replace('{0}', '7').replace('↻', '.')))
   await page.click({ qaOlder: 't1' })
   assert.ok(posted(page).includes('/api/pane1/regen?target=qa&older=t1'))
+})
+
+test('a held u does not start a second check', async () => {
+  const page = await openPage({ mode: 'qa', pane: { enabled: true } })
+  await page.key('u', { repeat: true })
+  assert.deepEqual(posted(page).filter(p => p.includes('/regen')), [])
+})
+
+test('check now is hidden while help or settings is open, and help lists u and the batch size', async () => {
+  const page = await openPage({ pane: { enabled: true } })
+  assert.match(page.html(), /data-act="check-now"/)
+  await page.run('openDialog("help")')
+  assert.doesNotMatch(page.html(), /data-act="check-now"/)
+  assert.match(page.html(), new RegExp(`<kbd>u</kbd></td><td>${EN.term_k_check_now}`))
+  assert.match(page.html(), new RegExp(`qa_batch = 20</td><td>${EN.s_qa_batch.replace("&", "&amp;")}`))
+  await page.run('closeDialog()')
+  assert.match(page.html(), /data-act="check-now"/)
+})
+
+test('the batch size is saved as a number', async () => {
+  const page = await openPage({ pane: { enabled: true } })
+  await page.run('openDialog("settings")')
+  await page.change({ dataset: { setting: 'qa_batch', settingScope: 'global' }, value: '30' })
+  assert.ok(posted(page).includes('/api/config? {"qa_batch":30}'))
+})
+
+test('the batch size menu falls back to the known sizes when the server does not list them', async () => {
+  const page = await openPage({ pane: { enabled: true }, batches: null })
+  await page.run('openDialog("settings")')
+  const menu = page.html().match(/data-setting="qa_batch"[\s\S]*?<\/select>/)[0]
+  assert.deepEqual([...menu.matchAll(/<option value="(\d+)"/g)].map(m => m[1]), ['5', '10', '20', '30'])
+})
+
+test('the header names the last folder of a Windows path', async () => {
+  const page = await openPage({ pane: { enabled: true }, state: { ...STATE, activity: { ...STATE.activity, cwd: 'C:\\work\\shop-api' } } })
+  assert.match(page.html(), /class="where"[^>]*>shop-api</)
 })

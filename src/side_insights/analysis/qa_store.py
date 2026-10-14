@@ -72,9 +72,14 @@ def item_id(turn_id, question):
     return hashlib.sha1(item_key(turn_id, question).encode("utf-8")).hexdigest()[:8]
 
 
+def turn_time(record):
+    """When the turn behind a record started, for ordering; older records only know when they were checked."""
+    return record.get("turn_ts") or record.get("ts") or 0
+
+
 def records(pane, sid):
     found = [r for r in (read_json(p) for p in json_files(session_dir(pane, sid))) if isinstance(r, dict)]
-    return sorted(found, key=lambda r: -(r.get("ts") or 0))
+    return sorted(found, key=lambda r: -turn_time(r))
 
 
 def item_overrides(pane):
@@ -159,7 +164,7 @@ def counts(overridden_records):
 
 def all_open_items(pane, sid):
     """Every unanswered or partial item of the session, minus archived or manually set ones, oldest turn first."""
-    started = {rec.get("turn_id"): rec.get("ts") or 0 for rec in records(pane, sid)}
+    started = {rec.get("turn_id"): turn_time(rec) for rec in records(pane, sid)}
     return sorted(open_items(pane, sid, None), key=lambda c: started.get(c["turn_id"], 0))
 
 

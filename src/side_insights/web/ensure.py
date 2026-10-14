@@ -6,11 +6,10 @@ import os
 import subprocess
 import sys
 import time
-import urllib.request
 
 from side_insights.launch import child_env, command_line
 from side_insights.paths import APP_NAME, DATA, PORT, ROOT
-from side_insights.system import spawn_detached, terminate
+from side_insights.system import FileLock, local_urlopen, spawn_detached, terminate
 
 LEGACY_APP = "claude-panel"
 HEALTH_TIMEOUT = 1
@@ -21,7 +20,7 @@ START_WAIT = 5
 
 def health():
     try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=HEALTH_TIMEOUT) as resp:
+        with local_urlopen(f"http://127.0.0.1:{PORT}/health", timeout=HEALTH_TIMEOUT) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except (OSError, ValueError):
         return None
@@ -46,13 +45,18 @@ def wait(done, seconds):
 
 
 def ensure():
+    os.makedirs(DATA, mode=0o700, exist_ok=True)
+    with FileLock(os.path.join(DATA, "ensure.lock")):
+        return _ensure()
+
+
+def _ensure():
     found = health()
     if found and found.get("app") in (APP_NAME, LEGACY_APP):
         if same_root(found.get("root")):
             return True
         terminate(found.get("pid"))
         wait(lambda: health() is None, STOP_WAIT)
-    os.makedirs(DATA, mode=0o700, exist_ok=True)
     with open(os.path.join(DATA, "server.log"), "a") as log:
         spawn_detached(command_line("server", []), env=child_env(), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
     return wait(lambda: (health() or {}).get("app") == APP_NAME, START_WAIT)

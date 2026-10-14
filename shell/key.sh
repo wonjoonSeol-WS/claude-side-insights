@@ -1,63 +1,84 @@
 # Sourced by the hooks, the bin/ commands and the terminal adapters.
 : "${PANEL_ROOT:=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)}"
-PANEL_DATA="${SIDE_INSIGHTS_DATA:-$HOME/.claude/side-insights}"
-command -v cygpath >/dev/null 2>&1 && PANEL_DATA=$(cygpath -u "$PANEL_DATA")
-PANEL_APP=side-insights
+case "${OSTYPE:-}" in
+  msys*|cygwin*) PANEL_OS=windows ;;
+  darwin*) PANEL_OS=mac ;;
+  *) PANEL_OS=other ;;
+esac
+if [ "$PANEL_OS" = windows ]; then
+  PANEL_DATA=$(cygpath -u "${SIDE_INSIGHTS_DATA:-${USERPROFILE:-$HOME}/.claude/side-insights}")
+  PANEL_SRC=$(cygpath -w "$PANEL_ROOT/src")
+  PANEL_PATHSEP=';'
+else
+  PANEL_DATA="${SIDE_INSIGHTS_DATA:-$HOME/.claude/side-insights}"
+  PANEL_SRC="$PANEL_ROOT/src"
+  PANEL_PATHSEP=':'
+fi
 PANEL_DEFAULT_PORT=47821
 PANEL_JQ="${SIDE_INSIGHTS_JQ:-jq}"
 PANEL_PYTHON_CACHE="$PANEL_DATA/python-path"
+PANEL_PYTHON_RETRY_MINUTES=10
 PANEL_PYTHON_OK='import sys; sys.exit(sys.version_info < (3, 9))'
 PANEL_PYTHON_WHERE='import sys; sys.exit(1) if sys.version_info < (3, 9) else print(sys.executable)'
+PANEL_PYTHON="${SIDE_INSIGHTS_PYTHON:-}"
+[ "$PANEL_OS" = mac ] && [ -z "$PANEL_PYTHON" ] && PANEL_PYTHON=/usr/bin/python3
 
-panel_native() {
-  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
-}
+panel_native() { if [ "$PANEL_OS" = windows ]; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
 
-panel_pathsep() { if command -v cygpath >/dev/null 2>&1; then printf ';'; else printf ':'; fi; }
-
-# Without the Command Line Tools, macOS /usr/bin/python3 is a stub that pops an install dialog, so check first.
-# On Windows `python3` is often the Microsoft Store placeholder, which fails to run and is skipped.
+# On Windows `python3` is often the Microsoft Store placeholder, which fails the version check and is skipped.
+# A miss is remembered for a few minutes so hooks do not probe on every tool call.
 panel_find_python() {
   local candidate found
-  if [ "$(uname -s)" = Darwin ]; then
-    xcode-select -p >/dev/null 2>&1 && /usr/bin/python3 -c "$PANEL_PYTHON_OK" 2>/dev/null && printf /usr/bin/python3
-    return 0
-  fi
   if [ -f "$PANEL_PYTHON_CACHE" ]; then
     found=$(cat "$PANEL_PYTHON_CACHE" 2>/dev/null)
-    [ -n "$found" ] && [ -x "$found" ] && { printf '%s' "$found"; return 0; }
+    if [ "$found" = - ]; then
+      [ -n "$(find "$PANEL_PYTHON_CACHE" -mmin -"$PANEL_PYTHON_RETRY_MINUTES" 2>/dev/null)" ] && return 0
+    elif [ -n "$found" ] && [ -x "$found" ]; then
+      printf '%s' "$found"
+      return 0
+    fi
   fi
+  found=""
   for candidate in python py python3; do
     command -v "$candidate" >/dev/null 2>&1 || continue
     if [ "$candidate" = py ]; then
-      found=$(py -3 -c "$PANEL_PYTHON_WHERE" 2>/dev/null) || continue
+      found=$(PYTHONUTF8=1 py -3 -c "$PANEL_PYTHON_WHERE" 2>/dev/null) || continue
     else
-      found=$("$candidate" -c "$PANEL_PYTHON_WHERE" 2>/dev/null) || continue
+      found=$(PYTHONUTF8=1 "$candidate" -c "$PANEL_PYTHON_WHERE" 2>/dev/null) || continue
     fi
     found=$(printf '%s' "$found" | tr -d '\r')
     [ -n "$found" ] || continue
-    command -v cygpath >/dev/null 2>&1 && found=$(cygpath -u "$found")
-    mkdir -p "$PANEL_DATA" 2>/dev/null && printf '%s' "$found" > "$PANEL_PYTHON_CACHE"
-    printf '%s' "$found"
-    return 0
+    [ "$PANEL_OS" = windows ] && found=$(cygpath -u "$found")
+    break
   done
+  mkdir -p -m 700 "$PANEL_DATA" 2>/dev/null && printf '%s' "${found:--}" > "$PANEL_PYTHON_CACHE.$$" && mv -f "$PANEL_PYTHON_CACHE.$$" "$PANEL_PYTHON_CACHE"
+  printf '%s' "$found"
 }
 
-PANEL_PYTHON=$(panel_find_python)
+panel_python() { [ -n "$PANEL_PYTHON" ] || PANEL_PYTHON=$(panel_find_python); }
 
 panel_py() {
-  PYTHONUTF8=1 PYTHONPATH="$(panel_native "$PANEL_ROOT/src")${PYTHONPATH:+$(panel_pathsep)$PYTHONPATH}" "$PANEL_PYTHON" -m side_insights "$@"
+  panel_python
+  PYTHONUTF8=1 PYTHONPATH="$PANEL_SRC${PYTHONPATH:+$PANEL_PATHSEP$PYTHONPATH}" "$PANEL_PYTHON" -m side_insights "$@"
 }
 
 panel_has_jq() { command -v "$PANEL_JQ" >/dev/null 2>&1; }
 
+# Without the Command Line Tools, macOS /usr/bin/python3 is a stub that pops an install dialog, so check first.
 panel_missing() {
-  [ -n "$PANEL_PYTHON" ] && return 0
-  if [ "$(uname -s)" = Darwin ]; then
-    printf 'python3 (xcode-select --install)'
-  else
-    printf 'Python 3.9+ (python.org, winget install Python.Python.3.12, or your package manager)'
-  fi
+  case "$PANEL_OS" in
+    mac)
+      { [ -n "${SIDE_INSIGHTS_PYTHON:-}" ] || xcode-select -p >/dev/null 2>&1; } && "$PANEL_PYTHON" -c "$PANEL_PYTHON_OK" 2>/dev/null \
+        || printf 'python3 (xcode-select --install)' ;;
+    windows) panel_python; [ -n "$PANEL_PYTHON" ] || printf 'Python 3.9+ (winget install Python.Python.3.12, or python.org)' ;;
+    *) panel_python; [ -n "$PANEL_PYTHON" ] || printf 'Python 3.9+ (your package manager, for example sudo apt install python3)' ;;
+  esac
+}
+
+panel_require_python() {
+  local missing
+  missing=$(panel_missing)
+  [ -z "$missing" ] || { echo "side-insights needs: $missing" >&2; exit 1; }
 }
 
 # Must sanitise the same way as side_insights.paths.pane_key and paneKey in hooks/mod/data.ts.
@@ -102,7 +123,7 @@ panel_open_url() { panel_py open-url "$1" </dev/null >/dev/null 2>&1; }
 
 # A top-level string field of a hook payload, without needing jq.
 panel_json_field() {
-  printf '%s' "$2" | tr -d '\n' | sed -n 's/.*"'"$1"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+  printf '%s' "$2" | tr -d '\n' | grep -o '"'"$1"'"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n 1 | sed 's/.*:[[:space:]]*"\(.*\)"$/\1/'
 }
 
 panel_view_title() { printf 'si-panel:%s' "$1"; }

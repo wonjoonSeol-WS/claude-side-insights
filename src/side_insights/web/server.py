@@ -20,7 +20,7 @@ from side_insights.launch import child_env, command_line
 from side_insights.live.activity import ActivityTail, log_path
 from side_insights.paths import (ANALYSIS_LOG, APP_NAME, DATA, ITEM_ID_RE, KEY_RE, PORT, ROOT, TOKEN_HEADER, TURN_ID_RE, api_token,
                                  last_turn_path, read_json)
-from side_insights.system import copy_text, open_url, spawn_detached
+from side_insights.system import WINDOWS, copy_text, open_url, spawn_detached
 from side_insights.web import diff
 
 MAX_BODY = 64 * 1024
@@ -220,7 +220,7 @@ class Handler(BaseHTTPRequestHandler):
         waiting = waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"])) if snap["sid"] else []
         self.json({"activity": snap, "flows": pane_flows, "pending": pending,
                    "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending), "waiting": waiting,
-                          "eta": eta_seconds(records), "auto": config.runs("qa", pane),
+                          "eta": eta_seconds(records), "auto": config.runs("qa", pane), "batch": config.load(pane)["qa_batch"],
                           "counts": qa_store.counts(records)}})
 
     def get_flow(self, pane, flow_id):
@@ -305,6 +305,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             turn_id = found[0].get("turn_id")
             last = {**last, "transcript": found[0].get("transcript") or last["transcript"]}
+        elif older:
+            sid = snapshot(pane)["sid"]
+            source = next((r for r in qa_store.records(pane, sid) if r.get("turn_id") == older), None) if sid else None
+            if not source:
+                return self.error(404, "err_not_found", pane=pane)
+            last = {**last, "transcript": source.get("transcript") or last["transcript"]}
         marker = qa_store.pending_path(pane) if target == "qa" else flow_store.pending_path(pane)
         if Pending.active(marker):
             return self.error(409, "err_running", pane=pane)
@@ -384,8 +390,12 @@ ROUTES = [
 ]
 
 
+class Server(ThreadingHTTPServer):
+    allow_reuse_address = not WINDOWS
+
+
 def main():
-    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    server = Server(("127.0.0.1", PORT), Handler)
     server.daemon_threads = True
     server.serve_forever()
 

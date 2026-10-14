@@ -14,7 +14,8 @@ The same panel ships as the `/si` mod pane (`hooks/mod/`), the browser panel (`s
 Run all of these before calling a change done:
 
 - Mod pane: `claude plugin test .` and `claude plugin validate .`
-- Python (server, diff, locales): `/usr/bin/python3 -m unittest discover -s tests`. After a locale edit run `/usr/bin/python3 tests/locale_fixture.py` first.
+- Python (server, diff, locales): `python3 -m unittest discover -s tests` (on macOS `/usr/bin/python3`, the one the plugin uses). After a locale edit run `/usr/bin/python3 tests/locale_fixture.py` first.
 - Browser page: `node --test tests/browser/page.test.mjs` runs the page script against a fake server.
 - In a real terminal: `tools/capture/drive.py` starts Claude Code in a pseudo terminal, sends keys and saves the screen; `tools/capture/paint.py` turns it into a PNG. `tools/capture/jump_probe.py` checks that the Q&A jump scrolls the real chat. Use a throwaway pane key, never `demo*`, and a trusted folder (`CAPTURE_CWD`). A prompt sent there is a real model call; interrupt it with `\x1b`.
+- Hooks, server and diff end to end: `bash tests/e2e/hooks.sh` (temporary data folder, port 47899).
 - The browser page in a real browser: drive headless Chrome over the DevTools protocol against the running server.

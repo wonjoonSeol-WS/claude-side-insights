@@ -49,7 +49,7 @@ class Setting(Enum):
         if self is Setting.ANALYZE:
             return value in ANALYZE
         if self is Setting.QA_BATCH:
-            return not isinstance(value, bool) and value in QA_BATCHES
+            return type(value) is int and value in QA_BATCHES
         return isinstance(value, bool)
 
 
@@ -62,13 +62,21 @@ def _saved():
     return saved if isinstance(saved, dict) else {}
 
 
-def _valid_only(values):
-    return {k: v for k, v in (values or {}).items() if k in _BY_KEY and _BY_KEY[k].valid(v)} if isinstance(values, dict) else {}
+_PANE_ONLY = frozenset({Setting.ENABLED.key})
+_FAMILY = re.compile(r"(?:^|claude-)(opus|sonnet|haiku)(?:$|-)")
+
+
+def _valid_only(values, keys=None):
+    if not isinstance(values, dict):
+        return {}
+    allowed = keys if keys is not None else set(_BY_KEY) - _PANE_ONLY
+    return {k: v for k, v in values.items() if k in allowed and _BY_KEY[k].valid(v)}
 
 
 def overrides(pane):
+    """What a panel holds of its own: only whether it is analyzed. Every other setting is shared."""
     panes = _saved().get(_PANES)
-    return _valid_only(panes.get(pane)) if pane and isinstance(panes, dict) else {}
+    return _valid_only(panes.get(pane), _PANE_ONLY) if pane and isinstance(panes, dict) else {}
 
 
 def load(pane=None):
@@ -85,11 +93,12 @@ def save(update, pane=None):
     if not isinstance(update, dict):
         raise ValueError("settings must be an object")
     for name, value in update.items():
-        if name not in _BY_KEY or not (_BY_KEY[name].valid(value) or (pane and value is None)):
+        if name not in _BY_KEY or (name in _PANE_ONLY) != bool(pane) or not (_BY_KEY[name].valid(value) or (pane and value is None)):
             raise ValueError(f"invalid setting: {name}={value!r}")
-    family = next((name for name in MODEL_QA_BATCH if name in str(update.get(Setting.MODEL.key, ""))), None)
-    if family and Setting.QA_BATCH.key not in update:
-        update = {**update, Setting.QA_BATCH.key: MODEL_QA_BATCH[family]}
+    model = update.get(Setting.MODEL.key)
+    family = _FAMILY.search(str(model or ""))
+    if family and Setting.QA_BATCH.key not in update and model != load()[Setting.MODEL.key]:
+        update = {**update, Setting.QA_BATCH.key: MODEL_QA_BATCH[family.group(1)]}
     with _SAVE_LOCK:
         saved = _saved()
         panes = saved.get(_PANES)

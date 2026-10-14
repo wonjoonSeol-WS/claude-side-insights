@@ -5,7 +5,10 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
@@ -54,6 +57,42 @@ class FileLockTest(unittest.TestCase):
             waited = time.time() - start
         holder.wait(timeout=10)
         self.assertGreater(waited, 0.5)
+
+
+class Ok(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok")
+
+    def log_message(self, *_):
+        pass
+
+
+class LocalRequestTest(unittest.TestCase):
+    def test_a_proxy_in_the_environment_is_not_used_for_the_panel_server(self):
+        server = HTTPServer(("127.0.0.1", 0), Ok)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        proxy = {"http_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://127.0.0.1:9", "no_proxy": "", "NO_PROXY": ""}
+        with mock.patch.dict(os.environ, proxy):
+            with system.local_urlopen(f"http://127.0.0.1:{server.server_port}/", timeout=5) as resp:
+                self.assertEqual(resp.read(), b"ok")
+
+
+class ClaudeCommandTest(unittest.TestCase):
+    def test_an_npm_cmd_shim_on_windows_runs_node_with_the_package_script(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(remove_tree, folder)
+        script = os.path.join(folder, "node_modules", "@anthropic-ai", "claude-code", "cli.js")
+        os.makedirs(os.path.dirname(script))
+        open(script, "w").close()
+        found = {"claude": os.path.join(folder, "claude.CMD"), "node": "/bin/node"}
+        with mock.patch.object(system, "WINDOWS", True), mock.patch.object(system.shutil, "which", found.get):
+            self.assertEqual(system.claude_command(), ["/bin/node", script])
+        with mock.patch.object(system, "WINDOWS", False), mock.patch.object(system.shutil, "which", found.get):
+            self.assertEqual(system.claude_command(), [found["claude"]])
 
 
 if __name__ == "__main__":

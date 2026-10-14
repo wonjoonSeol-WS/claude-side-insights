@@ -1,10 +1,12 @@
 """What differs between macOS, Linux and Windows: processes, file locks, the browser and the clipboard."""
+import errno
 import os
 import shutil
 import signal
 import subprocess
 import sys
 import time
+import urllib.request
 import webbrowser
 
 WINDOWS = os.name == "nt"
@@ -14,10 +16,8 @@ LOCK_RETRY = 0.05
 _STILL_ACTIVE = 259
 _QUERY_LIMITED_INFORMATION = 0x1000
 _ACCESS_DENIED = 5
-_DETACHED_PROCESS = 0x00000008
-_NEW_PROCESS_GROUP = 0x00000200
 _BREAKAWAY_FROM_JOB = 0x01000000
-_NO_WINDOW = 0x08000000
+_LOCK_BUSY = (errno.EACCES, errno.EDEADLK)
 _LINUX_COPY = (["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"])
 
 if WINDOWS:
@@ -51,7 +51,10 @@ def process_alive(pid):
 
 def _windows_alive(pid):
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
     kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
     handle = kernel32.OpenProcess(_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return ctypes.get_last_error() == _ACCESS_DENIED
@@ -66,7 +69,7 @@ def detached(breakaway=True):
     """Popen keyword arguments for a child that outlives this process and its terminal."""
     if not WINDOWS:
         return {"start_new_session": True}
-    flags = _DETACHED_PROCESS | _NEW_PROCESS_GROUP | _NO_WINDOW
+    flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
     return {"creationflags": flags | (_BREAKAWAY_FROM_JOB if breakaway else 0)}
 
 
@@ -83,7 +86,9 @@ def kill_tree(proc):
     """Ends a child started with detached() and everything it started."""
     try:
         if WINDOWS:
-            subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=COPY_TIMEOUT)
+            done = subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=COPY_TIMEOUT)
+            if done.returncode != 0:
+                proc.kill()
         else:
             os.killpg(proc.pid, signal.SIGKILL)
     except (OSError, subprocess.SubprocessError):
@@ -116,7 +121,9 @@ class FileLock:
                         self.fh.seek(0)
                         msvcrt.locking(self.fh.fileno(), msvcrt.LK_NBLCK, 1)
                         break
-                    except OSError:
+                    except OSError as exc:
+                        if exc.errno not in _LOCK_BUSY:
+                            raise
                         time.sleep(LOCK_RETRY)
             else:
                 fcntl.flock(self.fh, fcntl.LOCK_EX)
@@ -152,7 +159,7 @@ def copy_text(text):
         commands, data = [c for c in _LINUX_COPY if shutil.which(c[0])], text.encode("utf-8")
     for command in commands:
         try:
-            if subprocess.run(command, input=data, timeout=COPY_TIMEOUT, capture_output=True).returncode == 0:
+            if subprocess.run(command, input=data, timeout=COPY_TIMEOUT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
                 return True
         except (OSError, subprocess.SubprocessError):
             continue
@@ -160,4 +167,21 @@ def copy_text(text):
 
 
 def claude_command():
-    return shutil.which("claude") or "claude"
+    """The argv prefix that starts Claude Code. Popen cannot run an npm .cmd shim, so it runs node with the package script."""
+    found = shutil.which("claude")
+    if not found:
+        return ["claude"]
+    if WINDOWS and found.lower().endswith(".cmd"):
+        script = os.path.join(os.path.dirname(found), "node_modules", "@anthropic-ai", "claude-code", "cli.js")
+        node = shutil.which("node")
+        if node and os.path.isfile(script):
+            return [node, script]
+    return [found]
+
+
+_LOCAL = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def local_urlopen(request, timeout):
+    """urlopen for the panel server on 127.0.0.1, never through an HTTP proxy from the environment."""
+    return _LOCAL.open(request, timeout=timeout)

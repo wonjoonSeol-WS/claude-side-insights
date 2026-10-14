@@ -174,7 +174,6 @@ pre.code span.hl { background: var(--hl); box-shadow: inset 3px 0 var(--hl-line)
 .dialog table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .dialog td { border-top: 1px solid var(--line); padding: 6px 8px; vertical-align: top; }
 .dialog td.cmd { font-family: var(--mono); font-size: 12px; color: var(--code-text); overflow-wrap: anywhere; width: 45%; }
-.dialog .scoped { color: var(--blue); font-size: 12px; margin-left: 8px; }
 .dialog .msg-ok { color: var(--green); } .dialog .msg-err { color: var(--red); }
 kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; padding: 0 6px; font-family: var(--mono); font-size: 12px; }
 .keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
@@ -264,7 +263,7 @@ const MIN_HIGHLIGHT = 3;
 const TOOLS_IN_FLOW = 12;
 const TOOLS_IN_LIVE = 200;
 const MAX_FILES = 30;
-const PENDING_BATCH = 10;
+const QA_BATCHES = [5, 10, 20, 30];
 const TOOL_STATES = [TOOL.OK, TOOL.ERR, TOOL.RUN];
 const TOOL_COLOR = { [TOOL.OK]: "var(--green)", [TOOL.ERR]: "var(--red)", [TOOL.RUN]: "var(--orange)" };
 const TOOL_LABEL = { [TOOL.OK]: "term_ok", [TOOL.ERR]: "term_err", [TOOL.RUN]: "term_run" };
@@ -492,8 +491,8 @@ function renderPanel() {
     ${S.error ? `<span class="pill err" title="${esc(S.error)}"><i class="dot"></i>${t("disconnected")}</span>`
       : S.state.busy ? `<span class="pill busy"><i class="dot"></i>${t("busy")}</span>` : `<span class="pill"><i class="dot"></i>${t("idle")}</span>`}
     ${mode === "flow" && S.pending ? `<span class="pill gen"><i class="dot"></i>${t("flow_gen")} <span data-since="${Number(S.pending.since) || 0}"></span></span>` : ""}
-    <span class="where" title="${esc(S.state.cwd || "")}">${esc((S.state.cwd || "").split("/").pop())}</span>
-    <button class="btn" data-act="check-now" title="${t(`check_now_${mode}`)}">${t("check_now")}</button>
+    <span class="where" title="${esc(S.state.cwd || "")}">${esc((S.state.cwd || "").split(/[\\/]/).pop())}</span>
+    ${S.dialog ? "" : `<button class="btn" data-act="check-now" title="${t(`check_now_${mode}`)}">${t("check_now")}</button>`}
     ${FULL ? "" : `<button class="btn" data-act="full" title="${t("full_title")}">${t("full")}</button>`}
     <button class="btn" data-act="help" title="${t("k_help")}">${t("help")}</button>
     <button class="btn" data-act="settings">${t("settings")}</button>
@@ -750,7 +749,7 @@ function renderTurn(turn, items) {
     ${turn.status !== REC.OK ? `<button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button>` : ""}</div>
     ${turn.status !== REC.OK ? `<div class="err-box">${esc(turn.error || text("qa_fail"))}</div>` : ""}
     ${turn.skipped_turns ? `<div class="meta">${t("qa_skipped", Number(turn.skipped_turns))} <button class="mini" data-qa-older="${esc(turn.turn_id)}"
-      title="${t("check_older_title")}">${t("check_older", Math.min(Number(turn.skipped_turns), PENDING_BATCH))}</button></div>` : ""}
+      title="${t("check_older_title")}">${t("check_older", Math.min(Number(turn.skipped_turns), Number(S.qa.batch) || QA_BATCHES[2]))}</button></div>` : ""}
     <div class="qa">${rows || (turn.status === REC.OK ? `<div class="empty">${t("qa_noq")}</div>` : "")}</div></div>`;
 }
 
@@ -873,10 +872,10 @@ function renderHelpBody() {
     <h4>${t("help_keys")}</h4><table>
       ${row("<kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd>", t("k_tabs"))}${row("<kbd>←</kbd> <kbd>→</kbd> / Flow <kbd>k</kbd> <kbd>j</kbd>", t("k_steps"))}
       ${row("Flow <kbd>p</kbd> <kbd>n</kbd>", t("term_k_flows"))}${row(`${esc(text("mode_live"))} <kbd>k</kbd> <kbd>j</kbd>`, t("mod_k_files"))}
-      ${row("<kbd>d</kbd> <kbd>s</kbd> <kbd>f</kbd>", `${t("mod_view_working")} / ${t("mod_view_commit")} / ${t("mod_view_file")}`)}${row("<kbd>x</kbd>", t("mod_k_close_diff"))}${row("<kbd>?</kbd>", t("k_help"))}${row("<kbd>Esc</kbd>", t("k_escape"))}</table>
+      ${row("<kbd>d</kbd> <kbd>s</kbd> <kbd>f</kbd>", `${t("mod_view_working")} / ${t("mod_view_commit")} / ${t("mod_view_file")}`)}${row("<kbd>x</kbd>", t("mod_k_close_diff"))}${row("<kbd>u</kbd>", t("term_k_check_now"))}${row("<kbd>?</kbd>", t("k_help"))}${row("<kbd>Esc</kbd>", t("k_escape"))}</table>
     <h4>${t("help_settings")}</h4><table>
       ${row(`model = ${esc(c.model)}`, t("s_model"))}${row(`lang = ${esc(c.lang)}`, t("s_lang"))}
-      ${row(`analyze = ${esc(c.analyze)}`, t("s_analyze"))}${row(`enabled = ${c.enabled ? 1 : 0}`, t("s_enabled"))}${row(`flow_auto = ${c.flow_auto ? 1 : 0}`, t("s_flow_auto"))}${row(`qa_auto = ${c.qa_auto ? 1 : 0}`, t("s_qa_auto"))}${row(`panel_auto = ${c.panel_auto ? 1 : 0}`, t("s_panel_auto"))}${row(`theme = ${esc(c.theme)}`, t("s_theme"))}</table>`;
+      ${row(`analyze = ${esc(c.analyze)}`, t("s_analyze"))}${row(`enabled = ${c.enabled ? 1 : 0}`, t("s_enabled"))}${row(`flow_auto = ${c.flow_auto ? 1 : 0}`, t("s_flow_auto"))}${row(`qa_auto = ${c.qa_auto ? 1 : 0}`, t("s_qa_auto"))}${row(`qa_batch = ${esc(c.qa_batch)}`, t("s_qa_batch"))}${row(`panel_auto = ${c.panel_auto ? 1 : 0}`, t("s_panel_auto"))}${row(`theme = ${esc(c.theme)}`, t("s_theme"))}</table>`;
 }
 
 function renderSettingsBody() {
@@ -894,7 +893,7 @@ function renderSettingsBody() {
     ${KEY ? row("enabled", toggle("enabled", SCOPE.PANE)) : ""}
     ${row("analyze", select("analyze", analyze))}
     ${row("flow_auto", toggle("flow_auto"))}${row("qa_auto", toggle("qa_auto"))}
-    ${row("qa_batch", select("qa_batch", list(c.qa_batches).map(n => ({ value: n, label: String(n) }))))}
+    ${row("qa_batch", select("qa_batch", (list(c.qa_batches).length ? list(c.qa_batches) : QA_BATCHES).map(n => ({ value: n, label: String(n) }))))}
     ${row("lang", select("lang", langs))}${row("model", select("model", models))}
     ${row("panel_auto", toggle("panel_auto"))}
     ${row("theme", select("theme", list(c.themes).map(th => ({ value: th, label: text(`theme_${th}`) }))))}</table>
@@ -1125,7 +1124,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "ArrowLeft" || e.key === "ArrowRight") { touch(); go(S.step + (e.key === "ArrowRight" ? 1 : -1)); }
   if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[role=button]")) { e.preventDefault(); return e.target.click(); }
   if (e.key === "x" && S.diff) { S.diff = null; return render(); }
-  if (e.key === "u") { touch(); return checkNow(); }
+  if (e.key === "u" && !e.repeat) { touch(); return checkNow(); }
   if (DIFF_KEY_VIEW[e.key] && S.diff) return showDiff(S.diff.path, DIFF_KEY_VIEW[e.key]);
   if ((e.key === "j" || e.key === "k") && !e.repeat) {
     touch();
@@ -1191,15 +1190,17 @@ addEventListener("scroll", hideTip, true);
 
 async function enableHere() {
   const r = await api("GET", `/api/config?pane=${KEY}`);
-  if (!r.ok || "enabled" in (r.data.pane || {})) return;
-  await api("POST", `/api/config?pane=${KEY}`, { enabled: true });
-  if (r.data.global.analyze === "all") return;
-  if (r.data.global.qa_auto) api("POST", `/api/${KEY}/regen?target=qa`);
-  if (r.data.global.flow_auto) api("POST", `/api/${KEY}/regen?target=flow&new=1`);
+  if (!r.ok || r.data.pane?.enabled === true) return;
+  const saved = await api("POST", `/api/config?pane=${KEY}`, { enabled: true });
+  if (!saved.ok) return;
+  const shared = r.data.global || r.data.effective || {};
+  if (shared.analyze === "all") return;
+  if (shared.qa_auto) api("POST", `/api/${KEY}/regen?target=qa`);
+  if (shared.flow_auto) api("POST", `/api/${KEY}/regen?target=flow&new=1`);
 }
 
 (async () => {
-  if (KEY) enableHere();
+  if (KEY) await enableHere();
   if (S.dialog) await openDialog(S.dialog);
   await poll(true);
   setInterval(() => {

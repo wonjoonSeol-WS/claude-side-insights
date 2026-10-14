@@ -177,10 +177,18 @@ def _turns_of(record):
     return record.get("turn_ids") or ([record["turn_id"]] if record.get("turn_id") else [])
 
 
-def _previous_flow(pane, turn_id):
-    """The newest finished flow of another turn: the one this turn may continue."""
-    return next((r for r in flow_store.records(pane)
-                 if r.get("status") == RecordStatus.OK.value and isinstance(r.get("flow"), dict) and turn_id not in _turns_of(r)), None)
+def _previous_flow(pane, turn_id, cwd):
+    """The flow this turn may continue: a merged flow that already covers it (when rebuilding), else the newest flow
+    before it, only when that one finished and was made in the same folder."""
+    for rec in flow_store.records(pane):
+        finished = rec.get("status") == RecordStatus.OK.value and isinstance(rec.get("flow"), dict)
+        turns = _turns_of(rec)
+        if turn_id in turns:
+            if finished and len(turns) > 1:
+                return rec
+            continue
+        return rec if finished and (rec.get("cwd") or cwd) == cwd else None
+    return None
 
 
 def _previous_section(previous):
@@ -230,24 +238,25 @@ def main():
         return
     if not turn["edited"] and not turn["shell_writes"] and (not force or only_new):
         return
-    if only_new and any(turn["turn_id"] in _turns_of(rec) and rec.get("status") == RecordStatus.OK.value for rec in flow_store.records(pane)):
-        return
-    previous = _previous_flow(pane, turn["turn_id"])
     flow_id = new_flow_id()
     record = {"turn_id": turn["turn_id"], "model": settings["model"], "id": flow_id, "ts": time.time(), "cwd": cwd,
               "prompt": turn["prompt"][:RECORD_PROMPT_LIMIT], "edited": turn["edited"]}
     shell = ("\nShell commands that may have changed files:\n" + "\n".join(f"- {c}" for c in turn["shell_writes"])
              if turn["shell_writes"] else "")
-    message = (f"Working directory: {cwd}\nFiles edited this turn:\n" + "\n".join(f"- {f}" for f in turn["edited"]) + shell +
-               f"\n\n## User request\n{clip(turn['prompt'], PROMPT_LIMIT)}\n\n## What happened this turn\n{turn['body']}\n\n"
-               "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema." + _previous_section(previous))
     with Pending(os.path.join(out_dir, "pending"), id=flow_id):
+        if only_new and any(turn["turn_id"] in _turns_of(rec) and rec.get("status") == RecordStatus.OK.value for rec in flow_store.records(pane)):
+            return
+        previous = _previous_flow(pane, turn["turn_id"], cwd)
+        message = (f"Working directory: {cwd}\nFiles edited this turn:\n" + "\n".join(f"- {f}" for f in turn["edited"]) + shell +
+                   f"\n\n## User request\n{clip(turn['prompt'], PROMPT_LIMIT)}\n\n## What happened this turn\n{turn['body']}\n\n"
+                   "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema." + _previous_section(previous))
         try:
             flow, cost = run_claude(SYSTEM + language_instruction(pane), SCHEMA, message, settings["model"],
                                     tools=("Read", "Grep", "Glob"), cwd=cwd, timeout=TIMEOUT, max_turns=MAX_TURNS)
             record.update(flow=flow, cost=cost, status=RecordStatus.OK.value)
             if previous and flow.get("same_change"):
-                record.update(turn_ids=[*_turns_of(previous), turn["turn_id"]], merged_from=previous["id"],
+                earlier = [t for t in _turns_of(previous) if t != turn["turn_id"]]
+                record.update(turn_ids=[*earlier, turn["turn_id"]], merged_from=previous["id"],
                               edited=list(dict.fromkeys([*(previous.get("edited") or []), *turn["edited"]])))
         except Exception as exc:  # noqa: BLE001
             record.update(status=RecordStatus.ERROR.value, error=str(exc)[:ERROR_LIMIT])

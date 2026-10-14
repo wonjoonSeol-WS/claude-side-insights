@@ -12,6 +12,7 @@ failures=0
 check() { if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; failures=$((failures + 1)); fi; }
 
 . "$ROOT/shell/key.sh"
+panel_python
 check "a Python 3.9+ is found" '[ -n "$PANEL_PYTHON" ]'
 
 repo="$DATA/repo"
@@ -32,11 +33,22 @@ hook PreToolUse jq
 hook PostToolUse jq
 SIDE_INSIGHTS_JQ=no-such-jq hook PreToolUse python
 SIDE_INSIGHTS_JQ=no-such-jq hook PostToolUse python
+transcript=$(panel_native "$DATA/transcript.jsonl")
+: > "$DATA/transcript.jsonl"
+stop() {
+  printf '{"hook_event_name":"Stop","session_id":"e2e-%s","cwd":"%s","transcript_path":"%s"}' "$1" "$(json_path "$cwd")" "$(json_path "$transcript")" | "$ROOT/hooks/record.sh"
+}
+stop jq
+SIDE_INSIGHTS_JQ=no-such-jq stop python
 for pane in e2e-jq e2e-python; do
   [ "$pane" = e2e-jq ] && ! panel_has_jq && continue
-  check "$pane: two events logged" '[ "$(wc -l < "$DATA/logs/$pane.jsonl" | tr -d " ")" = 2 ]'
+  check "$pane: three events logged" '[ "$(wc -l < "$DATA/logs/$pane.jsonl" | tr -d " ")" = 3 ]'
   check "$pane: the edit is recorded" 'grep -q "\"tool\":\"Edit\"" "$DATA/logs/$pane.jsonl"'
+  check "$pane: no carriage returns in the log" '! grep -q "$(printf "\r")" "$DATA/logs/$pane.jsonl"'
+  check "$pane: the stop writes the turn" 'grep -q "transcript.jsonl" "$DATA/turns/$pane.json"'
 done
+printf '{"hook_event_name":"PreToolUse","session_id":"e2e-outer","tool_use_id":"u2","tool_name":"Agent","tool_input":{"session_id":"e2e-inner"}}' | "$ROOT/hooks/record.sh"
+check "a session id inside the tool input does not pick the pane" '[ -s "$DATA/logs/e2e-outer.jsonl" ] && [ ! -e "$DATA/logs/e2e-inner.jsonl" ]'
 
 check "the server starts" 'ensure_panel_server'
 check "a second start reuses it" 'ensure_panel_server'
@@ -54,7 +66,7 @@ refused=$(curl -s -o /dev/null -w '%{http_code}' -G -H "X-Side-Insights: $token"
 check "a file outside the session is refused" '[ "$refused" = 404 ]'
 
 pid=$(curl -s -m 2 "http://127.0.0.1:$SIDE_INSIGHTS_PORT/health" | sed -n 's/.*"pid": *\([0-9]*\).*/\1/p')
-PYTHONPATH="$(panel_native "$ROOT/src")" "$PANEL_PYTHON" -c "import sys; from side_insights.system import terminate; terminate(sys.argv[1])" "$pid"
+PYTHONPATH="$PANEL_SRC" "$PANEL_PYTHON" -c "import sys; from side_insights.system import terminate; terminate(sys.argv[1])" "$pid"
 rm -rf "$DATA"
 echo "$failures failed"
 [ "$failures" = 0 ]

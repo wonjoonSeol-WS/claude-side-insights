@@ -105,7 +105,7 @@ const FLOW_F1 = {
 }
 
 type Call = { url: string; method: string; body?: string }
-type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean }
+type Settings = { model: string; lang: string; flow_auto: boolean; qa_auto: boolean; panel_auto: boolean; qa_batch?: number; analyze?: string; enabled?: boolean }
 
 type World = {
   current: unknown
@@ -140,10 +140,20 @@ const LANGS = [
   { code: 'ja', label: '日本語' },
 ]
 
+const PANE_ONLY = new Set<string>([Setting.ENABLED])
+
 const configPayload = (world: World, pane: string | null) => {
-  const global = (world.global ??= { model: 'opus', lang: world.lang ?? 'en', flow_auto: true, qa_auto: true, panel_auto: false })
-  const own = pane ? (world.panes?.[pane] ?? {}) : {}
-  return { global, pane: own, effective: { ...global, ...own }, models: world.models ?? ['opus', 'sonnet', 'haiku'], langs: LANGS }
+  const global = (world.global ??= { model: 'opus', lang: world.lang ?? 'en', flow_auto: true, qa_auto: true, qa_batch: 20, analyze: 'opened', panel_auto: false })
+  const own = pane ? Object.fromEntries(Object.entries(world.panes?.[pane] ?? {}).filter(([k]) => PANE_ONLY.has(k))) : {}
+  return {
+    global,
+    pane: own,
+    effective: { ...global, ...own },
+    models: world.models ?? ['opus', 'sonnet', 'haiku'],
+    analyze: ['opened', 'all'],
+    qa_batches: [5, 10, 20, 30],
+    langs: LANGS,
+  }
 }
 
 const setup = (on: On, world: World) => {
@@ -198,6 +208,10 @@ const setup = (on: On, world: World) => {
     if (path.startsWith('/api/config')) {
       if (method === 'POST') {
         const update = JSON.parse(e.init?.body ?? '{}') as Partial<Settings>
+        const wrong = Object.keys(update).find(k => PANE_ONLY.has(k) !== !!pane)
+        if (wrong) {
+          return reply(400, { error: `invalid setting: ${wrong}` })
+        }
         if (pane) {
           const merged = { ...world.panes?.[pane], ...update } as Record<string, unknown>
           world.panes = { ...world.panes, [pane]: Object.fromEntries(Object.entries(merged).filter(([, v]) => v !== null)) as Partial<Settings> }
@@ -1237,6 +1251,7 @@ test('Windows paths count as absolute, and Windows looks for Git Bash before giv
   expect(['src/a.ts', 'src\\a.ts', '~/a'].map(isAbsolutePath)).toEqual([false, false, false])
   expect(bashCandidates({ session: 's', windows: true, gitBash: 'D:\\Git\\bin\\bash.exe' })[0]).toBe('D:\\Git\\bin\\bash.exe')
   expect(bashCandidates({ session: 's', windows: true })[0]).toBe('C:\\Program Files\\Git\\bin\\bash.exe')
+  expect(bashCandidates({ session: 's', windows: true, localAppData: 'C:\\Users\\u\\AppData\\Local' }), 'a per-user Git install').toContain('C:\\Users\\u\\AppData\\Local\\Programs\\Git\\bin\\bash.exe')
   expect(bashCandidates({ session: 's' })).toEqual(['/bin/bash', 'bash'])
 })
 
@@ -1462,14 +1477,137 @@ test('a panel that is off, or was never opened, does not open /si by itself', as
   expect(opened.length).toBe(0)
 })
 
-test('saving a setting uses the reply instead of fetching the settings again, and keeps this panel\'s own values', async ($, on) => {
-  const world: World = { current: STATE, up: true, panes: { [KEY]: { lang: 'ko' } } }
+const regens = (calls: Call[]) => calls.filter(c => c.url.includes('/regen')).map(c => new URL(c.url).search)
+
+test('opening /si runs only the analyses that are switched on, and none when every session is analyzed anyway', async ($, on) => {
+  const world: World = { current: STATE, up: true, global: { model: 'opus', lang: 'en', flow_auto: false, qa_auto: true, panel_auto: false, analyze: 'opened' } }
+  const { clock, calls } = setup(on, world)
+  await start($, clock)
+  calls.length = 0
+  await $.command.run(RUN_SI)
+  await clock.advance(10)
+  expect(regens(calls), 'Q&A is on and Flow is off').toEqual(['?target=qa'])
+  world.global = { ...world.global!, flow_auto: true, analyze: 'all' }
+  world.panes = { [KEY]: { enabled: false } }
+  calls.length = 0
+  await $.command.run(RUN_SI)
+  await clock.advance(10)
+  expect(posts(calls), 'the panel is still switched on').toEqual([{ url: `http://127.0.0.1:47821/api/config?pane=${KEY}`, body: { enabled: true } }])
+  expect(regens(calls), 'every session is analyzed already, so nothing extra runs').toEqual([])
+})
+
+test('a panel that is on reopens /si when /clear or resume moves the session to it', async ($, on) => {
+  const world: World = { current: STATE, up: true, sid: 'sess-a', env: { HOME: '/home/u' }, panes: { 'sess-b': { enabled: true } } }
+  const { clock, opened } = setup(on, world)
+  await start($, clock)
+  expect(opened.length).toBe(0)
+  world.sid = 'sess-b'
+  await clearTo($, 'sess-b')
+  await clock.settle()
+  expect(opened.length).toBe(1)
+})
+
+test('a panel left open across /clear switches the new session on too', async ($, on) => {
+  const world: World = { current: STATE, up: true, sid: 'sess-a', env: { HOME: '/home/u' } }
+  const { clock, calls } = setup(on, world)
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  await clock.advance(10)
+  world.sid = 'sess-b'
+  calls.length = 0
+  await clearTo($, 'sess-b')
+  await clock.advance(10)
+  expect(posts(calls)).toEqual([{ url: 'http://127.0.0.1:47821/api/config?pane=sess-b', body: { enabled: true } }])
+})
+
+test('a panel that is on reopens /si once the server it was waiting for comes up', async ($, on) => {
+  const world: World = { current: STATE, up: false, panes: { [KEY]: { enabled: true } } }
+  const { clock, opened } = setup(on, world)
+  await start($, clock)
+  await clock.advance(10)
+  expect(opened.length, 'the server is down, so whether the panel is on is not known yet').toBe(0)
+  world.up = true
+  await clock.advance(2100)
+  expect(opened.length).toBe(1)
+})
+
+test('Check now asks for a second press naming the key pressed, and r on Flow is the same check', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  calls.length = 0
+  await ui.press({ key: 'check-now' })
+  await clock.advance(10)
+  expect(regens(calls)).toEqual([])
+  expect(await ui.find({ type: 'Text', text: new RegExp(`▌ ${EN.term_confirm!.replace('{0}', 'u').replace(/[()]/g, '\\$&')}`) })).toBeDefined()
+  await ui.press({ key: 'check-now' })
+  await clock.advance(10)
+  expect(regens(calls)).toEqual(['?target=qa'])
+  await ui.press({ key: 'tab-flow' })
+  calls.length = 0
+  await ui.press({ key: 'rebuild' })
+  await clock.advance(10)
+  expect(await ui.find({ type: 'Text', text: new RegExp(`▌ ${EN.term_confirm!.replace('{0}', 'r').replace(/[()]/g, '\\$&')}`) })).toBeDefined()
+  await ui.press({ key: 'check-now' })
+  await clock.advance(10)
+  expect(regens(calls)).toEqual(['?target=flow'])
+  await ui.press({ key: 'settings' })
+  expect(await ui.find({ key: 'check-now' }), 'not offered over the settings').toBeUndefined()
+  await ui.press({ key: 'settings' })
+  await ui.press({ key: 'help' })
+  expect(await ui.find({ key: 'check-now' }), 'nor over the help').toBeUndefined()
+  await ui.unmount()
+})
+
+test('skipped turns offer a check of the next batch the server will take, and it asks for the older turns', async ($, on) => {
+  const [t2, ...rest] = STATE.qa.turns
+  const current = { ...STATE, qa: { ...STATE.qa, batch: 5, turns: [{ ...t2!, skipped_turns: 12 }, ...rest] } }
+  const { clock, calls } = setup(on, { current, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  const older = await ui.find({ key: 'older-0-t2' })
+  expect(older?.text).toContain(EN.check_older!.replace('{0}', '5'))
+  calls.length = 0
+  await ui.press({ key: 'older-0-t2' })
+  await ui.press({ key: 'older-0-t2' })
+  await clock.advance(10)
+  expect(regens(calls)).toEqual(['?target=qa&older=t2'])
+  await ui.unmount()
+})
+
+test('the batch size saves as a number', async ($, on) => {
+  const { clock, calls } = setup(on, { current: STATE, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'settings' })
+  calls.length = 0
+  await ui.press({ key: `set-${Setting.QA_BATCH}` })
+  expect(posts(calls)).toEqual([{ url: 'http://127.0.0.1:47821/api/config', body: { qa_batch: 30 } }])
+  await ui.unmount()
+})
+
+test('the header names the session folder from a Windows path too', async ($, on) => {
+  const { clock } = setup(on, { current: { ...STATE, activity: { ...STATE.activity, cwd: 'C:\\work\\shop' } }, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  const text = (await ui.find({ key: 'header' }))?.text ?? ''
+  expect(text).toContain('shop')
+  expect(text).not.toContain('work')
+  await ui.unmount()
+})
+
+test('saving a setting uses the reply instead of fetching the settings again, and keeps this panel switched on', async ($, on) => {
+  const world: World = { current: STATE, up: true, panes: { [KEY]: { enabled: true, lang: 'ko' } as Partial<Settings> } }
   const { clock, calls } = setup(on, world)
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
   await ui.press({ key: 'settings' })
-  expect(await settingText(ui, 'lang'), 'this panel is in Korean').toContain(KO.s_lang!)
+  expect(await settingText(ui, 'lang'), 'a language saved for one panel is ignored: the language is shared').not.toContain(KO.s_lang!)
   for (let i = 0; i < 6; i++) {
     await ui.press({ key: 'setting-next' })
   }
@@ -1478,7 +1616,7 @@ test('saving a setting uses the reply instead of fetching the settings again, an
   expect(posts(calls)[0]?.url, 'saved for all panels').toBe('http://127.0.0.1:47821/api/config')
   expect(calls.filter(c => c.method === 'GET' && c.url.includes('/api/config')), 'no second fetch').toEqual([])
   expect(await settingText(ui, 'model')).toContain('sonnet')
-  expect(await ui.find({ type: 'Text', text: new RegExp(KO.mod_settings_saved!) }), 'still Korean: the panel override stays').toBeDefined()
+  expect(await settingText(ui, Setting.ENABLED), 'the shared reply does not switch this panel off').toContain(`‹ ${EN.on} ›`)
   await ui.unmount()
 })
 

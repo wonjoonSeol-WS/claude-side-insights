@@ -1,4 +1,4 @@
-import type { Register, RenderSurface, UiCopyResult, UiPressArgument, UiScrollResult } from 'claude-code'
+import type { Register, RenderSurface, UiCopyResult, UiOpenResult, UiPressArgument, UiScrollResult } from 'claude-code'
 
 import {
   Api,
@@ -91,7 +91,7 @@ type Mod = {
   timer?: { cancel: () => void }
   quiet: boolean
   pollCount: number
-  polling: boolean
+  pollRun?: Promise<void>
   pollAgain: boolean
   state?: PanelState
   stateText?: string
@@ -117,6 +117,8 @@ type Mod = {
   focusable: string[]
   lastFocus?: string
   configSeq: number
+  reopenPending?: boolean
+  openPane?: (pane: { id: string; title: string }) => Promise<UiOpenResult>
   working?: boolean
   diff?: DiffState
   config?: ConfigPayload
@@ -127,7 +129,6 @@ const freshView = (): View => ({ tab: Tab.QA, step: 0, openOnly: false, showArch
 const mod: Mod = {
   quiet: false,
   pollCount: 0,
-  polling: false,
   pollAgain: false,
   down: false,
   lastStart: -Infinity,
@@ -351,6 +352,9 @@ const pollOnce = async (io: Io, api: Api) => {
     }
     toasts(io, reply.data)
     pruneSelection()
+    if (mod.reopenPending) {
+      void reopenIfOn()
+    }
     if (mod.paneOpen && mod.view.tab === Tab.FLOW) {
       await loadFlow()
     }
@@ -374,25 +378,27 @@ const pollOnce = async (io: Io, api: Api) => {
   }
 }
 
-const poll = async () => {
-  if (mod.polling) {
+const poll = (): Promise<void> => {
+  if (mod.pollRun) {
     mod.pollAgain = true
-    return
+    return mod.pollRun
   }
-  mod.polling = true
-  try {
-    do {
-      mod.pollAgain = false
-      const io = mod.io
-      const api = mod.api
-      if (!io || !api) {
-        break
-      }
-      await pollOnce(io, api)
-    } while (mod.pollAgain)
-  } finally {
-    mod.polling = false
-  }
+  mod.pollRun = (async () => {
+    try {
+      do {
+        mod.pollAgain = false
+        const io = mod.io
+        const api = mod.api
+        if (!io || !api) {
+          break
+        }
+        await pollOnce(io, api)
+      } while (mod.pollAgain)
+    } finally {
+      mod.pollRun = undefined
+    }
+  })()
+  return mod.pollRun
 }
 
 const reset = () => {
@@ -408,6 +414,8 @@ const reset = () => {
   mod.flowLoading = undefined
   mod.confirm = undefined
   mod.diff = undefined
+  mod.config = undefined
+  mod.configSeq += 1
   mod.view = { ...freshView(), tab: mod.view.tab }
 }
 
@@ -419,14 +427,14 @@ const bind = (io: Io, env: Env) => {
   void poll()
 }
 
-const confirmed = async (key: string) => {
+const confirmed = async (key: string, hotkey: string) => {
   const at = await now()
   if (mod.confirm?.key === key && mod.confirm.until > at) {
     mod.confirm = undefined
     return true
   }
   mod.confirm = { key, until: at + CONFIRM_MS }
-  await say(t('term_confirm', 'r'), Tone.WARN)
+  await say(t('term_confirm', hotkey), Tone.WARN)
   return false
 }
 
@@ -529,18 +537,22 @@ const showDiff = async (path: string, view: DiffViewValue = DiffView.AUTO) => {
   }
 }
 
-const enableHere = async () => {
+const enableHere = async (wanted: () => boolean) => {
   const api = mod.api
   if (!api || mod.quiet) {
     return
   }
   const reply = await api.config()
   const cfg = reply.data
-  if (!isOk(reply) || !cfg?.effective || cfg.pane?.enabled) {
+  if (!isOk(reply) || !cfg?.effective || cfg.pane?.enabled === true || api !== mod.api || !wanted()) {
     return
   }
+  const seq = ++mod.configSeq
   const saved = await api.saveConfig({ [Setting.ENABLED]: true }, Scope.PANE)
-  if (isOk(saved) && saved.data && api === mod.api) {
+  if (!isOk(saved) || api !== mod.api) {
+    return
+  }
+  if (saved.data && seq === mod.configSeq) {
     mod.config = saved.data
     repaint()
     redraw()
@@ -557,19 +569,23 @@ const enableHere = async () => {
   }
 }
 
-const reopenIfOn = async (open: (pane: { id: string; title: string }) => Promise<unknown>) => {
+const reopenIfOn = async () => {
   const api = mod.api
-  if (!api || mod.quiet) {
+  const open = mod.openPane
+  if (!api || !open || mod.quiet) {
     return
   }
   const reply = await api.config()
-  if (api !== mod.api || mod.paneOpen || !reply.data?.pane?.enabled) {
+  if (api !== mod.api) {
+    return
+  }
+  mod.reopenPending = reply.status === FETCH_ERROR
+  if (mod.paneOpen || reply.data?.pane?.enabled !== true) {
     return
   }
   mod.paneOpen = true
-  await open({ id: PANE, title: paneTitle() }).catch(() => {
-    mod.paneOpen = false
-  })
+  const opened = await open({ id: PANE, title: paneTitle() }).catch(() => undefined)
+  mod.paneOpen = !!opened?.isPlaced
 }
 
 const openBrowserPanel = async (): Promise<string> => {
@@ -578,13 +594,28 @@ const openBrowserPanel = async (): Promise<string> => {
   if (!io || !api) {
     return t('panel_failed')
   }
-  void enableHere()
+  void enableHere(() => true)
   if (mod.env?.cmux) {
     const out = await io.run([`${io.root}/bin/si-panel`], { timeoutMs: BROWSER_TIMEOUT_MS, env: { SIDE_INSIGHTS_NO_LINK: '1' } }).catch(() => undefined)
     return out ? [out.stdout, out.stderr].map(x => x.trim()).filter(Boolean).join('\n') || t('panel_shown') : t('panel_failed')
   }
   const reply = await api.open('')
   return isOk(reply) ? t('panel_requested') : failure(reply)
+}
+
+const checkNow = (hotkey: string) => {
+  const api = mod.api
+  if (!api) {
+    return
+  }
+  if (mod.view.tab === Tab.LIVE) {
+    void poll().then(() => say(t('check_now_refreshed')))
+    return
+  }
+  const target = mod.view.tab === Tab.FLOW ? Regen.FLOW : Regen.QA
+  void confirmed(`check:${target}`, hotkey).then(ok =>
+    ok ? run(() => api.regen({ target }), t(target === Regen.FLOW ? 'flow_started' : 'qa_checking')) : undefined,
+  )
 }
 
 const qaTurns = () => mod.state?.qa.turns ?? []
@@ -796,7 +827,7 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
       void say(t('mod_no_item'), Tone.WARN)
       return
     }
-    void confirmed(`qa:r:${id}`).then(ok => {
+    void confirmed(`qa:r:${id}`, 'r').then(ok => {
       if (!ok) {
         return
       }
@@ -814,34 +845,15 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
       }, t('qa_checking'))
     })
   },
-  checkNow: () => {
-    const api = mod.api
-    if (!api) {
-      return
-    }
-    if (mod.view.tab === Tab.LIVE) {
-      void poll().then(() => say(t('check_now_refreshed')))
-      return
-    }
-    const target = mod.view.tab === Tab.FLOW ? Regen.FLOW : Regen.QA
-    void confirmed(`check:${target}`).then(ok =>
-      ok ? run(() => api.regen({ target }), t(target === Regen.FLOW ? 'flow_started' : 'qa_checking')) : undefined,
-    )
-  },
+  checkNow: () => checkNow('u'),
   checkOlder: turnId => {
     const api = mod.api
     if (!api) {
       return
     }
-    void confirmed(`qa:older:${turnId}`).then(ok => (ok ? run(() => api.regen({ target: Regen.QA, older: turnId }), t('qa_checking')) : undefined))
+    void confirmed(`qa:older:${turnId}`, 'Enter').then(ok => (ok ? run(() => api.regen({ target: Regen.QA, older: turnId }), t('qa_checking')) : undefined))
   },
-  rebuild: () => {
-    const api = mod.api
-    if (!api) {
-      return
-    }
-    void confirmed('flow:r').then(ok => (ok ? run(() => api.regen({ target: Regen.FLOW }), t('flow_started')) : undefined))
-  },
+  rebuild: () => checkNow('r'),
   toggleOpenOnly: () => toggleFlag('openOnly', t('qa_open_only')),
   toggleArchived: () => toggleFlag('showArchived', t('qa_archived')),
   openBrowser: () => {
@@ -888,7 +900,7 @@ const bandLine = (cols: number): string | undefined => {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    const [cmux, orca, iterm, home, profile, os, gitBash, data, port, legacyPort, child, session] = await Promise.all([
+    const [cmux, orca, iterm, home, profile, os, gitBash, localAppData, data, port, legacyPort, child, session] = await Promise.all([
       $.env.get('CMUX_PANEL_ID'),
       $.env.get('ORCA_PANE_KEY'),
       $.env.get('ITERM_SESSION_ID'),
@@ -896,6 +908,7 @@ export const register: Register = on => {
       $.env.get('USERPROFILE'),
       $.env.get('OS'),
       $.env.get('CLAUDE_CODE_GIT_BASH_PATH'),
+      $.env.get('LOCALAPPDATA'),
       $.env.get('SIDE_INSIGHTS_DATA'),
       $.env.get('SIDE_INSIGHTS_PORT'),
       $.env.get('CLAUDE_PANEL_PORT'),
@@ -921,7 +934,7 @@ export const register: Register = on => {
         now: () => $.clock.now(),
         root: $.plugin.root,
       },
-      { cmux, orca, iterm, home: home || profile, data, port, legacyPort, child, session, windows: os === 'Windows_NT', gitBash },
+      { cmux, orca, iterm, home: os === 'Windows_NT' ? profile || home : home || profile, data, port, legacyPort, child, session, windows: os === 'Windows_NT', gitBash, localAppData },
     )
     mod.timer?.cancel()
     mod.timer = mod.quiet ? undefined : $.clock.every(POLL_MS, () => void poll())
@@ -932,14 +945,19 @@ export const register: Register = on => {
         continue
       }
     }
-    await reopenIfOn(pane => $.ui.open(pane))
+    mod.openPane = pane => $.ui.open(pane)
+    await reopenIfOn()
     return next(e)
   })
 
   on('classic.SessionStart', { source: ['clear', 'resume', 'fork'] }, async ($, e, next) => {
     if (mod.io && mod.env) {
+      const before = mod.api?.conn.key
       bind(mod.io, { ...mod.env, session: await $.session.id() })
-      await reopenIfOn(pane => $.ui.open(pane))
+      if (mod.paneOpen && mod.api?.conn.key !== before) {
+        void enableHere(() => mod.paneOpen)
+      }
+      await reopenIfOn()
     }
     return next(e)
   }).catch(($, e, next) => next(e))
@@ -948,8 +966,9 @@ export const register: Register = on => {
 
   on('command.run', { command: PANE_COMMANDS }, async $ => {
     mod.paneOpen = true
-    await $.ui.open({ id: PANE, title: paneTitle(), focus: true })
-    void enableHere()
+    const opened = await $.ui.open({ id: PANE, title: paneTitle(), focus: true })
+    mod.paneOpen = opened.isPlaced
+    void enableHere(() => mod.paneOpen)
     const io = mod.io
     if (io && (await loadTheme(io))) {
       redraw()
@@ -962,8 +981,10 @@ export const register: Register = on => {
     mod.paneOpen = false
     animate(false)
     if (e.origin.kind === 'person' && mod.api && !mod.quiet) {
-      void mod.api.saveConfig({ [Setting.ENABLED]: false }, Scope.PANE).then(saved => {
-        if (isOk(saved) && saved.data) {
+      const api = mod.api
+      const seq = ++mod.configSeq
+      void api.saveConfig({ [Setting.ENABLED]: false }, Scope.PANE).then(saved => {
+        if (isOk(saved) && saved.data && api === mod.api && seq === mod.configSeq) {
           mod.config = saved.data
         }
       })
