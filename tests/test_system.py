@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -12,6 +13,13 @@ from side_insights import system  # noqa: E402
 
 HOLD = "import sys, time; sys.path.insert(0, sys.argv[1]); from side_insights.system import FileLock\nwith FileLock(sys.argv[2]):\n    print('held', flush=True); time.sleep(float(sys.argv[3]))"
 SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src")
+
+
+def remove_tree(path):
+    def writable(func, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    shutil.rmtree(path, onerror=writable)
 
 
 class ProcessTest(unittest.TestCase):
@@ -37,7 +45,7 @@ class ProcessTest(unittest.TestCase):
 class FileLockTest(unittest.TestCase):
     def test_a_second_process_waits_for_the_lock(self):
         folder = tempfile.mkdtemp()
-        self.addCleanup(shutil.rmtree, folder)
+        self.addCleanup(remove_tree, folder)
         path = os.path.join(folder, "x.lock")
         holder = subprocess.Popen([sys.executable, "-c", HOLD, SRC, path, "1.5"], stdout=subprocess.PIPE, text=True)
         self.assertEqual(holder.stdout.readline().strip(), "held")

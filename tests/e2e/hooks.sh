@@ -46,6 +46,10 @@ check "the state lists the edited file" 'printf "%s" "$state" | grep -q "page.ts
 diff_reply=$(curl -s -m 15 -G -H "X-Side-Insights: $token" --data-urlencode "path=$file" "http://127.0.0.1:$SIDE_INSIGHTS_PORT/api/e2e-python/diff")
 check "the diff of a bracketed path is that one file" '[ "$(printf "%s" "$diff_reply" | grep -o "@@ -" | wc -l | tr -d " ")" = 1 ]'
 check "the diff shows the change" 'printf "%s" "$diff_reply" | grep -q "+two"'
+if command -v node >/dev/null 2>&1; then
+  node "$ROOT/tests/e2e/browser.mjs" "http://127.0.0.1:$SIDE_INSIGHTS_PORT/p/e2e-python?t=$token" "page.tsx"
+  case $? in 0) echo "ok   the page renders in a real browser" ;; 2) ;; *) echo "FAIL the page renders in a real browser"; failures=$((failures + 1)) ;; esac
+fi
 refused=$(curl -s -o /dev/null -w '%{http_code}' -G -H "X-Side-Insights: $token" --data-urlencode "path=$(panel_native "$DATA/token")" "http://127.0.0.1:$SIDE_INSIGHTS_PORT/api/e2e-python/diff")
 check "a file outside the session is refused" '[ "$refused" = 404 ]'
 

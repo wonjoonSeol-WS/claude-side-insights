@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import sys
 import tempfile
 import unittest
@@ -10,10 +11,17 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from side_insights.web.server import _allowed_path  # noqa: E402
 
 
+def remove_tree(path):
+    def writable(func, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    shutil.rmtree(path, onerror=writable)
+
+
 class AllowedPathTest(unittest.TestCase):
     def setUp(self):
         self.root = os.path.realpath(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.root)
+        self.addCleanup(remove_tree, self.root)
         self.cwd = os.path.join(self.root, "repo")
         self.other = os.path.join(self.root, "other")
         os.makedirs(os.path.join(self.cwd, "src"))
@@ -21,7 +29,7 @@ class AllowedPathTest(unittest.TestCase):
 
     def test_files_under_the_working_directory_are_allowed(self):
         snap = {"cwd": self.cwd, "files": []}
-        self.assertEqual(_allowed_path("src/a.py", snap), os.path.join(self.cwd, "src/a.py"))
+        self.assertEqual(_allowed_path("src/a.py", snap), os.path.join(self.cwd, "src", "a.py"))
 
     def test_an_edited_file_outside_the_working_directory_is_allowed_but_its_neighbour_is_not(self):
         edited = os.path.join(self.other, "edited.md")
@@ -31,7 +39,7 @@ class AllowedPathTest(unittest.TestCase):
 
     def test_a_home_relative_edited_file_is_matched_after_expanding_home(self):
         edited = os.path.join(self.other, "notes.md")
-        with mock.patch.dict(os.environ, {"HOME": self.root}):
+        with mock.patch.dict(os.environ, {"HOME": self.root, "USERPROFILE": self.root}):
             snap = {"cwd": self.cwd, "files": [{"path": "~/other/notes.md"}]}
             self.assertEqual(_allowed_path(edited, snap), edited)
 

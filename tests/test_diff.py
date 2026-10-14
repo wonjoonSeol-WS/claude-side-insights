@@ -1,5 +1,6 @@
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -14,10 +15,17 @@ def git(repo, *args):
     subprocess.run(["git", "-C", repo, "-c", "user.name=t", "-c", "user.email=t@t", *args], check=True, capture_output=True)
 
 
+def remove_tree(path):
+    def writable(func, target, _):
+        os.chmod(target, stat.S_IWRITE)
+        func(target)
+    shutil.rmtree(path, onerror=writable)
+
+
 class LoadTest(unittest.TestCase):
     def setUp(self):
         self.root = os.path.realpath(tempfile.mkdtemp())
-        self.addCleanup(shutil.rmtree, self.root)
+        self.addCleanup(remove_tree, self.root)
         self.repo = os.path.join(self.root, "repo")
         os.makedirs(os.path.join(self.repo, "app", "[id]"))
         os.makedirs(os.path.join(self.repo, "app", "i"))

@@ -7,6 +7,7 @@ PANEL_DEFAULT_PORT=47821
 PANEL_JQ="${SIDE_INSIGHTS_JQ:-jq}"
 PANEL_PYTHON_CACHE="$PANEL_DATA/python-path"
 PANEL_PYTHON_OK='import sys; sys.exit(sys.version_info < (3, 9))'
+PANEL_PYTHON_WHERE='import sys; sys.exit(1) if sys.version_info < (3, 9) else print(sys.executable)'
 
 panel_native() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
@@ -29,9 +30,9 @@ panel_find_python() {
   for candidate in python py python3; do
     command -v "$candidate" >/dev/null 2>&1 || continue
     if [ "$candidate" = py ]; then
-      found=$(py -3 -c "$PANEL_PYTHON_OK"' or print(sys.executable)' 2>/dev/null) || continue
+      found=$(py -3 -c "$PANEL_PYTHON_WHERE" 2>/dev/null) || continue
     else
-      found=$("$candidate" -c "$PANEL_PYTHON_OK"' or print(sys.executable)' 2>/dev/null) || continue
+      found=$("$candidate" -c "$PANEL_PYTHON_WHERE" 2>/dev/null) || continue
     fi
     found=$(printf '%s' "$found" | tr -d '\r')
     [ -n "$found" ] || continue
