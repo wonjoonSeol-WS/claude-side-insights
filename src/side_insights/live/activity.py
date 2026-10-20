@@ -2,6 +2,7 @@
 import json
 import os
 import threading
+import time
 from collections import OrderedDict
 
 from side_insights.paths import DATA, EDIT_TOOLS
@@ -92,6 +93,39 @@ class State:
         below_home = _below(path, home)
         return "~/" + below_home if below_home is not None else path
 
+    def folder(self, path):
+        """Where a file lives, for display: the folder inside cwd, else repo name and folder inside the repo, else as rel()."""
+        if _below(path, (self.cwd or "").rstrip("/\\")) is None:
+            directory = os.path.dirname(path)
+            repo = repo_root(directory)
+            if repo:
+                inside = os.path.relpath(directory, repo)
+                return os.path.basename(repo) + ("" if inside == "." else "/" + inside.replace("\\", "/"))
+        shown = self.rel(path).replace("\\", "/")
+        return shown.rsplit("/", 1)[0] if "/" in shown else ""
+
+
+_REPOS = {}
+REPO_RECHECK = 30
+
+
+def repo_root(directory):
+    """The nearest folder above with a .git entry, never the home folder or above it; None outside a repo.
+
+    A folder found in no repo is looked at again after REPO_RECHECK seconds, so one that becomes a repo shows as one."""
+    cached = _REPOS.get(directory)
+    if cached and (cached[0] or time.time() - cached[1] < REPO_RECHECK):
+        return cached[0]
+    home = os.path.normcase(os.path.expanduser("~"))
+    found, current = None, directory
+    while current and os.path.normcase(current) != home and os.path.dirname(current) != current:
+        if os.path.exists(os.path.join(current, ".git")):
+            found = current
+            break
+        current = os.path.dirname(current)
+    _REPOS[directory] = (found, time.time())
+    return found
+
 
 def _below(path, root):
     if not root:
@@ -147,8 +181,9 @@ class ActivityTail:
             "sid": s.sid, "cwd": s.cwd, "transcript": s.transcript, "busy": s.busy,
             "tools": [{"tool": tool["tool"], "label": tool_label(tool["tool"]), "summary": tool["summary"],
                        "file": s.rel(tool["file"]) if tool["file"] else None,
+                       "where": s.folder(tool["file"]) if tool["file"] else None,
                        "state": tool["state"], "start": tool["start"], "end": tool["end"], "reason": tool.get("reason")}
                       for tool in list(s.tools.values())[-max_tools:]],
-            "files": [{"path": s.rel(p), "count": f["count"], "created": f["created"], "last": f["last"]}
+            "files": [{"path": s.rel(p), "where": s.folder(p), "count": f["count"], "created": f["created"], "last": f["last"]}
                       for p, f in sorted(s.files.items(), key=lambda kv: -kv[1]["last"])],
         }

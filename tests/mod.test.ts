@@ -35,7 +35,7 @@ const STATE = {
     cwd: '/repo',
     busy: false,
     tools: [
-      { tool: 'Edit', label: 'Edit', summary: 'edit', file: FILE, state: 'ok', start: 1791905000, end: 1791905001 },
+      { tool: 'Edit', label: 'Edit', summary: 'edit', file: FILE, where: 'src', state: 'ok', start: 1791905000, end: 1791905001 },
       { tool: 'Bash', label: 'Bash', summary: 'npm test', file: null, state: 'err', start: 1791905002, end: 1791905004, reason: 'Exit code 1 FAIL retry.test.ts' },
     ],
     files: [{ path: FILE, count: 2, created: false, last: 1791905001 }],
@@ -518,7 +518,7 @@ test('pane draws the three tabs and its keys act on the server', async ($, on) =
     expect(calls.find(c => c.method === 'POST' && c.url.includes('/open'))?.url).toBe(`http://127.0.0.1:47821/api/${KEY}/open?mode=flow`)
 
     await ui.press({ key: 'tab-live' })
-    expect(await ui.find({ type: 'Text', text: /src\/a\.ts/ }), "{ type: 'Text', text: /src\\/a\\.ts/ }").toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /a\.ts {2}src/ }), 'the tool row names the file, then its folder').toBeDefined()
     expect(await ui.find({ type: 'Text', text: /npm test/ }), "{ type: 'Text', text: /npm test/ }").toBeDefined()
 
     await ui.press({ key: 'tab-qa' })
@@ -1364,13 +1364,13 @@ test('pressing a Live tile filters the tool list to that state, and pressing it 
   const ui = await mountPane($)
   await ui.press({ key: 'tab-live' })
   expect(await ui.find({ type: 'Text', text: /npm test/ }), 'the failed Bash call').toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /src\/a\.ts/ }), 'the done Edit call').toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /a\.ts {2}src/ }), 'the done Edit call').toBeDefined()
   await ui.press({ key: 'tile-err-press' })
   const tools = await ui.find({ key: 'tools' })
   expect(tools?.text).toContain('npm test')
-  expect(tools?.text, 'the done Edit call is filtered out').not.toContain('src/a.ts')
+  expect(tools?.text, 'the done Edit call is filtered out').not.toContain('a.ts  src')
   await ui.press({ key: 'tile-err-press' })
-  expect((await ui.find({ key: 'tools' }))?.text, 'cleared').toContain('src/a.ts')
+  expect((await ui.find({ key: 'tools' }))?.text, 'cleared').toContain('a.ts  src')
   await ui.unmount()
 })
 
@@ -1565,7 +1565,7 @@ test('a panel that is on reopens /si once the server it was waiting for comes up
   expect(opened.length).toBe(1)
 })
 
-test('Check now asks for a second press naming the key pressed, and r on Flow is the same check', async ($, on) => {
+test('Check now asks for a second press of the same key, and r on Flow is the same check', async ($, on) => {
   const { clock, calls } = setup(on, { current: STATE, up: true })
   await start($, clock)
   await $.command.run(RUN_SI)
@@ -1583,6 +1583,9 @@ test('Check now asks for a second press naming the key pressed, and r on Flow is
   await ui.press({ key: 'rebuild' })
   await clock.advance(10)
   expect(await ui.find({ type: 'Text', text: new RegExp(`▌ ${EN.term_confirm!.replace('{0}', 'r').replace(/[()]/g, '\\$&')}`) })).toBeDefined()
+  await ui.press({ key: 'check-now' })
+  await clock.advance(10)
+  expect(regens(calls), 'u does not confirm a check that asked for r').toEqual([])
   await ui.press({ key: 'check-now' })
   await clock.advance(10)
   expect(regens(calls)).toEqual(['?target=flow'])
@@ -1829,13 +1832,9 @@ test('focus never rests on a hidden button: Tab past the end wraps to the first 
   await ui.unmount()
 })
 
-test('in settings the arrow-key focus ring and the j/k highlight are the same row', async ($, on) => {
+test('in settings the arrow-key focus ring moves the j/k highlight', async ($, on) => {
   const { clock } = setup(on, { current: STATE, up: true })
-  const landed: (string | undefined)[] = []
-  on('ui.focus', async ($, e) => {
-    landed.push(e.element)
-    return {}
-  })
+  on('ui.focus', async () => ({}))
   await start($, clock)
   await $.command.run(RUN_SI)
   const ui = await mountPane($)
@@ -1861,5 +1860,34 @@ test('the settings footer shows g to close them', async ($, on) => {
   expect((await ui.find({ key: 'settings' }))?.text).toContain(' g ')
   await ui.press({ key: 'hk-g' })
   expect(await ui.find({ key: 'setting-scope' }), 'g closes settings').toBeUndefined()
+  await ui.unmount()
+})
+
+test('an edited file shows its name first and then its whole folder', async ($, on) => {
+  const far = '~/.claude/activity-panel/hooks/mod/views.tsx'
+  const twin = '~/personal/claude-side-insights/hooks/mod/views.tsx'
+  const files = [
+    { path: '/repo/src/api/a.ts', count: 1, created: false, last: 1 },
+    { path: far, count: 1, created: true, last: 2 },
+    { path: twin, count: 1, created: false, last: 3 },
+    { path: '~/personal/shop/src/cart.ts', where: 'shop/src', count: 1, created: false, last: 4 },
+  ]
+  const { clock } = setup(on, { current: { ...STATE, activity: { ...STATE.activity, files } }, up: true })
+  await start($, clock)
+  await $.command.run(RUN_SI)
+  const ui = await mountPane($)
+  await ui.press({ key: 'tab-live' })
+  const near = (await ui.find({ key: 'file-row-/repo/src/api/a.ts' }))?.text ?? ''
+  expect(near).toContain('a.ts')
+  expect(near).toContain('src/api')
+  const row = (await ui.find({ key: `file-row-${far}` }))?.text ?? ''
+  expect(row).toContain('views.tsx')
+  expect(row, 'two files with one name stay told apart by their whole folder').toContain('~/.claude/activity-panel/hooks/mod')
+  expect((await ui.find({ key: `file-row-${twin}` }))?.text).toContain('~/personal/claude-side-insights/hooks/mod')
+  const inRepo = (await ui.find({ key: 'file-row-~/personal/shop/src/cart.ts' }))?.text ?? ''
+  expect(inRepo, 'a file in a repo shows the folder the server worked out').toContain('shop/src')
+  expect(inRepo).not.toContain('~/personal')
+  await ui.press({ key: 'file-dir-~/personal/shop/src/cart.ts' })
+  expect((await ui.find({ key: 'file-row-~/personal/shop/src/cart.ts' }))?.text, 'clicking the folder opens the file too').toContain('▶')
   await ui.unmount()
 })

@@ -64,6 +64,13 @@ def waiting_for(pane):
     return _cached(_waiting, pane, Waiting)
 
 
+def unchecked_prompts(pane, snap, auto):
+    """Prompts after the Q&A cursor, listed only when the end of a turn checks them."""
+    if not (snap["sid"] and auto):
+        return []
+    return waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"]))
+
+
 def flows(pane):
     found = []
     for rec in flow_store.records(pane):
@@ -217,11 +224,11 @@ class Handler(BaseHTTPRequestHandler):
         snap = snapshot(pane)
         records = qa_store.with_overrides(pane, qa_store.records(pane, snap["sid"])) if snap["sid"] else []
         qa_pending = Pending.active(qa_store.pending_path(pane))
-        auto = config.runs("qa", pane)
-        waiting = waiting_for(pane).since(snap["transcript"], qa_store.read_cursor(pane, snap["sid"])) if snap["sid"] and auto else []
+        shared = config.load()
+        auto = config.runs("qa", pane, shared)
         self.json({"activity": snap, "flows": pane_flows, "pending": pending,
-                   "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending), "waiting": waiting,
-                          "eta": eta_seconds(records), "auto": auto, "batch": config.load(pane)["qa_batch"],
+                   "qa": {"sid": snap["sid"], "turns": records, "pending": bool(qa_pending), "waiting": unchecked_prompts(pane, snap, auto),
+                          "eta": eta_seconds(records), "auto": auto, "batch": shared["qa_batch"],
                           "counts": qa_store.counts(records)}})
 
     def get_flow(self, pane, flow_id):
@@ -309,9 +316,9 @@ class Handler(BaseHTTPRequestHandler):
         elif older:
             sid = snapshot(pane)["sid"]
             source = next((r for r in qa_store.records(pane, sid) if r.get("turn_id") == older), None) if sid else None
-            if not source:
+            if not source or not source.get("transcript"):
                 return self.error(404, "err_not_found", pane=pane)
-            last = {**last, "transcript": source.get("transcript") or last["transcript"]}
+            last = {**last, "transcript": source["transcript"]}
         marker = qa_store.pending_path(pane) if target == "qa" else flow_store.pending_path(pane)
         if Pending.active(marker):
             return self.error(409, "err_running", pane=pane)

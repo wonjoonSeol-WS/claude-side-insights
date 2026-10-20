@@ -1,3 +1,5 @@
+import importlib
+import json
 import os
 import shutil
 import stat
@@ -59,6 +61,23 @@ class FileLockTest(unittest.TestCase):
         self.assertGreater(waited, 0.5)
 
 
+
+class LockTimeoutTest(unittest.TestCase):
+    def test_a_lock_held_elsewhere_gives_up_after_its_timeout(self):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(remove_tree, folder)
+        path = os.path.join(folder, "x.lock")
+        holder = subprocess.Popen([sys.executable, "-c", HOLD, SRC, path, "5"], stdout=subprocess.PIPE, text=True)
+        self.addCleanup(holder.wait)
+        self.addCleanup(holder.kill)
+        self.assertEqual(holder.stdout.readline().strip(), "held")
+        began = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            with system.FileLock(path, timeout=0.3):
+                pass
+        self.assertLess(time.monotonic() - began, 3)
+
+
 class Ok(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -77,6 +96,8 @@ class LocalRequestTest(unittest.TestCase):
         self.addCleanup(server.shutdown)
         proxy = {"http_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://127.0.0.1:9", "no_proxy": "", "NO_PROXY": ""}
         with mock.patch.dict(os.environ, proxy):
+            importlib.reload(system)
+            self.addCleanup(importlib.reload, system)
             with system.local_urlopen(f"http://127.0.0.1:{server.server_port}/", timeout=5) as resp:
                 self.assertEqual(resp.read(), b"ok")
 
@@ -93,6 +114,43 @@ class ClaudeCommandTest(unittest.TestCase):
             self.assertEqual(system.claude_command(), ["/bin/node", script])
         with mock.patch.object(system, "WINDOWS", False), mock.patch.object(system.shutil, "which", found.get):
             self.assertEqual(system.claude_command(), [found["claude"]])
+
+
+    def package(self, bin_field=None, script="cli.js"):
+        folder = tempfile.mkdtemp()
+        self.addCleanup(remove_tree, folder)
+        package = os.path.join(folder, "node_modules", "@anthropic-ai", "claude-code")
+        os.makedirs(package)
+        if bin_field is not None:
+            with open(os.path.join(package, "package.json"), "w") as fh:
+                json.dump({"bin": bin_field}, fh)
+        if script:
+            open(os.path.join(package, script), "w").close()
+        return folder, package
+
+    def command(self, found):
+        with mock.patch.object(system, "WINDOWS", True), mock.patch.object(system.shutil, "which", found.get):
+            return system.claude_command()
+
+    def test_the_shim_stays_when_node_or_the_script_is_missing(self):
+        folder, _ = self.package(script=None)
+        shim = os.path.join(folder, "claude.cmd")
+        self.assertEqual(self.command({"claude": shim, "node": "/bin/node"}), [shim])
+        folder, _ = self.package()
+        shim = os.path.join(folder, "claude.cmd")
+        self.assertEqual(self.command({"claude": shim}), [shim])
+
+    def test_the_package_bin_target_wins_over_cli_js(self):
+        folder, package = self.package({"claude": "bin/claude.js"}, script=None)
+        os.makedirs(os.path.join(package, "bin"))
+        open(os.path.join(package, "bin", "claude.js"), "w").close()
+        shim = os.path.join(folder, "claude.cmd")
+        self.assertEqual(self.command({"claude": shim, "node": "/bin/node"}), ["/bin/node", os.path.join(package, "bin/claude.js")])
+
+    def test_a_native_claude_exe_is_preferred_over_the_npm_shim(self):
+        folder, _ = self.package()
+        self.assertEqual(self.command({"claude.exe": "/x/claude.exe", "claude": os.path.join(folder, "claude.cmd"), "node": "/bin/node"}),
+                         ["/x/claude.exe"])
 
 
 if __name__ == "__main__":

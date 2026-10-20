@@ -41,11 +41,11 @@ class FlowMergeTest(unittest.TestCase):
         os.makedirs(path, exist_ok=True)
         return path
 
-    def run_flow(self, turn, same, *flags):
+    def run_flow(self, turn, same, *flags, cwd="/repo"):
         def claude(system, schema, message, *args, **kwargs):
             self.calls.append(message)
             return {"same_change": same, "title": f"flow {turn}", "summary": "s", "example": "e", "steps": [], "changes": []}, 0.1
-        with mock.patch.object(flow, "run_claude", claude), mock.patch.object(sys, "argv", ["flow", "p1", transcript(self.folder, turn), "/repo", "--force", *flags]):
+        with mock.patch.object(flow, "run_claude", claude), mock.patch.object(sys, "argv", ["flow", "p1", transcript(self.folder, turn), cwd, "--force", *flags]):
             flow.main()
         return flow_store.records("p1")
 
@@ -67,6 +67,45 @@ class FlowMergeTest(unittest.TestCase):
         self.run_flow("t2", True)
         records = self.run_flow("t3", True)
         self.assertEqual((len(records), records[0]["turn_ids"]), (1, ["t1", "t2", "t3"]))
+
+    def test_rebuilding_the_latest_turn_of_a_merged_flow_keeps_one_flow_for_both_turns(self):
+        self.run_flow("t1", False)
+        self.run_flow("t2", True)
+        records = self.run_flow("t2", True)
+        self.assertEqual((len(records), records[0]["turn_ids"]), (1, ["t1", "t2"]))
+        self.assertIn("## Flow of the earlier turns, which also holds an older analysis of this turn", self.calls[2])
+        self.assertNotIn("## Previous flow, from an earlier turn", self.calls[2])
+
+    def test_a_rebuild_that_is_no_longer_the_same_change_leaves_the_earlier_turn_its_flow(self):
+        self.run_flow("t1", False)
+        self.run_flow("t2", True)
+        records = self.run_flow("t2", False)
+        self.assertEqual(len(records), 2)
+        self.assertEqual(records[0]["turn_id"], "t2")
+        self.assertEqual((records[1]["turn_id"], records[1].get("turn_ids")), ("t1", None))
+
+    def test_a_turn_in_another_folder_does_not_continue_the_flow(self):
+        self.run_flow("t1", False, cwd="/repo")
+        records = self.run_flow("t2", True, cwd="/other")
+        self.assertEqual(len(records), 2)
+        self.assertNotIn("## Previous flow", self.calls[1])
+
+    def test_the_same_folder_spelled_differently_continues_the_flow(self):
+        self.run_flow("t1", False, cwd="/repo")
+        records = self.run_flow("t2", True, cwd="/repo/")
+        self.assertEqual((len(records), records[0]["turn_ids"]), (1, ["t1", "t2"]))
+
+    def test_a_flow_saved_without_a_folder_can_be_continued(self):
+        self.run_flow("t1", False)
+        first = flow_store.records("p1")[0]
+        path = os.path.join(self.folder, "flows", "p1", f"{first['id']}.json")
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        data.pop("cwd")
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump(data, fh)
+        records = self.run_flow("t2", True, cwd="/other")
+        self.assertEqual((len(records), records[0]["turn_ids"]), (1, ["t1", "t2"]))
 
     def test_only_new_skips_a_turn_that_already_has_a_flow(self):
         self.run_flow("t1", False)

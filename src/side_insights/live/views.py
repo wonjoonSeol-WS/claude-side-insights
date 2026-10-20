@@ -9,7 +9,7 @@ from side_insights.analysis.waiting import Waiting, eta_seconds
 from side_insights.i18n import t
 from side_insights.live.activity import ERR, OK, RUN, tool_label
 from side_insights.live.term import (BLUE, CODE_BG, FAINT, GREEN, HIGHLIGHT_BG, LINE, MUTED, ORANGE, PURPLE, RED, RESET,
-                                     SELECTED_BG, TEAL, TEXT, YELLOW, badge, bg, box, bullets, fit, fit_left, inner_width,
+                                     SELECTED_BG, TEAL, TEXT, YELLOW, badge, bg, box, bullets, clean, fit, fit_left, inner_width,
                                      key_cap, pad, paint, styled, tint, visible_width, width)
 from side_insights.paths import EDIT_TOOLS
 from side_insights.records import RecordStatus, Source, StepKind
@@ -128,7 +128,7 @@ def _tool_line(tool, st, tick, now, cols):
         stamp, rest = "", rest + CLOCK_COLS
     if rest < MIN_SUMMARY:
         name_w, rest = NAME_MIN, rest + name_w - NAME_MIN
-    summary = fit_left(st.rel(tool["file"]), rest) if tool["file"] else fit(tool["summary"], rest)
+    summary = fit("  ".join(filter(None, (os.path.basename(tool["file"]), st.folder(tool["file"])))), rest) if tool["file"] else fit(tool["summary"], rest)
     return f"{icon} {stamp}{paint(fit(name, name_w), color, bold=True)} {paint(summary, TEXT)} {paint(dur, FAINT)}"
 
 
@@ -165,7 +165,8 @@ def live_lines(st, tick, cols, rows):
     for path, changed in files[:MAX_FILES]:
         mark = badge("A", GREEN) if changed["created"] else badge("M", ORANGE)
         count = f"×{changed['count']}" if changed["count"] > 1 else ""
-        file_lines.append(f"{mark} {paint(fit_left(st.rel(path), inner_width(files_w) - 4 - width(count)), TEXT)}{paint(count, FAINT)}")
+        first, *rest = _file_lines(os.path.basename(path), st.folder(path), inner_width(files_w) - 4, count)
+        file_lines += [f"{mark} {first}", *rest]
     if len(files) > MAX_FILES:
         file_lines.append(paint(t("term_more", len(files) - MAX_FILES, pane=pane), FAINT))
     now = time.time()
@@ -173,6 +174,24 @@ def live_lines(st, tick, cols, rows):
     files_box = box(file_lines, files_w, LINE, paint(t("term_files", len(files), pane=pane), TEXT, bold=True))
     tools_box = box(tool_lines, tools_w, LINE, paint(t("term_tools", len(tools), pane=pane), TEXT, bold=True))
     return lines + (_side_by_side(files_box, tools_box, files_w) if wide else files_box + [""] + tools_box)
+
+
+def _file_lines(name, folder, cols, count):
+    """The name and folder on one line when both fit, else the folder on its own line under the name."""
+    name, folder = clean(name).replace("\n", " "), clean(folder).replace("\n", " ")
+    head = paint(fit(name, cols - width(count)).rstrip(), TEXT, bold=True) + paint(count, FAINT)
+    if not folder:
+        return [head]
+    if width(name) + width(count) + 1 + width(folder) <= cols:
+        return [paint(name, TEXT, bold=True) + paint(count, FAINT) + " " + paint(folder, FAINT)]
+    return [head, "    " + paint(_middle(folder, cols - 4), FAINT)]
+
+
+def _middle(text, cols):
+    if width(text) <= cols:
+        return text
+    tail = fit_left(text, (cols + 1) // 2).rstrip()[1:]
+    return fit(text, cols - width(tail)).rstrip()[:-1] + "…" + tail
 
 
 def _waiting_lines(pane, waiting, eta, checking, cols):

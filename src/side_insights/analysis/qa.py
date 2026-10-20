@@ -25,7 +25,6 @@ from side_insights.transcript import (assistant_blocks, clip, is_prompt, load_en
 
 MAX_REPLY = 60000
 REPLY_PER_TURN = 4000
-MAX_REPLY_CAP = 160000
 MIN_WINDOW = 2000
 MAX_WINDOW = 8000
 MAX_FOLLOWUPS = 60
@@ -33,7 +32,7 @@ PROMPT_PREVIEW = 2000
 ERROR_LIMIT = 1000
 FOLLOWUP_LIMIT = 160
 MAX_OPEN_RECHECK = 40
-MAX_PENDING_TURNS = config.Setting.QA_BATCH.default
+DEFAULT_BATCH = config.Setting.QA_BATCH.default
 TIMEOUT = 600
 MAX_TURNS = 3
 USER_LIMIT = 3000
@@ -100,7 +99,15 @@ def extract(path, turn_id):
     start = turn_start(entries, turn_id)
     if start is None:
         return None
-    return _segment(entries, start, len(entries), marker_for_later_prompts=True)
+    return {**_segment(entries, start, len(entries), marker_for_later_prompts=True), "first_entry": entries[start]}
+
+
+def _session_id(entries):
+    return next((e.get("sessionId") for e in reversed(entries) if e.get("sessionId")), None)
+
+
+def _prompt_count(users):
+    return sum(1 for kind, _ in users if kind == Source.PROMPT)
 
 
 def _segment(entries, start, end, marker_for_later_prompts):
@@ -124,9 +131,8 @@ def _segment(entries, start, end, marker_for_later_prompts):
                 actions.append(f"{b['name']} {inp.get('file_path') or inp.get('notebook_path')}")
             elif b.get("name") == "Bash":
                 actions.append(f"Bash: {inp.get('description') or clip(inp.get('command', ''), ACTION_LIMIT)}")
-    prompts = sum(1 for kind, _ in users if kind == Source.PROMPT)
-    reply_text = _fit_replies(replies, min(MAX_REPLY_CAP, max(MAX_REPLY, prompts * REPLY_PER_TURN)))
-    sid = next((e.get("sessionId") for e in reversed(entries) if e.get("sessionId")), None)
+    reply_text = _fit_replies(replies, max(MAX_REPLY, _prompt_count(users) * REPLY_PER_TURN))
+    sid = _session_id(entries)
     last_uuid = next((e.get("uuid") for e in reversed(entries[:end]) if e.get("uuid")), None)
     return {"turn_id": first_uuid, "sid": sid, "users": users, "replies": reply_text,
             "actions": actions[-MAX_ACTIONS:], "last_uuid": last_uuid}
@@ -166,18 +172,17 @@ def _fit_replies(replies, budget=MAX_REPLY):
 
 
 def _after(entries, cursor):
-    """Index just past the entry `cursor`; the session start without one, the last prompt when it is gone from the file."""
+    """Index just past the entry `cursor`; the session start without one or when it is gone from the file."""
     if not cursor:
         return 0
-    found = next((i + 1 for i, e in enumerate(entries) if e.get("uuid") == cursor), None)
-    return found if found is not None else (turn_start(entries) or 0)
+    return next((i + 1 for i, e in enumerate(entries) if e.get("uuid") == cursor), 0)
 
 
 def _prompts(entries, start, end):
     return [i for i in range(start, end) if is_prompt(entries[i])]
 
 
-def extract_since(path, cursor, limit=MAX_PENDING_TURNS):
+def extract_since(path, cursor, limit=DEFAULT_BATCH):
     """Everything after the entry `cursor` (the whole session without one), at most its last `limit` prompts."""
     entries = load_entries(path)
     if not entries:
@@ -271,7 +276,7 @@ def _record(turn_id, sid, model, transcript, scope, users, first_entry=None):
     now = time.time()
     return {"turn_id": turn_id, "sid": sid, "ts": now, "turn_ts": _entry_time(first_entry) or now, "model": model, "transcript": transcript,
             "scope": scope, "prompt": users[0][1][:PROMPT_PREVIEW] if users else "",
-            "prompt_count": sum(1 for kind, _ in users if kind == Source.PROMPT)}
+            "prompt_count": _prompt_count(users)}
 
 
 def _judge_into(record, pane, message, model):
@@ -292,7 +297,8 @@ def judge_since_cursor(pane, transcript, model, started=None):
         return
     with Pending(qa_store.pending_path(pane)):
         with qa_store.session_lock(pane, sid):
-            seg = extract_since(transcript, qa_store.read_cursor(pane, sid), config.load(pane)["qa_batch"])
+            cursor = qa_store.read_cursor(pane, sid)
+            seg = extract_since(transcript, cursor, config.load(pane)["qa_batch"])
             candidates = qa_store.open_items(pane, sid, seg and seg["turn_id"], MAX_FOLLOWUPS)
         if not seg or not seg["last_uuid"]:
             return
@@ -300,27 +306,39 @@ def judge_since_cursor(pane, transcript, model, started=None):
             with qa_store.session_lock(pane, sid):
                 qa_store.write_cursor(pane, sid, seg["last_uuid"])
             return
-        record = _record(seg["turn_id"], sid, model, transcript, SCOPE_TURN, seg["users"], seg.get("first_entry"))
+        record = _since_record(seg, sid, model, transcript, cursor, seg.get("first_entry"))
         if seg.get("skipped"):
             record.update(skipped_turns=seg["skipped"], skipped_after=seg.get("skipped_after"))
-        data = _judge_into(record, pane, build_message(seg, candidates), model)
-        with qa_store.session_lock(pane, sid):
-            if seg["users"]:
-                if started and record["status"] == RecordStatus.OK.value:
-                    record["seconds"] = round(time.time() - started, 1)
-                atomic_write_json(qa_store.record_path(pane, sid, seg["turn_id"]), record)
-            if record["status"] == RecordStatus.OK.value:
-                qa_store.apply_followups(pane, sid, candidates, data.get("followups"), seg["turn_id"] or seg["last_uuid"])
+        _judge_since(pane, sid, seg, record, candidates, model, lambda: True, started)
+
+
+def _since_record(seg, sid, model, transcript, after, first_entry):
+    """The record of a check since the cursor; `after`, `start_uuid` and `end_uuid` let a failed one be checked again over the same turns."""
+    record = _record(seg["turn_id"], sid, model, transcript, SCOPE_TURN, seg["users"], first_entry)
+    record.update(after=after, start_uuid=(first_entry or {}).get("uuid"), end_uuid=seg["last_uuid"])
+    return record
+
+
+def _judge_since(pane, sid, seg, record, candidates, model, move_cursor, started=None):
+    """Judges a segment since the cursor with the earlier open questions; when it succeeds, settles them and moves the cursor if move_cursor()."""
+    data = _judge_into(record, pane, build_message(seg, candidates), model)
+    ok = record["status"] == RecordStatus.OK.value
+    with qa_store.session_lock(pane, sid):
+        if seg["users"]:
+            if started and ok:
+                record["seconds"] = round(time.time() - started, 1)
+            atomic_write_json(qa_store.record_path(pane, sid, record["turn_id"]), record)
+        if ok:
+            qa_store.apply_followups(pane, sid, candidates, data.get("followups"), record["turn_id"] or seg["last_uuid"])
+            if move_cursor():
                 qa_store.write_cursor(pane, sid, seg["last_uuid"])
 
 
-def judge_older(pane, transcript, turn_id, model, limit=MAX_PENDING_TURNS):
-    """Checks the next `limit` turns that an earlier check of turn_id skipped, nearest first.
-
-    A failed check leaves the skipped count on the newer record, so the same turns can be tried again."""
+def judge_older(pane, transcript, turn_id, model, limit=DEFAULT_BATCH):
+    """Checks the next `limit` turns that an earlier check of turn_id skipped, nearest first."""
     entries = load_entries(transcript)
     end = turn_start(entries, turn_id)
-    sid = next((e.get("sessionId") for e in reversed(entries) if e.get("sessionId")), None)
+    sid = _session_id(entries)
     path = qa_store.record_path(pane, sid, turn_id) if sid and end is not None else None
     newer = read_json(path) if path else None
     if not isinstance(newer, dict) or not newer.get("skipped_turns"):
@@ -353,7 +371,7 @@ def judge_turn(pane, transcript, turn_id, model):
     turn = extract(transcript, turn_id)
     if not turn or not turn["users"]:
         return
-    record = _record(turn_id, turn["sid"], model, transcript, SCOPE_THROUGH_END, turn["users"])
+    record = _record(turn_id, turn["sid"], model, transcript, SCOPE_THROUGH_END, turn["users"], turn["first_entry"])
     with Pending(qa_store.pending_path(pane)):
         _judge_into(record, pane, build_message(turn, []), model)
         with qa_store.session_lock(pane, turn["sid"]):
@@ -363,11 +381,31 @@ def judge_turn(pane, transcript, turn_id, model):
             atomic_write_json(path, record)
 
 
-def _failed_batch(pane, transcript, turn_id):
-    """A failed check that covered several turns is retried as the same check, not as one turn."""
-    sid = next((e.get("sessionId") for e in reversed(load_entries(transcript)) if e.get("sessionId")), None)
+def _failed_batch(pane, sid, turn_id):
+    """The failed record of turn_id when it came from a check since the cursor, else None."""
     record = read_json(qa_store.record_path(pane, sid, turn_id)) if sid else None
-    return isinstance(record, dict) and record.get("status") == RecordStatus.ERROR.value and (record.get("prompt_count") or 1) > 1
+    failed = isinstance(record, dict) and record.get("status") == RecordStatus.ERROR.value and (
+        "end_uuid" in record or (record.get("prompt_count") or 1) > 1)
+    return record if failed else None
+
+
+def judge_batch_again(pane, transcript, entries, sid, turn_id, failed, model):
+    """Checks again the turns a failed check since the cursor covered and replaces its record.
+
+    Moves the cursor only if no later check did."""
+    index = {e.get("uuid"): i for i, e in enumerate(entries) if e.get("uuid")}
+    start = index.get(failed.get("start_uuid"), index.get(turn_id))
+    if start is None:
+        return
+    end = index[failed["end_uuid"]] + 1 if failed.get("end_uuid") in index else len(entries)
+    seg = {**_segment(entries, start, end, marker_for_later_prompts=False), "turn_id": turn_id}
+    record = _since_record(seg, sid, model, transcript, failed.get("after"), entries[start])
+    record.update({k: failed[k] for k in ("skipped_turns", "skipped_after") if k in failed})
+    with Pending(qa_store.pending_path(pane)):
+        with qa_store.session_lock(pane, sid):
+            candidates = qa_store.open_items(pane, sid, turn_id, MAX_FOLLOWUPS)
+        _judge_since(pane, sid, seg, record, candidates, model,
+                     lambda: qa_store.read_cursor(pane, sid) == failed.get("after") and seg["last_uuid"])
 
 
 def main():
@@ -390,10 +428,14 @@ def main():
         recheck_open(pane, transcript, settings["model"], turns or None)
     elif item:
         recheck_item(pane, transcript, turn_id, item, settings["model"])
-    elif turn_id and _failed_batch(pane, transcript, turn_id):
-        judge_since_cursor(pane, transcript, settings["model"])
     elif turn_id:
-        judge_turn(pane, transcript, turn_id, settings["model"])
+        entries = load_entries(transcript)
+        sid = _session_id(entries)
+        failed = _failed_batch(pane, sid, turn_id)
+        if failed:
+            judge_batch_again(pane, transcript, entries, sid, turn_id, failed, settings["model"])
+        else:
+            judge_turn(pane, transcript, turn_id, settings["model"])
     else:
         judge_since_cursor(pane, transcript, settings["model"], None if "--force" in sys.argv else started)
 

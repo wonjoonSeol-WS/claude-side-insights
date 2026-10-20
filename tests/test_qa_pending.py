@@ -77,5 +77,105 @@ class PendingTurnsTest(unittest.TestCase):
             self.assertNotIn("question 6", judged[1])
 
 
+    def test_a_cursor_gone_from_the_file_checks_the_latest_turns_and_offers_the_rest(self):
+        seg = qa.extract_since(self.path, "gone", 10)
+        self.assertEqual(asked(seg), [f"question {n}" for n in range(16, 26)])
+        self.assertEqual((seg["skipped"], seg["skipped_after"]), (15, "gone"))
+
+
+class StoredChecksTest(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.folder)
+        self.path = transcript(self.folder)
+        self.judged = []
+        patch = mock.patch.object(qa_store, "DATA", os.path.join(self.folder, "data"))
+        patch.start()
+        self.addCleanup(patch.stop)
+        os.makedirs(qa_store.session_dir("p1", "s1"))
+
+    def judge(self, pane, message, model):
+        self.judged.append(message)
+        return {"items": [{"question": "q", "kind": "question", "status": "answered", "answer": "a"}], "followups": []}, 0.01
+
+    def write(self, turn_id, record):
+        qa_store.atomic_write_json(qa_store.record_path("p1", "s1", turn_id), {"turn_id": turn_id, "sid": "s1", **record})
+
+    def read(self, turn_id):
+        return qa_store.read_json(qa_store.record_path("p1", "s1", turn_id))
+
+    def test_a_failed_check_older_keeps_the_offer_and_writes_nothing(self):
+        self.write("u16", {"status": "ok", "items": [], "skipped_turns": 15, "skipped_after": None})
+
+        def fail(*_):
+            raise RuntimeError("model down")
+
+        with mock.patch.object(qa, "_judge", fail):
+            qa.judge_older("p1", self.path, "u16", "haiku", 10)
+        self.assertEqual(self.read("u16")["skipped_turns"], 15)
+        self.assertIsNone(self.read("u6"))
+
+    def test_a_failed_batch_is_checked_again_over_its_own_turns_after_a_later_check_moved_on(self):
+        self.write("u11", {"status": "error", "items": [], "prompt_count": 5, "after": "a10", "start_uuid": "u11", "end_uuid": "a15"})
+        qa_store.write_cursor("p1", "s1", "a25")
+        failed = qa._failed_batch("p1", "s1", "u11")
+        self.assertIsNotNone(failed)
+        with mock.patch.object(qa, "_judge", self.judge):
+            qa.judge_batch_again("p1", self.path, qa.load_entries(self.path), "s1", "u11", failed, "haiku")
+        self.assertIn("question 11", self.judged[0])
+        self.assertIn("question 15", self.judged[0])
+        self.assertNotIn("question 16", self.judged[0])
+        record = self.read("u11")
+        self.assertEqual((record["status"], record["prompt_count"]), ("ok", 5))
+        self.assertEqual(qa_store.read_cursor("p1", "s1"), "a25")
+
+    def test_a_failed_batch_moves_the_cursor_when_no_later_check_did(self):
+        self.write("u11", {"status": "error", "items": [], "prompt_count": 5, "after": "a10", "start_uuid": "u11", "end_uuid": "a15"})
+        qa_store.write_cursor("p1", "s1", "a10")
+        with mock.patch.object(qa, "_judge", self.judge):
+            qa.judge_batch_again("p1", self.path, qa.load_entries(self.path), "s1", "u11", qa._failed_batch("p1", "s1", "u11"), "haiku")
+        self.assertEqual(qa_store.read_cursor("p1", "s1"), "a15")
+
+    def test_a_failed_check_of_one_turn_since_the_cursor_moves_the_cursor_when_checked_again(self):
+        self.write("u11", {"status": "error", "items": [], "scope": "turn", "prompt_count": 1, "after": "a10", "start_uuid": "u11", "end_uuid": "a11"})
+        self.write("u12", {"status": "error", "items": [], "scope": "through-end", "prompt_count": 1})
+        qa_store.write_cursor("p1", "s1", "a10")
+        self.assertIsNone(qa._failed_batch("p1", "s1", "u12"))
+        with mock.patch.object(qa, "_judge", self.judge):
+            qa.judge_batch_again("p1", self.path, qa.load_entries(self.path), "s1", "u11", qa._failed_batch("p1", "s1", "u11"), "haiku")
+        self.assertEqual(qa_store.read_cursor("p1", "s1"), "a11")
+
+    def test_a_failed_batch_checked_again_settles_earlier_open_questions(self):
+        self.write("u3", {"status": "ok", "items": [{"question": "open q", "kind": "question", "status": "unanswered"}]})
+        self.write("u11", {"status": "error", "items": [], "prompt_count": 5, "after": "a10", "start_uuid": "u11", "end_uuid": "a15"})
+
+        def judge(pane, message, model):
+            self.judged.append(message)
+            return {"items": [], "followups": [{"id": "p1", "status": "answered", "answer": "later"}]}, 0.01
+
+        with mock.patch.object(qa, "_judge", judge):
+            qa.judge_batch_again("p1", self.path, qa.load_entries(self.path), "s1", "u11", qa._failed_batch("p1", "s1", "u11"), "haiku")
+        self.assertIn("open q", self.judged[0])
+        self.assertEqual(self.read("u3")["items"][0]["status"], "answered")
+
+    def test_a_batch_check_records_the_range_it_covered(self):
+        qa_store.write_cursor("p1", "s1", "a20")
+        with mock.patch.object(qa, "_judge", self.judge), mock.patch.object(qa.config, "load", lambda pane=None: {"qa_batch": 10}):
+            qa.judge_since_cursor("p1", self.path, "haiku")
+        record = self.read("u21")
+        self.assertEqual((record["after"], record["start_uuid"], record["end_uuid"], record["prompt_count"]), ("a20", "u21", "a25", 5))
+
+    def test_a_turn_checked_alone_is_dated_by_its_own_start(self):
+        stamped = os.path.join(self.folder, "stamped.jsonl")
+        with open(self.path, encoding="utf-8") as src, open(stamped, "w", encoding="utf-8") as out:
+            for n, line in enumerate(src):
+                entry = json.loads(line)
+                entry["timestamp"] = f"2026-01-01T00:{n:02d}:00Z"
+                out.write(json.dumps(entry) + "\n")
+        with mock.patch.object(qa, "_judge", self.judge):
+            qa.judge_turn("p1", stamped, "u3", "haiku")
+        self.assertEqual(self.read("u3")["turn_ts"], qa._entry_time({"timestamp": "2026-01-01T00:04:00Z"}))
+
+
 if __name__ == "__main__":
     unittest.main()

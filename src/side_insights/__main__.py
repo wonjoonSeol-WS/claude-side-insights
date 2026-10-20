@@ -6,6 +6,8 @@
   activity [pane]               live activity as a terminal UI
   qa-cli [list|set|archive|restore] ...
   config get <name> [pane]
+  config opens-panel <pane>     1 when a session start there opens the panel
+  client enable <pane>          switch the pane's analysis on, as opening /si does
   say <message-key> [args...]
   detach <command> [args...]    run a command in its own session, so it outlives the hook
   ensure-server                 start the server unless this copy of the code already serves
@@ -27,6 +29,7 @@ COMMANDS = {
     "activity": "side_insights.live.viewer",
     "qa-cli": "side_insights.cli",
     "config": "side_insights.config",
+    "client": "side_insights.live.client",
     "say": "side_insights.i18n",
     "ensure-server": "side_insights.web.ensure",
     "record-event": "side_insights.live.record_event",

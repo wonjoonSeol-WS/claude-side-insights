@@ -96,12 +96,13 @@ def save(update, pane=None):
     for name, value in update.items():
         if name not in _BY_KEY or (name in _PANE_ONLY) != bool(pane) or not (_BY_KEY[name].valid(value) or (pane and value is None)):
             raise ValueError(f"invalid setting: {name}={value!r}")
-    model = update.get(Setting.MODEL.key)
-    family = _FAMILY.search(str(model or ""))
-    if family and Setting.QA_BATCH.key not in update and model != load()[Setting.MODEL.key]:
-        update = {**update, Setting.QA_BATCH.key: MODEL_QA_BATCH[family.group(1)]}
     with _SAVE_LOCK:
         saved = _saved()
+        model = update.get(Setting.MODEL.key)
+        family = _FAMILY.search(str(model or ""))
+        previous = _valid_only(saved).get(Setting.MODEL.key, Setting.MODEL.default)
+        if family and Setting.QA_BATCH.key not in update and model != previous:
+            update = {**update, Setting.QA_BATCH.key: MODEL_QA_BATCH[family.group(1)]}
         panes = saved.get(_PANES)
         data = {**_valid_only(saved), _PANES: dict(panes) if isinstance(panes, dict) else {}}
         if pane:
@@ -117,16 +118,20 @@ def save(update, pane=None):
     return load(pane)
 
 
-def runs(kind, pane=None):
+def _analyzed(shared, pane):
+    return shared["analyze"] == ALL_SESSIONS or bool(overrides(pane).get(Setting.ENABLED.key))
+
+
+def runs(kind, pane=None, shared=None):
     """Whether the end of a turn starts this analysis ("flow" or "qa") for the pane: switched on, and the pane opened or all sessions."""
-    shared, settings = load(), load(pane)
-    return bool(shared[f"{kind}_auto"]) and (shared["analyze"] == ALL_SESSIONS or bool(settings["enabled"]))
+    shared = shared or load()
+    return bool(shared[f"{kind}_auto"]) and _analyzed(shared, pane)
 
 
 def opens_panel(pane):
     """Whether a session start in this pane opens the panel: switched on, and the pane analyzed or all sessions."""
     shared = load()
-    return bool(shared[Setting.PANEL_AUTO.key]) and (shared["analyze"] == ALL_SESSIONS or bool(load(pane)["enabled"]))
+    return bool(shared[Setting.PANEL_AUTO.key]) and _analyzed(shared, pane)
 
 
 def payload(pane=None):

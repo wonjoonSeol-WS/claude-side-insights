@@ -112,7 +112,7 @@ def atomic_write_json(path, obj):
             json.dump(obj, fh, ensure_ascii=False)
         _replace(tmp, path)
         with _CACHE_LOCK:
-            _CACHE.pop(path, None)
+            _CACHE.pop(os.path.abspath(path), None)
     except BaseException:
         if os.path.exists(tmp):
             os.remove(tmp)
@@ -125,6 +125,7 @@ _CACHE_LOCK = threading.Lock()
 
 def read_json(path, default=None):
     """Parsed JSON, re-read only when the file is replaced or its mtime or size changes."""
+    path = os.path.abspath(path)
     try:
         st = os.stat(path)
     except OSError:

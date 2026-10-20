@@ -32,6 +32,7 @@ fi
 {
   ensure_panel_server || exit 0
   url=$(panel_url "$key")
+  [ "$force" = 1 ] && panel_py client enable "$key"
   if [ -z "$adapter" ]; then
     panel_open_url "$url&full=1"
     exit 0

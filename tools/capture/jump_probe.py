@@ -13,11 +13,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import urllib.request
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
+sys.path.insert(0, os.path.join(ROOT, "src"))
+
+from side_insights.system import local_urlopen, terminate  # noqa: E402
+
 DATA = tempfile.mkdtemp(prefix="jump-probe-")
 PORT = "47898"
 ENV = dict(os.environ, SIDE_INSIGHTS_DATA=DATA, SIDE_INSIGHTS_PORT=PORT, PYTHONPATH=os.path.join(ROOT, "src"))
@@ -34,9 +37,8 @@ def start_server():
 
 
 def stop_server():
-    with urllib.request.urlopen(f"http://127.0.0.1:{PORT}/health", timeout=5) as resp:
-        pid = json.load(resp).get("pid")
-    subprocess.run([sys.executable, "-c", "import sys; from side_insights.system import terminate; terminate(sys.argv[1])", str(pid)], env=ENV)
+    with local_urlopen(f"http://127.0.0.1:{PORT}/health", timeout=5) as resp:
+        terminate(json.load(resp).get("pid"))
 
 
 def record(sid):
@@ -51,7 +53,7 @@ def record(sid):
 def run(press_m):
     sid = str(uuid.uuid4())
     record(sid)
-    out = os.path.join(tempfile.mkdtemp(), "screen.json")
+    out = os.path.join(DATA, f"screen-{sid}.json")
     keys = [PROMPT, "\\r", "sleep:2", "\\x1b", "sleep:3", f"\\x1b[200~{FILLER}\\x1b[201~", "sleep:1", "\\r", "sleep:2", "\\x1b",
             "sleep:10", "/si", "sleep:1", "\\r", "sleep:5", "3", "sleep:2", "m" if press_m else "sleep:0.1", "sleep:3"]
     env = dict(ENV, CLAUDE_ARGS=f"--session-id {sid}")
@@ -64,13 +66,15 @@ def run(press_m):
 def cleanup():
     try:
         stop_server()
+    except (OSError, ValueError):
+        pass
     finally:
         shutil.rmtree(DATA, ignore_errors=True)
 
 
 if __name__ == "__main__":
-    start_server()
     try:
+        start_server()
         before, after = run(False), run(True)
     finally:
         cleanup()

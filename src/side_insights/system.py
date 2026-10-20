@@ -1,5 +1,6 @@
 """What differs between macOS, Linux and Windows: processes, file locks, the browser and the clipboard."""
 import errno
+import json
 import os
 import shutil
 import signal
@@ -24,6 +25,12 @@ if WINDOWS:
     import ctypes
     import msvcrt
     from ctypes import wintypes
+
+    _KERNEL32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _KERNEL32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    _KERNEL32.OpenProcess.restype = wintypes.HANDLE
+    _KERNEL32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    _KERNEL32.CloseHandle.argtypes = (wintypes.HANDLE,)
 else:
     import fcntl
 
@@ -50,19 +57,14 @@ def process_alive(pid):
 
 
 def _windows_alive(pid):
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
-    kernel32.OpenProcess.restype = wintypes.HANDLE
-    kernel32.GetExitCodeProcess.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
-    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
-    handle = kernel32.OpenProcess(_QUERY_LIMITED_INFORMATION, False, pid)
+    handle = _KERNEL32.OpenProcess(_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return ctypes.get_last_error() == _ACCESS_DENIED
     try:
         code = wintypes.DWORD()
-        return bool(kernel32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == _STILL_ACTIVE
+        return bool(_KERNEL32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == _STILL_ACTIVE
     finally:
-        kernel32.CloseHandle(handle)
+        _KERNEL32.CloseHandle(handle)
 
 
 def detached(breakaway=True):
@@ -87,12 +89,17 @@ def kill_tree(proc):
     try:
         if WINDOWS:
             done = subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, timeout=COPY_TIMEOUT)
-            if done.returncode != 0:
-                proc.kill()
+            if done.returncode == 0:
+                return
         else:
             os.killpg(proc.pid, signal.SIGKILL)
+            return
     except (OSError, subprocess.SubprocessError):
+        pass
+    try:
         proc.kill()
+    except OSError:
+        pass
 
 
 def terminate(pid):
@@ -108,25 +115,35 @@ def terminate(pid):
 class FileLock:
     """An exclusive lock on a file, held across processes until the block ends."""
 
-    def __init__(self, path):
+    def __init__(self, path, timeout=None):
         self.path = path
+        self.timeout = timeout
         self.fh = None
+
+    def _try(self):
+        try:
+            if WINDOWS:
+                self.fh.seek(0)
+                msvcrt.locking(self.fh.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            if exc.errno not in (*_LOCK_BUSY, errno.EAGAIN):
+                raise
+            return False
+        return True
 
     def __enter__(self):
         self.fh = open(self.path, "a+")
         try:
-            if WINDOWS:
-                while True:
-                    try:
-                        self.fh.seek(0)
-                        msvcrt.locking(self.fh.fileno(), msvcrt.LK_NBLCK, 1)
-                        break
-                    except OSError as exc:
-                        if exc.errno not in _LOCK_BUSY:
-                            raise
-                        time.sleep(LOCK_RETRY)
-            else:
+            if self.timeout is None and not WINDOWS:
                 fcntl.flock(self.fh, fcntl.LOCK_EX)
+            else:
+                deadline = None if self.timeout is None else time.monotonic() + self.timeout
+                while not self._try():
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise TimeoutError(f"lock held: {self.path}")
+                    time.sleep(LOCK_RETRY)
         except BaseException:
             self.fh.close()
             raise
@@ -166,16 +183,30 @@ def copy_text(text):
     return False
 
 
+def _npm_target(shim):
+    package = os.path.join(os.path.dirname(shim), "node_modules", "@anthropic-ai", "claude-code")
+    try:
+        with open(os.path.join(package, "package.json"), encoding="utf-8") as fh:
+            bin_field = json.load(fh).get("bin")
+    except (OSError, ValueError, AttributeError):
+        bin_field = None
+    target = bin_field.get("claude") if isinstance(bin_field, dict) else bin_field
+    return os.path.join(package, target if isinstance(target, str) and target else "cli.js")
+
+
 def claude_command():
-    """The argv prefix that starts Claude Code. Popen cannot run an npm .cmd shim, so it runs node with the package script."""
-    found = shutil.which("claude")
+    """The argv prefix that starts Claude Code. An npm .cmd shim goes through cmd.exe, which re-parses quotes and newlines in the arguments."""
+    found = (WINDOWS and shutil.which("claude.exe")) or shutil.which("claude")
     if not found:
         return ["claude"]
     if WINDOWS and found.lower().endswith(".cmd"):
-        script = os.path.join(os.path.dirname(found), "node_modules", "@anthropic-ai", "claude-code", "cli.js")
-        node = shutil.which("node")
-        if node and os.path.isfile(script):
-            return [node, script]
+        target = _npm_target(found)
+        if os.path.isfile(target):
+            if not target.lower().endswith((".js", ".mjs", ".cjs")):
+                return [target]
+            node = shutil.which("node")
+            if node:
+                return [node, target]
     return [found]
 
 

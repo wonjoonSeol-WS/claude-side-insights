@@ -206,6 +206,9 @@ kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5p
 .file-link { border: 0; background: transparent; padding: 0; text-align: left; font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; color: var(--text); }
 .file-link:hover { text-decoration: underline; }
 .file-link.on { color: var(--teal); }
+.file-name { display: flex; flex-wrap: wrap; column-gap: 8px; min-width: 0; }
+.file-name b { flex-shrink: 0; }
+.file-name .dir { color: var(--faint); min-width: 0; overflow-wrap: anywhere; }
 .diff-card { border-color: color-mix(in srgb, var(--teal) 55%, var(--line)); margin-top: 14px; }
 .diff-card pre.code { max-height: 70vh; overflow: auto; }
 .diff-views { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 10px; }
@@ -491,7 +494,7 @@ function renderPanel() {
     ${S.error ? `<span class="pill err" title="${esc(S.error)}"><i class="dot"></i>${t("disconnected")}</span>`
       : S.state.busy ? `<span class="pill busy"><i class="dot"></i>${t("busy")}</span>` : `<span class="pill"><i class="dot"></i>${t("idle")}</span>`}
     ${mode === "flow" && S.pending ? `<span class="pill gen"><i class="dot"></i>${t("flow_gen")} <span data-since="${Number(S.pending.since) || 0}"></span></span>` : ""}
-    <span class="where" title="${esc(S.state.cwd || "")}">${esc((S.state.cwd || "").split(/[\\/]/).pop())}</span>
+    <span class="where" title="${esc(S.state.cwd || "")}">${esc((S.state.cwd || "").replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "-")}</span>
     ${S.dialog ? "" : `<button class="btn" data-act="check-now" title="${t(`check_now_${mode}`)}">${t("check_now")}</button>`}
     ${FULL ? "" : `<button class="btn" data-act="full" title="${t("full_title")}">${t("full")}</button>`}
     <button class="btn" data-act="help" title="${t("k_help")}">${t("help")}</button>
@@ -606,6 +609,14 @@ function changeRows(changes) {
 }
 
 const slashes = path => String(path).replace(/\\/g, "/");
+
+const shortPath = ({ name, dir }) => (dir ? `${name}  ${dir}` : name);
+
+function splitPath(path, where) {
+  const parts = slashes(path).split("/");
+  const name = parts.pop() || "";
+  return { name, dir: where ?? parts.join("/") };
+}
 
 const isAbsolutePath = path => path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith("\\\\");
 
@@ -749,7 +760,7 @@ function renderTurn(turn, items) {
     ${turn.status !== REC.OK ? `<button class="mini" data-qa-turn="${esc(turn.turn_id)}" title="${t("recheck_title")}">${t("recheck")}</button>` : ""}</div>
     ${turn.status !== REC.OK ? `<div class="err-box">${esc(turn.error || text("qa_fail"))}</div>` : ""}
     ${turn.skipped_turns ? `<div class="meta">${t("qa_skipped", Number(turn.skipped_turns))} <button class="mini" data-qa-older="${esc(turn.turn_id)}"
-      title="${t("check_older_title")}">${t("check_older", Math.min(Number(turn.skipped_turns), Number(S.qa.batch) || QA_BATCHES[2]))}</button></div>` : ""}
+      title="${t("check_older_title")}">${t("check_older", Math.min(Number(turn.skipped_turns), Number(S.qa.batch) || Number(turn.skipped_turns)))}</button></div>` : ""}
     <div class="qa">${rows || (turn.status === REC.OK ? `<div class="empty">${t("qa_noq")}</div>` : "")}</div></div>`;
 }
 
@@ -759,12 +770,12 @@ function toolRow(tool) {
   const icon = TOOL_ICON[tool.state] || "-";
   const dur = tool.state === TOOL.RUN ? `<span data-since="${Number(tool.start) || 0}"></span>` : tool.end && tool.start ? secs(tool.end - tool.start) : "";
   const cls = EDIT_TOOLS.has(tool.tool) ? "edit" : (tool.tool || "").startsWith("mcp__") ? "mcp" : "other";
-  const what = tool.file || tool.summary;
+  const what = tool.file ? shortPath(splitPath(tool.file, tool.where)) : tool.summary;
   const failed = tool.state === TOOL.ERR;
   const open = failed && S.toolOpen === toolId(tool);
   const attrs = failed ? `class="tool click" role="button" tabindex="0" data-tool-open="${esc(toolId(tool))}" aria-expanded="${open}"` : `class="tool"`;
   return `<div ${attrs}><span class="st-${esc(tool.state)}">${icon}</span><span class="time">${clock(tool.start)}</span>
-    <span class="name ${cls}" title="${esc(tool.tool)}">${esc(tool.label || tool.tool)}</span><span class="sum" title="${esc(what)}">${esc(what)}</span><span class="dur">${dur}</span>
+    <span class="name ${cls}" title="${esc(tool.tool)}">${esc(tool.label || tool.tool)}</span><span class="sum" title="${esc(tool.file || what)}">${esc(what)}</span><span class="dur">${dur}</span>
     ${open ? `<div class="tool-reason ${tool.reason ? "" : "none"}">${esc(tool.reason || text("mod_no_reason"))}</div>` : ""}</div>`;
 }
 
@@ -786,9 +797,18 @@ function meter(segments, total, suffix = "") {
   return `<div class="meter"><div class="bar">${bars}</div>${suffix}</div>`;
 }
 
-function fileLink(path, label = path, flow = "") {
+function diffButton(path, flow, inner, cls = "", title = "") {
   const on = S.diff?.path === path;
-  return `<button class="file-link ${on ? "on" : ""}" data-diff-file="${esc(path)}" data-diff-flow="${esc(flow)}" aria-pressed="${on}">${esc(label)}</button>`;
+  return `<button class="file-link ${cls} ${on ? "on" : ""}" data-diff-file="${esc(path)}" data-diff-flow="${esc(flow)}" aria-pressed="${on}"${title ? ` title="${esc(title)}"` : ""}>${inner}</button>`;
+}
+
+function fileLink(path, label = path, flow = "") {
+  return diffButton(path, flow, esc(label));
+}
+
+function fileName(path, where) {
+  const { name, dir } = splitPath(path, where);
+  return diffButton(path, "", `<b>${esc(name)}</b>${dir ? `<span class="dir">${esc(dir)}</span>` : ""}`, "file-name", path);
 }
 
 function relative(path) {
@@ -845,7 +865,7 @@ function renderLive() {
     `data-tool-filter="${state}"`, S.toolFilter === state)).join("")}${tile(files.length, t("mod_edited_tile"), "var(--purple)")}</div>`;
   const bar = meter(TOOL_STATES.map(state => ({ value: count(state), color: TOOL_COLOR[state] })), tools.length);
   const rows = files.slice(0, MAX_FILES).map(f => `<div class="row file ${S.diff?.path === f.path ? "on" : ""}">
-    <span class="k ${f.created ? "A" : "M"}">${f.created ? "A" : "M"}</span>${fileLink(f.path)}<span class="v">${Number(f.count) > 1 ? "×" + Number(f.count) : ""}</span></div>`).join("");
+    <span class="k ${f.created ? "A" : "M"}">${f.created ? "A" : "M"}</span>${fileName(f.path, f.where)}<span class="v">${Number(f.count) > 1 ? "×" + Number(f.count) : ""}</span></div>`).join("");
   const more = files.length > MAX_FILES ? `<div class="meta">${t("term_more", files.length - MAX_FILES)}</div>` : "";
   const filesCard = `<div class="card"><h3>${t("mod_edited_files", files.length)}</h3><div class="rows">${rows || `<div class="empty">${t("none")}</div>`}</div>${more}
     <div class="meta">${t("mod_edited_note")}</div></div>`;
@@ -1188,19 +1208,7 @@ document.addEventListener("pointerover", e => {
 document.addEventListener("pointerleave", hideTip);
 addEventListener("scroll", hideTip, true);
 
-async function enableHere() {
-  const r = await api("GET", `/api/config?pane=${KEY}`);
-  if (!r.ok || r.data.pane?.enabled === true) return;
-  const saved = await api("POST", `/api/config?pane=${KEY}`, { enabled: true });
-  if (!saved.ok) return;
-  const shared = r.data.global || r.data.effective || {};
-  if (shared.analyze === "all") return;
-  if (shared.qa_auto) api("POST", `/api/${KEY}/regen?target=qa`);
-  if (shared.flow_auto) api("POST", `/api/${KEY}/regen?target=flow&new=1`);
-}
-
 (async () => {
-  if (KEY) await enableHere();
   if (S.dialog) await openDialog(S.dialog);
   await poll(true);
   setInterval(() => {

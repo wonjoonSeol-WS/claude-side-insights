@@ -117,6 +117,7 @@ type Mod = {
   themeInputs?: { claude?: string; systemDark?: boolean }
   focusable: string[]
   lastFocus?: string
+  starting?: Promise<void>
   configSeq: number
   reopenPending?: boolean
   openPane?: (pane: { id: string; title: string }) => Promise<UiOpenResult>
@@ -215,7 +216,9 @@ const problem = (): string | undefined => {
   return mod.httpError ? t('term_failed', mod.httpError) : undefined
 }
 
-const startServer = async (io: Io) => {
+const startServer = (io: Io) => (mod.starting ??= tryStartServer(io).finally(() => (mod.starting = undefined)))
+
+const tryStartServer = async (io: Io) => {
   const at = await io.now()
   if (at - mod.lastStart < START_RETRY_MS) {
     return
@@ -614,7 +617,7 @@ const checkNow = (hotkey: string) => {
     return
   }
   const target = mod.view.tab === Tab.FLOW ? Regen.FLOW : Regen.QA
-  void confirmed(`check:${target}`, hotkey).then(ok =>
+  void confirmed(`check:${target}:${hotkey}`, hotkey).then(ok =>
     ok ? run(() => api.regen({ target }), t(target === Regen.FLOW ? 'flow_started' : 'qa_checking')) : undefined,
   )
 }
@@ -723,7 +726,8 @@ const actions = (copyText: Copy, scrollTo: Scroll): Actions => ({
     mod.view.settingRow = clampIndex(mod.view.settingRow + delta, rows.length)
     redraw()
     const row = rows[mod.view.settingRow]
-    if (row) {
+    const ringOnRow = !mod.lastFocus || rows.some(r => settingKey(r.id) === mod.lastFocus)
+    if (row && ringOnRow) {
       void mod.io?.focus(settingKey(row.id)).catch(() => undefined)
     }
   },

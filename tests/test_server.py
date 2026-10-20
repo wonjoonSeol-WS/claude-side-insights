@@ -8,6 +8,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "src"))
 
+from side_insights.web import server  # noqa: E402
 from side_insights.web.server import _allowed_path  # noqa: E402
 
 
@@ -75,6 +76,19 @@ class AllowedPathTest(unittest.TestCase):
         snap = {"cwd": self.cwd, "files": []}
         with mock.patch("os.path.commonpath", side_effect=ValueError("Paths don't have the same drive")):
             self.assertIsNone(_allowed_path(os.path.join(self.other, "x.md"), snap))
+
+
+
+class UncheckedPromptsTest(unittest.TestCase):
+    def test_prompts_are_listed_only_when_the_end_of_a_turn_checks_them(self):
+        waiting = mock.Mock()
+        waiting.since.return_value = [{"text": "hi", "mid_turn": False}]
+        snap = {"sid": "s1", "transcript": "/t.jsonl"}
+        with mock.patch.object(server, "waiting_for", return_value=waiting), mock.patch.object(server.qa_store, "read_cursor", return_value="u1"):
+            self.assertEqual(server.unchecked_prompts("p1", snap, True), [{"text": "hi", "mid_turn": False}])
+            waiting.since.assert_called_once_with("/t.jsonl", "u1")
+            self.assertEqual(server.unchecked_prompts("p1", snap, False), [])
+            self.assertEqual(server.unchecked_prompts("p1", {**snap, "sid": None}, True), [])
 
 
 if __name__ == "__main__":

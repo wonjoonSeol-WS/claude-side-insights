@@ -56,6 +56,12 @@ export const probeSystemDark = async (run: Run): Promise<boolean | undefined> =>
 
 const WINDOWS_BASH = ['C:\\Program Files\\Git\\bin\\bash.exe', 'C:\\Program Files (x86)\\Git\\bin\\bash.exe']
 
+export const splitPath = (path: string, where?: string | null): { name: string; dir: string } => {
+  const parts = path.replace(/\\/g, '/').split('/')
+  const name = parts.pop() ?? ''
+  return { name, dir: where ?? parts.join('/') }
+}
+
 export const bashCandidates = (env: Env | undefined): string[] =>
   env?.windows
     ? [...(env.gitBash ? [env.gitBash] : []), ...WINDOWS_BASH, ...(env.localAppData ? [`${env.localAppData}\\Programs\\Git\\bin\\bash.exe`] : [])]
@@ -84,12 +90,13 @@ export type Tool = {
   label?: string
   summary?: string
   file?: string | null
+  where?: string | null
   state: string
   start?: number | null
   end?: number | null
   reason?: string | null
 }
-export type FileChange = { path: string; count: number; created: boolean; last: number }
+export type FileChange = { path: string; where?: string; count: number; created: boolean; last: number }
 export type FlowRef = { id: string; ts: number; status: string; title: string }
 export type QaItem = {
   id: string

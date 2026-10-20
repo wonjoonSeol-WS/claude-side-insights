@@ -54,7 +54,7 @@ A panel next to each [Claude Code](https://claude.com/claude-code) pane. Live up
 |---|---|
 | **Q&A** | Every question you asked, even mid-turn: ✓ answered, ◐ partial, ✗ unanswered. The missing part is highlighted. **⧉ Copy question** copies a message that asks the question again, ready to paste. |
 | **Flow** | After a turn that changed files (edits, or shell commands that write files): the changed feature step by step, with real code and the changed lines highlighted. |
-| **Live** | Every tool call as it runs, and the files Claude edited with Edit or Write (changes made by shell commands are not listed). |
+| **Live** | Every tool call as it runs, and the files Claude edited with Edit or Write (changes made by shell commands are not listed). Each file shows its name first, then its folder: the path inside the working folder, else the repo name and the path inside that git repo, else from `~` or `/`. A folder that does not fit goes on the line under the name, cut in the middle if it is still too long. The path, from the working folder or else from `~` or `/`, is in the diff header and on hover in the browser. |
 
 > [!WARNING]
 > **Flow is not a debugger.** A model writes it after the turn by reading the changed code and the conversation. Nothing is run or traced, so steps, the example and its values can be wrong or made up. Check the real code before you rely on it.
@@ -95,7 +95,7 @@ The Flow tab follows one example through every step. Its values are inferred fro
 
 ## The /si pane
 
-Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, so it looks the same in every terminal. Before using the keys, give the pane focus with `ctrl+x tab` or a click. A letter or digit the pane does not use shows a hint and is not sent to the prompt. With a non-Latin keyboard input source (for example 한글), switch to English first: hotkeys only accept Latin letters and digits. On Q&A, select a question by clicking it (or Tab to it and press Enter). This also copies the whole question. The first open question is selected by default.
+Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, so it looks the same in every terminal. Before using the keys, give the pane focus with `ctrl+x tab` or a click. A letter or digit the pane does not use shows a hint and is not sent to the prompt. With a non-Latin keyboard input source (for example 한글), switch to English first: hotkeys only accept Latin letters and digits. On Q&A, select a question by clicking it (or Tab to it and press Enter). This also copies the whole question. The first open question is selected by default. The footer lists only keys that can act now: with no flow yet, for example, the flow keys are left out.
 
 | Key | What it does |
 |---|---|
@@ -107,7 +107,7 @@ Needs Claude Code 2.1.287 or later (tested with 2.1.296). Claude Code draws it, 
 | `d` `s` `f` | With a diff open: uncommitted changes, the last commit that touched the file, the whole file |
 | `x` | Close the diff (`git diff`, the new file, or the last commit that touched it) |
 | `u` | Check now. Flow: build the flow for the latest turn. Q&A: check every turn not checked yet and re-check open questions. Live: refresh. Press it twice on Flow and Q&A; each is one Claude call |
-| `r` | Flow: rebuild the flow. Q&A: re-check the selected question (or a failed turn). Press it twice. It uses one Claude call |
+| `r` | Flow: rebuild the flow, the same as `u` there. Q&A: re-check the selected question (or a failed turn). Press the same key twice. It uses one Claude call |
 | `a` `c` | Q&A: archive or restore the selected question. Copy it while it is still open |
 | `f` `v` | Q&A: show open questions only, show archived ones |
 | `m` | Q&A: scroll the chat to where you asked the selected question. Clicking a line of an answer does the same. Only the /si pane can do this; a question cleared or compacted out of the chat cannot be reached |
@@ -123,6 +123,7 @@ Also:
 - From 78 columns wide, Flow and Live show two columns.
 - A line above the prompt shows Q&A counts, waiting questions and the latest flow.
 - The spinner shows how many of your questions are waiting.
+- Waiting questions show only for a panel that is analyzed. A panel that is off still shows Live, and its turns are checked only when you press Check now or Check older.
 - A short notice appears when a new flow is ready or a check leaves questions open.
 - It reads from the same local server as the other panels, and starts it if needed.
 
@@ -194,7 +195,7 @@ In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a que
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Analyze this panel | off until you open `/si` here | Opening `/si` or `/si-browser` turns it on; closing the `/si` pane yourself turns it off. While it is on, `/si` opens by itself when a session starts in this panel |
+| Analyze this panel | off until you open `/si` here | Opening `/si`, `/si-browser` or `! si-panel` turns it on; closing the `/si` pane yourself turns it off. Reloading a browser page does not turn it back on. While it is on, `/si` opens by itself when a session starts in this panel |
 | Analyze which sessions | only panels opened with /si | **All sessions** analyzes every session, open or not, whichever panel you set it from |
 | Build a flow when a turn ends | on | When off, flows are built only with Check now (`u`) or ↻ |
 | Check Q&A when a turn ends | on | When off, turns stay pending until Check now (`u`) or ↻ |
@@ -206,7 +207,7 @@ In the terminal panel, press `h` for every key. On Q&A, `↑` `↓` select a que
 
 A "panel" is the terminal pane in cmux, Orca and iTerm2, so it stays on across sessions there. Elsewhere it is one Claude Code session, and resuming it reopens `/si`.
 
-Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`) and `SIDE_INSIGHTS_DATA` (default `~/.claude/side-insights`).
+Environment variables: `SIDE_INSIGHTS_PORT` (default `47821`), `SIDE_INSIGHTS_DATA` (default `~/.claude/side-insights`) and `SIDE_INSIGHTS_PYTHON` (a Python 3.9+ to use instead of the one found, for example Homebrew's on a Mac without the Command Line Tools).
 
 ## FAQ
 
@@ -274,12 +275,16 @@ flowchart LR
   hooks["Claude Code hooks"] --> rec["record.sh"] --> logs[("logs")]
   stop["turn ends"] --> runs["Flow and Q&A<br/>headless claude -p"] --> results[("flows, qa")]
   logs --> server["local server<br/>127.0.0.1:47821"]
-  results --> server --> page["panel page"]
+  results --> server
+  server --> pane["/si pane"]
+  server --> page["browser panel"]
+  server --> term["terminal panel"]
 ```
 
-- Live view: hooks append a line per event. Free.
-- Flow and Q&A: a separate `claude -p` after the turn. Read-only tools, no MCP, no hooks. Your session's context is untouched.
-- Flow runs only after turns that changed files: edits, or shell commands that write files. Q&A reads the conversation and the tool list, not files.
+- Live view: hooks append a line per tool call and edited file. This runs for every session, analyzed or not, and never calls Claude.
+- Flow and Q&A: a separate `claude -p` after the turn, only for a panel that is analyzed (or with **All sessions**) and only while its automatic switch is on. No MCP, no hooks, and your session's context is untouched. Flow may use read-only tools; Q&A uses none.
+- Flow runs only after turns that changed files: edits, or shell commands that write files. Q&A reads the conversation and the tool list, not files, and one check covers at most the latest unchecked turns (20 by default).
+- One local server serves all panels and all sessions. The plugin starts it when a session starts and replaces it when it comes from another plugin version, so an update takes effect after `/reload-plugins`.
 - Panels are keyed by the terminal's pane id, else the session id.
 
 ## Data and privacy

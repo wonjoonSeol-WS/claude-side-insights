@@ -102,6 +102,7 @@ async function openPage({ state = STATE, mode = 'live', diff, pane = {}, shared 
       : { ok: true }
     return { ok: true, status: 200, statusText: 'OK', json: async () => body }
   }
+  const replaced = []
   const document = {
     title: '',
     documentElement: { lang: '' },
@@ -114,7 +115,8 @@ async function openPage({ state = STATE, mode = 'live', diff, pane = {}, shared 
   const context = vm.createContext({
     document,
     window: { scrollY: 0, scrollTo() {}, getSelection: () => '' },
-    location: { search: `?full=1&mode=${mode}${search}`, href: `http://127.0.0.1:47821/p/${KEY}?full=1` },
+    location: { search: `?full=1&mode=${mode}${search}`, pathname: `/p/${KEY}`, href: `http://127.0.0.1:47821/p/${KEY}?full=1` },
+    history: { replaceState: (_, __, url) => replaced.push(url) },
     navigator: { clipboard: { writeText: async text => { copied.push(text) } } },
     fetch,
     URL,
@@ -155,7 +157,7 @@ async function openPage({ state = STATE, mode = 'live', diff, pane = {}, shared 
     handlers.change({ target: { type: 'select-one', ...target } })
     for (let i = 0; i < 5; i++) await settle()
   }
-  return { html: () => els.app.innerHTML, toast: () => els.toast.textContent, requests, run, click, key, change, copied }
+  return { html: () => els.app.innerHTML, toast: () => els.toast.textContent, requests, run, click, key, change, copied, replaced }
 }
 
 const diffRequests = page => page.requests.filter(r => r.path.endsWith('/diff')).map(r => Object.fromEntries(r.params))
@@ -248,31 +250,9 @@ test('a new finished flow is announced, a pending one only once it finishes', as
 
 const posted = page => page.requests.filter(r => r.method === 'POST').map(r => `${r.path}?${r.params}${r.body ? ` ${r.body}` : ''}`)
 
-test('opening a panel page switches the panel on and checks what is already there, unless it is already on', async () => {
-  const expected = ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow&new=1', '/api/pane1/regen?target=qa']
-  const page = await openPage()
-  assert.deepEqual(posted(page).sort(), expected)
-  const off = await openPage({ pane: { enabled: false } })
-  assert.deepEqual(posted(off).sort(), expected)
-  const on = await openPage({ pane: { enabled: true } })
-  assert.deepEqual(posted(on), [])
-})
-
-test('switching on with analyze set to all sessions starts no check, since the hooks already run them', async () => {
-  const page = await openPage({ shared: { analyze: 'all' } })
-  assert.deepEqual(posted(page), ['/api/config?pane=pane1 {"enabled":true}'])
-})
-
-test('switching on asks only for the checks whose switch is on', async () => {
-  const qa = await openPage({ shared: { flow_auto: false } })
-  assert.deepEqual(posted(qa).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=qa'])
-  const flow = await openPage({ shared: { qa_auto: false } })
-  assert.deepEqual(posted(flow).sort(), ['/api/config?pane=pane1 {"enabled":true}', '/api/pane1/regen?target=flow&new=1'])
-})
-
-test('a page opened on its settings shows this panel as on once it has been switched on', async () => {
-  const page = await openPage({ search: '&dialog=settings' })
-  assert.match(page.html(), /data-setting="enabled" data-setting-scope="pane"[^>]*checked/)
+test('opening or reloading a page never switches the panel on, since the command that opens it already did', async () => {
+  const reload = await openPage({ pane: { enabled: false } })
+  assert.deepEqual(posted(reload), [])
 })
 
 test('settings show this panel, which sessions, and the shared switches, each saved to its own scope', async () => {
@@ -309,8 +289,9 @@ test('a check that skipped older turns offers to check the next batch of them', 
 
 test('a held u does not start a second check', async () => {
   const page = await openPage({ mode: 'qa', pane: { enabled: true } })
+  await page.key('u')
   await page.key('u', { repeat: true })
-  assert.deepEqual(posted(page).filter(p => p.includes('/regen')), [])
+  assert.deepEqual(posted(page).filter(p => p.includes('/regen')), ['/api/pane1/regen?target=qa'])
 })
 
 test('check now is hidden while help or settings is open, and help lists u and the batch size', async () => {
@@ -322,6 +303,8 @@ test('check now is hidden while help or settings is open, and help lists u and t
   assert.match(page.html(), new RegExp(`qa_batch = 20</td><td>${EN.s_qa_batch.replace("&", "&amp;")}`))
   await page.run('closeDialog()')
   assert.match(page.html(), /data-act="check-now"/)
+  await page.run('openDialog("settings")')
+  assert.doesNotMatch(page.html(), /data-act="check-now"/)
 })
 
 test('the batch size is saved as a number', async () => {
@@ -341,4 +324,16 @@ test('the batch size menu falls back to the known sizes when the server does not
 test('the header names the last folder of a Windows path', async () => {
   const page = await openPage({ pane: { enabled: true }, state: { ...STATE, activity: { ...STATE.activity, cwd: 'C:\\work\\shop-api' } } })
   assert.match(page.html(), /class="where"[^>]*>shop-api</)
+})
+
+test('an edited file shows its name first and then its whole folder, with the full path on hover', async () => {
+  const far = '~/.claude/activity-panel/hooks/mod/views.tsx'
+  const files = [{ path: 'src/api/a.ts', count: 1, created: false, last: 1 }, { path: far, count: 1, created: true, last: 2 },
+    { path: '~/personal/shop/src/cart.ts', where: 'shop/src', count: 1, created: false, last: 3 }]
+  const page = await openPage({ mode: 'live', pane: { enabled: true }, state: { ...STATE, activity: { ...STATE.activity, files } } })
+  const html = page.html()
+  assert.match(html, /<b>a\.ts<\/b><span class="dir">src\/api<\/span>/)
+  assert.match(html, /<b>views\.tsx<\/b><span class="dir">~\/\.claude\/activity-panel\/hooks\/mod<\/span>/)
+  assert.ok(html.includes(`title="${far}"`))
+  assert.match(html, /<b>cart\.ts<\/b><span class="dir">shop\/src<\/span>/)
 })

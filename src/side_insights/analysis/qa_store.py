@@ -73,7 +73,7 @@ def item_id(turn_id, question):
 
 
 def turn_time(record):
-    """When the turn behind a record started, for ordering; older records only know when they were checked."""
+    """When the turn behind a record started, else when it was checked."""
     return record.get("turn_ts") or record.get("ts") or 0
 
 

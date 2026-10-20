@@ -1,6 +1,6 @@
 {
   "name": "side-insights",
-  "version": "0.12.4",
+  "version": "0.12.5",
   "description": "A side panel for Claude Code: did Claude answer every question, what did it change, and what is it doing right now",
   "author": {
     "name": "wonjoonSeol-WS"

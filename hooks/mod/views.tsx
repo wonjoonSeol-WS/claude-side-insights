@@ -16,6 +16,7 @@ import {
   counts,
   duration,
   fit,
+  splitPath,
   turnRow,
   type ConfigPayload,
   type DiffState,
@@ -153,7 +154,6 @@ const LEFT_MAX = 48
 const LEFT_SHARE = 2 / 5
 const COLUMN_GAP = 2
 const MAX_TOOLS = 40
-const PENDING_BATCH = 20
 const TOOLS_IN_FLOW = 12
 const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 const LINK_SURFACES = new Set<RenderSurface>(['desktop'])
@@ -649,7 +649,7 @@ export const settingRows = (cfg: ConfigPayload | undefined, t: Ctx['t']): Settin
     choice(Setting.ANALYZE, (cfg.analyze?.length ? cfg.analyze : Object.values(Analyze)).map(a => ({ value: a, label: t(`analyze_${a}`) })), all.analyze ?? Analyze.OPENED),
     toggle(Setting.FLOW_AUTO),
     toggle(Setting.QA_AUTO),
-    choice(Setting.QA_BATCH, (cfg.qa_batches ?? []).map(n => ({ value: String(n), label: String(n) })), String(all.qa_batch ?? PENDING_BATCH)),
+    choice(Setting.QA_BATCH, (cfg.qa_batches ?? []).map(n => ({ value: String(n), label: String(n) })), String(all.qa_batch ?? '')),
     choice(Setting.LANG, (cfg.langs ?? []).map(l => ({ value: l.code, label: l.label })), all.lang),
     choice(Setting.MODEL, (cfg.models ?? []).map(m => ({ value: m, label: m })), all.model),
     toggle(Setting.PANEL_AUTO),
@@ -852,7 +852,7 @@ const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
   const end = tool.state === ToolState.RUN ? now : tool.end
   const took = tool.start && end ? duration(end - tool.start) : ''
   const nameColor = EDIT_TOOLS.has(tool.tool) ? c.p.purple : tool.tool.startsWith('mcp__') ? c.p.teal : c.p.blue
-  const what = (tool.file ? relative(c, tool.file) : tool.summary) ?? ''
+  const what = (tool.file ? shortPath(splitPath(tool.file, tool.where)) : tool.summary) ?? ''
   const line = (
     <Text key={`tool-${i}`} wrap="truncate-end" color={hex(c.p.text)}>
       <Text color={hex(toolColor(c.p, tool.state))} bold>
@@ -884,14 +884,28 @@ const toolLine = (c: Ctx, tool: Tool, i: number, now: number) => {
   )
 }
 
+const shortPath = ({ name, dir }: { name: string; dir: string }) => (dir ? `${name}  ${dir}` : name)
+
 const fileLine = (c: Ctx, f: FileChange) => {
-  const { Text, Button } = c.ui
+  const { Box, Text, Button } = c.ui
+  const { name, dir } = splitPath(f.path, f.where)
   return selectableRow(c, `file-row-${f.path}`, c.view.file === f.path, [
-    <Button key={`file-${f.path}`} plain onPress={() => c.act.openFile(f.path)}>
-      {pill(c, `file-mark-${f.path}`, f.created ? 'A' : 'M', f.created ? c.p.green : c.p.orange)}
-      <Text color={hex(c.p.text)}>{` ${relative(c, f.path)}`}</Text>
-      <Text color={hex(c.p.faint)}>{f.count > 1 ? ` ×${f.count}` : ''}</Text>
-    </Button>,
+    <Box key={`file-line-${f.path}`} flexDirection="row" flexWrap="wrap" columnGap={1} flexShrink={1}>
+      <Box flexShrink={1}>
+        <Button key={`file-${f.path}`} plain onPress={() => c.act.openFile(f.path)}>
+          {pill(c, `file-mark-${f.path}`, f.created ? 'A' : 'M', f.created ? c.p.green : c.p.orange)}
+          <Text color={hex(c.p.text)} bold wrap="truncate-end">{` ${name}`}</Text>
+          <Text color={hex(c.p.faint)}>{f.count > 1 ? ` ×${f.count}` : ''}</Text>
+        </Button>
+      </Box>
+      {dir ? (
+        <Button key={`file-dir-${f.path}`} plain onPress={() => c.act.openFile(f.path)}>
+          <Text color={hex(c.p.faint)} wrap="truncate-middle">
+            {dir}
+          </Text>
+        </Button>
+      ) : null}
+    </Box>,
   ])
 }
 
@@ -1489,7 +1503,7 @@ const turnCard = (c: Ctx, { turn, failed, shown: items }: TurnEntry, ti: number,
           <Button key={`older-${ti}-${turn.turn_id}`} plain onPress={() => c.act.checkOlder(turn.turn_id)}>
             <Text color={hex(c.p.muted)}>
               {`${c.t('qa_skipped', turn.skipped_turns)}  `}
-              <Text color={hex(c.p.blue)}>{c.t('check_older', Math.min(turn.skipped_turns, c.s?.qa.batch ?? PENDING_BATCH))}</Text>
+              <Text color={hex(c.p.blue)}>{c.t('check_older', Math.min(turn.skipped_turns, c.s?.qa.batch ?? turn.skipped_turns))}</Text>
             </Text>
           </Button>,
         ]

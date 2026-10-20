@@ -7,11 +7,9 @@ case "${OSTYPE:-}" in
 esac
 if [ "$PANEL_OS" = windows ]; then
   PANEL_DATA=$(cygpath -u "${SIDE_INSIGHTS_DATA:-${USERPROFILE:-$HOME}/.claude/side-insights}")
-  PANEL_SRC=$(cygpath -w "$PANEL_ROOT/src")
   PANEL_PATHSEP=';'
 else
   PANEL_DATA="${SIDE_INSIGHTS_DATA:-$HOME/.claude/side-insights}"
-  PANEL_SRC="$PANEL_ROOT/src"
   PANEL_PATHSEP=':'
 fi
 PANEL_DEFAULT_PORT=47821
@@ -23,9 +21,9 @@ PANEL_PYTHON_WHERE='import sys; sys.exit(1) if sys.version_info < (3, 9) else pr
 PANEL_PYTHON="${SIDE_INSIGHTS_PYTHON:-}"
 
 panel_native() { if [ "$PANEL_OS" = windows ]; then cygpath -w "$1"; else printf '%s' "$1"; fi; }
+PANEL_SRC=$(panel_native "$PANEL_ROOT/src")
 
-# On Windows `python3` is often the Microsoft Store placeholder, which fails the version check and is skipped.
-# A miss is remembered for a few minutes so hooks do not probe on every tool call.
+# The Microsoft Store `python3` placeholder fails the version check and is skipped.
 panel_find_python() {
   local candidate found
   if [ "$PANEL_OS" = mac ]; then
@@ -54,7 +52,7 @@ panel_find_python() {
     [ "$PANEL_OS" = windows ] && found=$(cygpath -u "$found")
     break
   done
-  mkdir -p -m 700 "$PANEL_DATA" 2>/dev/null && printf '%s' "${found:--}" > "$PANEL_PYTHON_CACHE.$$" && mv -f "$PANEL_PYTHON_CACHE.$$" "$PANEL_PYTHON_CACHE"
+  mkdir -p -m 700 "$PANEL_DATA" 2>/dev/null && printf '%s' "${found:--}" > "$PANEL_PYTHON_CACHE.${BASHPID:-$$}" && mv -f "$PANEL_PYTHON_CACHE.${BASHPID:-$$}" "$PANEL_PYTHON_CACHE"
   printf '%s' "$found"
 }
 
@@ -71,7 +69,7 @@ panel_missing() {
   panel_python
   [ -n "$PANEL_PYTHON" ] && return 0
   case "$PANEL_OS" in
-    mac) printf 'python3 (xcode-select --install)' ;;
+    mac) printf 'python3 (xcode-select --install, or set SIDE_INSIGHTS_PYTHON to a Homebrew python3)' ;;
     windows) printf 'Python 3.9+ (winget install Python.Python.3.12, or python.org)' ;;
     *) printf 'Python 3.9+ (your package manager, for example sudo apt install python3)' ;;
   esac

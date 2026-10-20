@@ -177,9 +177,13 @@ def _turns_of(record):
     return record.get("turn_ids") or ([record["turn_id"]] if record.get("turn_id") else [])
 
 
+def _same_folder(a, b):
+    return os.path.normcase(os.path.normpath(a)) == os.path.normcase(os.path.normpath(b))
+
+
 def _previous_flow(pane, turn_id, cwd):
-    """The flow this turn may continue: a merged flow that already covers it (when rebuilding), else the newest flow
-    before it, only when that one finished and was made in the same folder."""
+    """The flow this turn may continue: a merged flow that already covers it, else the newest earlier flow if it
+    finished in the same folder (a record without a folder counts as the same)."""
     for rec in flow_store.records(pane):
         finished = rec.get("status") == RecordStatus.OK.value and isinstance(rec.get("flow"), dict)
         turns = _turns_of(rec)
@@ -187,18 +191,31 @@ def _previous_flow(pane, turn_id, cwd):
             if finished and len(turns) > 1:
                 return rec
             continue
-        return rec if finished and (rec.get("cwd") or cwd) == cwd else None
+        return rec if finished and _same_folder(rec.get("cwd") or cwd, cwd) else None
     return None
 
 
-def _previous_section(previous):
+def _previous_section(previous, turn_id):
     if not previous:
         return ""
     flow = previous["flow"]
     steps = "\n".join(f"{n + 1}. {s.get('title', '')} ({s.get('location', '')})" for n, s in enumerate(flow.get("steps") or []))
     changes = "\n".join(f"- {c.get('file', '')}: {c.get('what', '')}" for c in flow.get("changes") or [])
-    return (f"\n\n## Previous flow, from an earlier turn\nTitle: {flow.get('title', '')}\nSummary: {flow.get('summary', '')}\n"
+    heading = ("Flow of the earlier turns, which also holds an older analysis of this turn" if turn_id in _turns_of(previous)
+               else "Previous flow, from an earlier turn")
+    return (f"\n\n## {heading}\nTitle: {flow.get('title', '')}\nSummary: {flow.get('summary', '')}\n"
             f"Steps:\n{steps}\nChanges:\n{changes}")
+
+
+def _without_turn(record, turn_id):
+    """The record left to cover its other turns once turn_id gets a flow of its own."""
+    rest = [t for t in _turns_of(record) if t != turn_id]
+    out = {**record, "turn_id": rest[-1]}
+    if len(rest) > 1:
+        out["turn_ids"] = rest
+    else:
+        out.pop("turn_ids", None)
+    return out
 
 
 def _prune(out_dir, keep_id, turn_id):
@@ -249,7 +266,7 @@ def main():
         previous = _previous_flow(pane, turn["turn_id"], cwd)
         message = (f"Working directory: {cwd}\nFiles edited this turn:\n" + "\n".join(f"- {f}" for f in turn["edited"]) + shell +
                    f"\n\n## User request\n{clip(turn['prompt'], PROMPT_LIMIT)}\n\n## What happened this turn\n{turn['body']}\n\n"
-                   "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema." + _previous_section(previous))
+                   "Check the current code with Read/Grep/Glob where needed, then write the logic flow in the schema." + _previous_section(previous, turn["turn_id"]))
         try:
             flow, cost = run_claude(SYSTEM + language_instruction(pane), SCHEMA, message, settings["model"],
                                     tools=("Read", "Grep", "Glob"), cwd=cwd, timeout=TIMEOUT, max_turns=MAX_TURNS)
@@ -261,10 +278,12 @@ def main():
         except Exception as exc:  # noqa: BLE001
             record.update(status=RecordStatus.ERROR.value, error=str(exc)[:ERROR_LIMIT])
         atomic_write_json(os.path.join(out_dir, f"{flow_id}.json"), record)
-    if record["status"] == RecordStatus.OK.value:
-        if record.get("merged_from"):
-            _remove(os.path.join(out_dir, f"{record['merged_from']}.json"))
-        _prune(out_dir, flow_id, turn["turn_id"])
+        if record["status"] == RecordStatus.OK.value:
+            if record.get("merged_from"):
+                _remove(os.path.join(out_dir, f"{record['merged_from']}.json"))
+            elif previous and turn["turn_id"] in _turns_of(previous):
+                atomic_write_json(os.path.join(out_dir, f"{previous['id']}.json"), _without_turn(previous, turn["turn_id"]))
+            _prune(out_dir, flow_id, turn["turn_id"])
 
 
 if __name__ == "__main__":

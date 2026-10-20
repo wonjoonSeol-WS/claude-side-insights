@@ -16,6 +16,8 @@ HEALTH_TIMEOUT = 1
 WAIT_STEP = 0.1
 STOP_WAIT = 2
 START_WAIT = 5
+# _ensure at its slowest: the first health check, the stop wait and the start wait, each of which can end on a health check.
+LOCK_WAIT = STOP_WAIT + START_WAIT + 4 * HEALTH_TIMEOUT
 
 
 def health():
@@ -46,8 +48,15 @@ def wait(done, seconds):
 
 def ensure():
     os.makedirs(DATA, mode=0o700, exist_ok=True)
-    with FileLock(os.path.join(DATA, "ensure.lock")):
-        return _ensure()
+    try:
+        with FileLock(os.path.join(DATA, "ensure.lock"), timeout=LOCK_WAIT):
+            return _ensure()
+    except TimeoutError:
+        return _ours(health())
+
+
+def _ours(found):
+    return bool(found) and found.get("app") == APP_NAME and same_root(found.get("root"))
 
 
 def _ensure():
@@ -59,7 +68,7 @@ def _ensure():
         wait(lambda: health() is None, STOP_WAIT)
     with open(os.path.join(DATA, "server.log"), "a") as log:
         spawn_detached(command_line("server", []), env=child_env(), stdin=subprocess.DEVNULL, stdout=log, stderr=log)
-    return wait(lambda: (health() or {}).get("app") == APP_NAME, START_WAIT)
+    return wait(lambda: _ours(health()), START_WAIT)
 
 
 if __name__ == "__main__":

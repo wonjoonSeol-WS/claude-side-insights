@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import sys
@@ -42,14 +43,11 @@ class ConfigTest(unittest.TestCase):
         config.save({"qa_auto": False})
         self.assertFalse(config.runs("qa", "p1"))
 
-
     def test_a_panel_saves_only_enabled_and_the_shared_settings_never_do(self):
         with self.assertRaises(ValueError):
             config.save({"lang": "ko"}, "p1")
         with self.assertRaises(ValueError):
             config.save({"enabled": True})
-        with self.assertRaises(ValueError):
-            config.save({"qa_batch": "20"})
         config.save({"lang": "ja"})
         self.assertEqual(config.load("p1")["lang"], "ja")
         self.assertFalse(config.load("p2").get("enabled"))
@@ -57,6 +55,23 @@ class ConfigTest(unittest.TestCase):
         self.assertTrue(config.load("p1")["enabled"])
         self.assertFalse(config.load("p2").get("enabled"))
 
+    def test_turns_per_check_must_be_a_whole_number_from_the_list(self):
+        for value in ("20", 20.0, True, 25):
+            with self.assertRaises(ValueError, msg=repr(value)):
+                config.save({"qa_batch": value})
+
+    def test_saving_the_same_model_again_keeps_turns_per_check(self):
+        config.save({"model": "sonnet"})
+        config.save({"qa_batch": 30})
+        self.assertEqual(config.save({"model": "sonnet"})["qa_batch"], 30)
+
+    def test_old_per_panel_values_other_than_enabled_are_ignored(self):
+        with open(config.PATH, "w") as fh:
+            json.dump({"lang": "ja", "panes": {"p1": {"lang": "ko", "model": "haiku", "enabled": True}}}, fh)
+        settings = config.load("p1")
+        self.assertEqual(settings["lang"], "ja")
+        self.assertEqual(settings["model"], config.Setting.MODEL.default)
+        self.assertTrue(settings["enabled"])
 
     def test_a_session_start_opens_the_panel_only_where_it_is_analyzed(self):
         self.assertFalse(config.opens_panel("p1"))
