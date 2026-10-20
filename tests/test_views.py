@@ -44,8 +44,11 @@ class FolderTest(unittest.TestCase):
         self.assertEqual(self.folder("shop", "hooks", "mod", "views.tsx"), "shop/hooks/mod")
         self.assertEqual(self.folder("shop", "README.md"), "shop")
 
-    def test_a_file_in_no_repo_keeps_its_path(self):
-        self.assertEqual(self.folder("loose", "notes", "a.md"), os.path.join(self.root, "loose", "notes").replace("\\", "/"))
+    def test_a_file_in_no_repo_shows_its_path_from_home_or_in_full(self):
+        notes = os.path.join(self.root, "loose", "notes").replace("\\", "/")
+        for home, shown in ((self.root, "~/loose/notes"), (self.st.cwd, notes)):
+            with mock.patch.dict(os.environ, {"HOME": home, "USERPROFILE": home}):
+                self.assertEqual(self.folder("loose", "notes", "a.md"), shown)
 
     def test_a_folder_too_long_for_the_line_goes_under_the_name(self):
         self.assertEqual(len(views._file_lines("views.tsx", "~/a/b", 60, "")), 1)
