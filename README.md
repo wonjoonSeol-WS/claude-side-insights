@@ -9,7 +9,7 @@ Works on macOS, Linux and Windows. Set up Python first if needed: see [Requireme
 Inside Claude Code:
 
 ```
-/plugin marketplace add wonjoonSeol-WS/claude-side-insights
+/plugin marketplace add wonjoonSeol/claude-side-insights
 /plugin install side-insights@claude-side-insights
 /reload-plugins
 ```
@@ -310,4 +310,4 @@ Recorded data stays in `~/.claude/side-insights/`. Delete that folder to remove 
 
 ## Try my other projects
 
-Like this? I make other small open source tools too: Android apps, a Claude chat game, Claude add-ons and more. See them all at [wonjoonseol-ws.github.io](https://wonjoonseol-ws.github.io/?from=claude-side-insights).
+Like this? I make other small open source tools too: Android apps, a Claude chat game, Claude add-ons and more. See them all at [wonjoonseol.github.io](https://wonjoonseol.github.io/?from=claude-side-insights).

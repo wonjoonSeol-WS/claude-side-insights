@@ -9,7 +9,7 @@ macOS、Linux、Windows で動きます。必要なら先に Python を用意し
 Claude Code の中で:
 
 ```
-/plugin marketplace add wonjoonSeol-WS/claude-side-insights
+/plugin marketplace add wonjoonSeol/claude-side-insights
 /plugin install side-insights@claude-side-insights
 /reload-plugins
 ```
@@ -310,4 +310,4 @@ flowchart LR
 
 ## ほかのプロジェクトもどうぞ
 
-気に入ったら、ほかのオープンソースもぜひ見てください。Androidアプリ、Claudeのチャットゲーム、Claudeのアドオンなどがあります：[wonjoonseol-ws.github.io](https://wonjoonseol-ws.github.io/?from=claude-side-insights)
+気に入ったら、ほかのオープンソースもぜひ見てください。Androidアプリ、Claudeのチャットゲーム、Claudeのアドオンなどがあります：[wonjoonseol.github.io](https://wonjoonseol.github.io/?from=claude-side-insights)
