@@ -307,3 +307,7 @@ flowchart LR
 ## ライセンス
 
 [MIT](LICENSE)
+
+## ほかのプロジェクトもどうぞ
+
+気に入ったら、ほかのオープンソースもぜひ見てください。Androidアプリ、Claudeのチャットゲーム、Claudeのアドオンなどがあります：[wonjoonseol-ws.github.io](https://wonjoonseol-ws.github.io/?from=claude-side-insights)
